@@ -1,0 +1,69 @@
+import type { Assistant, CreateAssistantData, UpdateAssistantData, RAGFlowConfig } from '../types'
+import { getAuthHeaders } from './auth'
+
+const API_BASE = '/api'
+
+interface ApiResponse<T> {
+  code: number
+  message: string
+  data: T
+}
+
+async function parseResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: '请求失败' }))
+    throw new Error(errorData.message || '请求失败')
+  }
+  const result: ApiResponse<T> = await response.json()
+  if (result.code !== 200) {
+    throw new Error(result.message || '请求失败')
+  }
+  return result.data
+}
+
+export async function fetchAssistants(): Promise<Assistant[]> {
+  const response = await fetch(`${API_BASE}/assistants`, {
+    headers: getAuthHeaders(),
+  })
+  return parseResponse<Assistant[]>(response)
+}
+
+export async function fetchAssistant(id: string): Promise<Assistant> {
+  const response = await fetch(`${API_BASE}/assistants/${id}`, {
+    headers: getAuthHeaders(),
+  })
+  return parseResponse<Assistant>(response)
+}
+
+export async function createAssistant(data: CreateAssistantData): Promise<Assistant> {
+  const response = await fetch(`${API_BASE}/assistants`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  })
+  return parseResponse<Assistant>(response)
+}
+
+export async function updateAssistant(data: UpdateAssistantData): Promise<void> {
+  const response = await fetch(`${API_BASE}/assistants`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  })
+  await parseResponse<void>(response)
+}
+
+export async function deleteAssistant(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/assistants/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  })
+  await parseResponse<void>(response)
+}
+
+export async function fetchKnowledgeConfig(): Promise<RAGFlowConfig> {
+  const response = await fetch(`${API_BASE}/knowledges`, {
+    headers: getAuthHeaders(),
+  })
+  return parseResponse<RAGFlowConfig>(response)
+}

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.leyon.backend.mapper.AssistantMapper">
+
+    <insert id="insert" parameterType="com.leyon.backend.entity.Assistant">
+        INSERT INTO assistant (id, name, description, personality, messages, chat_message, knowledge_ids, voice, user_id)
+        VALUES (#{id}, #{name}, #{description}, #{personality}, #{messages}, #{chatMessage}, #{knowledgeIds}, #{voice}, #{userId})
+    </insert>
+
+    <select id="selectAll" resultType="com.leyon.backend.entity.Assistant">
+        SELECT id, name, description, personality, messages, chat_message, knowledge_ids, voice, user_id, created_at, updated_at
+        FROM assistant
+    </select>
+
+    <select id="selectByUserId" resultType="com.leyon.backend.entity.Assistant">
+        SELECT id, name, description, personality, messages, chat_message, knowledge_ids, voice, user_id, created_at, updated_at
+        FROM assistant
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="selectById" resultType="com.leyon.backend.entity.Assistant">
+        SELECT id, name, description, personality, messages, chat_message, knowledge_ids, voice, user_id, created_at, updated_at
+        FROM assistant
+        WHERE id = #{id}
+    </select>
+
+    <delete id="deleteById">
+        DELETE FROM assistant WHERE id = #{id}
+    </delete>
+
+    <update id="update" parameterType="com.leyon.backend.entity.Assistant">
+        UPDATE assistant
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="personality != null">personality = #{personality},</if>
+            <if test="messages != null">messages = #{messages},</if>
+            <if test="chatMessage != null">chat_message = #{chatMessage},</if>
+            <if test="knowledgeIds != null">knowledge_ids = #{knowledgeIds},</if>
+            <if test="voice != null">voice = #{voice},</if>
+            <if test="userId != null">user_id = #{userId},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+</mapper>

@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: backend
+  datasource:
+    url: jdbc:mysql://localhost:3306/yunyu_assistant?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    username: root
+    password: 1234
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:data.sql
+  ai:
+    openai:
+      api-key: sk-ec6e9faa2cec45c18465d20168b98249
+      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      chat:
+        options:
+          model: qwen-turbo
+          temperature: 0.7
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.leyon.backend.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+app:
+  jwt:
+    secret: yunyu-assistant-jwt-secret-key-2024-very-long-secret-for-hs256-algorithm
+    expiration: 86400000
+  ragflow:
+    api-key: ragflow-Q5MGZjODk0NzM3YzExZjA5ZDE0NDIwMT
+    endpoint: https://demo.ragflow.io
+  search:
+    api-key: sk-cc311683639848cf881d1d5434e50592
+    endpoint: https://api.bochaai.com/v1/web-search
+  weather:
+    api-key: 344f2aacc73b0a22aca1c50cbe5d7652
+  rustpbx:
+    endpoint: ws://175.27.250.177:8080
+  asr:
+    provider: dashscope
+    model: paraformer-realtime-v2
+  tts:
+    provider: dashscope
+    model: cosvoice-v1
+    speaker: longxiaochun
