@@ -39,25 +39,36 @@ public class AssistantController {
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<Assistant> getById(@PathVariable String id) {
+    public ApiResponse<Assistant> getById(@PathVariable String id, HttpServletRequest request) {
+        String userId = (String) request.getAttribute("userId");
         Assistant assistant = assistantService.getById(id);
         if (assistant == null) {
             return ApiResponse.paramError("Assistant not found");
+        }
+        if (!assistant.getUserId().equals(userId)) {
+            return ApiResponse.paramError("无权访问此助手");
         }
         return ApiResponse.success(assistant);
     }
 
     @DeleteMapping("/{id}")
-    public ApiResponse<Void> delete(@PathVariable String id) {
+    public ApiResponse<Void> delete(@PathVariable String id, HttpServletRequest request) {
+        String userId = (String) request.getAttribute("userId");
+        Assistant assistant = assistantService.getById(id);
+        if (assistant == null || !assistant.getUserId().equals(userId)) {
+            return ApiResponse.paramError("Assistant not found or no permission");
+        }
         boolean deleted = assistantService.delete(id);
         if (!deleted) {
-            return ApiResponse.paramError("Assistant not found");
+            return ApiResponse.paramError("Delete failed");
         }
         return ApiResponse.success();
     }
 
     @PutMapping
-    public ApiResponse<Void> update(@RequestBody Assistant assistant) {
+    public ApiResponse<Void> update(@RequestBody Assistant assistant, HttpServletRequest request) {
+        String userId = (String) request.getAttribute("userId");
+        assistant.setUserId(userId);
         boolean updated = assistantService.update(assistant);
         if (!updated) {
             return ApiResponse.paramError("Update failed");

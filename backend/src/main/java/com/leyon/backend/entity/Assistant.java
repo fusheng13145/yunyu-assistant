@@ -1,22 +1,71 @@
 package com.leyon.backend.entity;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
+import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.LocalDateTime;
 
+/**
+ * 助手实体类
+ * 对应数据表：assistants
+ */
+@TableName("assistants")
 public class Assistant {
 
+    /**
+     * 助手UUID（主键）
+     */
+    @TableId(type = IdType.ASSIGN_UUID)
     private String id;
+
+    /**
+     * 助手名称
+     */
     private String name;
+
+    /**
+     * 助手描述
+     */
     private String description;
+
+    /**
+     * 系统提示词/人设
+     */
     private String personality;
-    @JsonIgnore
-    private String messages;
-    private String chatMessage;
-    private String knowledgeIds;
+
+    /**
+     * 助手音色
+     */
     private String voice;
+
+    /**
+     * 所属用户ID
+     */
     private String userId;
+
+    /**
+     * 创建时间，插入自动填充
+     */
+    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
+
+    /**
+     * 更新时间，插入&更新自动填充
+     */
+    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
+
+    /**
+     * 逻辑删除：0-未删除 1-已删除
+     */
+    @TableLogic
+    private Integer isDeleted;
+
+    public Assistant() {
+    }
 
     public String getId() {
         return id;
@@ -50,30 +99,6 @@ public class Assistant {
         this.personality = personality;
     }
 
-    public String getMessages() {
-        return messages;
-    }
-
-    public void setMessages(String messages) {
-        this.messages = messages;
-    }
-
-    public String getChatMessage() {
-        return chatMessage;
-    }
-
-    public void setChatMessage(String chatMessage) {
-        this.chatMessage = chatMessage;
-    }
-
-    public String getKnowledgeIds() {
-        return knowledgeIds;
-    }
-
-    public void setKnowledgeIds(String knowledgeIds) {
-        this.knowledgeIds = knowledgeIds;
-    }
-
     public String getVoice() {
         return voice;
     }
@@ -104,5 +129,13 @@ public class Assistant {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Integer getIsDeleted() {
+        return isDeleted;
+    }
+
+    public void setIsDeleted(Integer isDeleted) {
+        this.isDeleted = isDeleted;
     }
 }

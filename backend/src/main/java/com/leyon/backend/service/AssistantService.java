@@ -1,10 +1,12 @@
 package com.leyon.backend.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.mapper.AssistantMapper;
+import org.springframework.stereotype.Service;
+
 import java.util.List;
 import java.util.UUID;
-import org.springframework.stereotype.Service;
 
 @Service
 public class AssistantService {
@@ -21,12 +23,12 @@ public class AssistantService {
         return assistant;
     }
 
-    public List<Assistant> listAll() {
-        return assistantMapper.selectAll();
-    }
-
     public List<Assistant> listByUserId(String userId) {
-        return assistantMapper.selectByUserId(userId);
+        return assistantMapper.selectList(
+            new LambdaQueryWrapper<Assistant>()
+                .eq(Assistant::getUserId, userId)
+                .orderByDesc(Assistant::getCreatedAt)
+        );
     }
 
     public Assistant getById(String id) {
@@ -38,6 +40,6 @@ public class AssistantService {
     }
 
     public boolean update(Assistant assistant) {
-        return assistantMapper.update(assistant) > 0;
+        return assistantMapper.updateById(assistant) > 0;
     }
 }

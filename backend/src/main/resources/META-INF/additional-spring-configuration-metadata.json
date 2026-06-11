@@ -1,0 +1,109 @@
+{
+  "properties": [
+    {
+      "name": "app.jwt.secret",
+      "type": "java.lang.String",
+      "description": "JWT 签名密钥，用于 Token 签发与校验，请勿泄露。"
+    },
+    {
+      "name": "app.jwt.expiration",
+      "type": "java.lang.Long",
+      "description": "JWT 过期时长，单位：毫秒，默认 86400000 代表 1 天。"
+    },
+    {
+      "name": "app.ragflow.api-key",
+      "type": "java.lang.String",
+      "description": "RAGFlow 知识库服务访问密钥。"
+    },
+    {
+      "name": "app.ragflow.endpoint",
+      "type": "java.lang.String",
+      "description": "RAGFlow 服务请求地址。"
+    },
+    {
+      "name": "app.search.api-key",
+      "type": "java.lang.String",
+      "description": "全网搜索服务(BochaAI)访问密钥。"
+    },
+    {
+      "name": "app.search.endpoint",
+      "type": "java.lang.String",
+      "description": "全网搜索服务接口地址。"
+    },
+    {
+      "name": "app.weather.api-key",
+      "type": "java.lang.String",
+      "description": "天气查询接口密钥。"
+    },
+    {
+      "name": "app.rustpbx.endpoint",
+      "type": "java.lang.String",
+      "description": "RustPBX 语音 WebSocket 服务地址。"
+    },
+    {
+      "name": "app.asr.provider",
+      "type": "java.lang.String",
+      "description": "语音识别服务提供商，当前默认 tencent 腾讯云。"
+    },
+    {
+      "name": "app.asr.model",
+      "type": "java.lang.String",
+      "description": "语音识别模型标识，默认 16k_zh 中文16k模型。"
+    },
+    {
+      "name": "app.asr.app-id",
+      "type": "java.lang.String",
+      "description": "腾讯云语音识别 ASR 应用ID。"
+    },
+    {
+      "name": "app.asr.secret-id",
+      "type": "java.lang.String",
+      "description": "腾讯云 ASR 访问凭证 SecretId。"
+    },
+    {
+      "name": "app.asr.secret-key",
+      "type": "java.lang.String",
+      "description": "腾讯云 ASR 访问凭证 SecretKey。"
+    },
+    {
+      "name": "app.asr.endpoint",
+      "type": "java.lang.String",
+      "description": "腾讯云语音识别服务域名地址。"
+    },
+    {
+      "name": "app.tts.provider",
+      "type": "java.lang.String",
+      "description": "语音合成服务提供商，当前默认 tencent 腾讯云。"
+    },
+    {
+      "name": "app.tts.model",
+      "type": "java.lang.String",
+      "description": "语音合成模型标识。"
+    },
+    {
+      "name": "app.tts.speaker",
+      "type": "java.lang.String",
+      "description": "语音合成音色名称/ID。"
+    },
+    {
+      "name": "app.tts.app-id",
+      "type": "java.lang.String",
+      "description": "腾讯云语音合成 TTS 应用ID。"
+    },
+    {
+      "name": "app.tts.secret-id",
+      "type": "java.lang.String",
+      "description": "腾讯云 TTS 访问凭证 SecretId。"
+    },
+    {
+      "name": "app.tts.secret-key",
+      "type": "java.lang.String",
+      "description": "腾讯云 TTS 访问凭证 SecretKey。"
+    },
+    {
+      "name": "app.tts.endpoint",
+      "type": "java.lang.String",
+      "description": "腾讯云语音合成服务域名地址。"
+    }
+  ]
+}

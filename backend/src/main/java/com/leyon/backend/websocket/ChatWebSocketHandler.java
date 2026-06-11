@@ -4,11 +4,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.entity.Assistant;
-import com.leyon.backend.entity.ChatMessage;
+import com.leyon.backend.entity.Record;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.KnowledgeService;
+import com.leyon.backend.service.RecordService;
+import org.springframework.ai.tool.ToolCallback;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,20 +30,23 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ChatModel chatModel;
     private final KnowledgeService knowledgeService;
     private final AssistantService assistantService;
+    private final RecordService recordService;
     private final ObjectMapper objectMapper;
+    private final List<ToolCallback> toolCallbacks;
 
     private final ConcurrentHashMap<String, ChatService> chatServices = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Disposable> activeSubscriptions = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> sessionAssistantMap = new ConcurrentHashMap<>();
 
-    private static final List<String> TOOL_FUNCTIONS = List.of("get_weather", "web_search", "get_current_datetime");
-
     public ChatWebSocketHandler(ChatModel chatModel, KnowledgeService knowledgeService,
-                                AssistantService assistantService, ObjectMapper objectMapper) {
+                                AssistantService assistantService, RecordService recordService,
+                                ObjectMapper objectMapper, List<ToolCallback> toolCallbacks) {
         this.chatModel = chatModel;
         this.knowledgeService = knowledgeService;
         this.assistantService = assistantService;
+        this.recordService = recordService;
         this.objectMapper = objectMapper;
+        this.toolCallbacks = toolCallbacks != null ? toolCallbacks : new ArrayList<>();
     }
 
     @Override
@@ -59,21 +65,25 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        // 从 WebSocket session attributes 中获取认证拦截器存入的 userId
+        String userId = (String) session.getAttributes().get("userId");
+        if (userId == null || !userId.equals(assistant.getUserId())) {
+            sendMessage(session, "error", "无权访问此助手");
+            session.close(CloseStatus.NOT_ACCEPTABLE);
+            return;
+        }
+
         sessionAssistantMap.put(session.getId(), assistantId);
 
-        List<String> knowledgeIds = parseKnowledgeIds(assistant.getKnowledgeIds());
+        // 知识库由前端通过 selectedKbIds 消息动态选择，初始为空
+        List<String> knowledgeIds = List.of();
         ChatService chatService = new ChatService(chatModel, knowledgeService, objectMapper,
-                assistant.getPersonality(), knowledgeIds, TOOL_FUNCTIONS);
+                assistant.getPersonality(), knowledgeIds, toolCallbacks);
 
-        if (assistant.getChatMessage() != null && !assistant.getChatMessage().isEmpty()) {
-            try {
-                List<ChatMessage> chatHistory = objectMapper.readValue(
-                        assistant.getChatMessage(),
-                        new TypeReference<List<ChatMessage>>() {}
-                );
-                chatService.loadChatHistory(chatHistory);
-            } catch (Exception ignored) {
-            }
+        // 从 records 表加载历史聊天记录
+        List<Record> chatHistory = recordService.listByAssistantId(assistantId);
+        if (chatHistory != null && !chatHistory.isEmpty()) {
+            chatService.loadChatHistory(chatHistory);
         }
 
         chatServices.put(session.getId(), chatService);
@@ -116,7 +126,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         Disposable subscription = chatService.chatStream(text)
                 .subscribe(
-                        chunk -> sendMessage(session, "assistant_message", chunk),
+                        chunk -> {
+                            // 工具调用/结果消息已自带 type 字段，直接发送
+                            if (chunk.containsKey("type") && !chunk.containsKey("segment")) {
+                                sendRawMessage(session, chunk);
+                            } else {
+                                // 普通对话消息按原有格式包装
+                                sendMessage(session, "assistant_message", chunk);
+                            }
+                        },
                         error -> {
                             Map<String, Object> endData = new HashMap<>();
                             endData.put("segment", "");
@@ -172,12 +190,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         try {
             Map<String, String> state = chatService.close();
-            Assistant assistant = new Assistant();
-            assistant.setId(assistantId);
-            assistant.setChatMessage(state.get("chatMessage"));
-            assistant.setPersonality(state.get("personality"));
-            assistant.setKnowledgeIds(state.get("knowledgeIds"));
-            assistantService.update(assistant);
+            // 仅保存人设变更，聊天记录已通过 RecordService 持久化到 records 表
+            String personality = state.get("personality");
+            if (personality != null) {
+                Assistant assistant = new Assistant();
+                assistant.setId(assistantId);
+                assistant.setPersonality(personality);
+                assistantService.update(assistant);
+            }
         } catch (Exception ignored) {
         }
     }
@@ -194,17 +214,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         return path.substring(lastSlash + 1);
     }
 
-    private List<String> parseKnowledgeIds(String knowledgeIdsJson) {
-        if (knowledgeIdsJson == null || knowledgeIdsJson.isEmpty()) {
-            return List.of();
-        }
-        try {
-            return objectMapper.readValue(knowledgeIdsJson, new TypeReference<List<String>>() {});
-        } catch (Exception e) {
-            return List.of();
-        }
-    }
-
     private void sendMessage(WebSocketSession session, String type, Object data) {
         if (!session.isOpen()) {
             return;
@@ -216,6 +225,23 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 msg.put("data", data);
             }
             String json = objectMapper.writeValueAsString(msg);
+            synchronized (session) {
+                session.sendMessage(new TextMessage(json));
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 直接发送原始消息（不额外包装 type/data 结构）
+     * 用于工具调用/结果等自带完整结构的消息
+     */
+    private void sendRawMessage(WebSocketSession session, Map<String, Object> message) {
+        if (!session.isOpen()) {
+            return;
+        }
+        try {
+            String json = objectMapper.writeValueAsString(message);
             synchronized (session) {
                 session.sendMessage(new TextMessage(json));
             }

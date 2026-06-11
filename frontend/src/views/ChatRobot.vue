@@ -1,333 +1,317 @@
 <template>
-  <div
-    class="h-screen w-full flex flex-col bg-gradient-to-br from-blue-300 via-pink-300 to-yellow-200 bg-[length:400%_400%] animate-gradient-diagonal relative overflow-hidden antialiased">
+  <div class="morandi-body theme-transition h-screen w-full flex flex-col relative overflow-hidden antialiased" style="background: var(--morandi-bg-base)">
+    <!-- 通知 -->
     <transition name="notification">
-      <div v-if="notification.show" :class="[
-        'fixed top-4 right-4 z-50 px-6 py-3 rounded-2xl shadow-2xl backdrop-blur-xl ring-1 ring-white/20 text-white font-medium',
-        notification.type === 'success' ? 'bg-green-500/90' :
-          notification.type === 'error' ? 'bg-red-500/90' :
-            notification.type === 'warning' ? 'bg-yellow-500/90' : 'bg-blue-500/90'
-      ]">
+      <div v-if="notification.show"
+        class="fixed top-4 right-4 z-50 px-5 py-3 rounded-xl shadow-lg animate-fade-up"
+        :style="{
+          background: notification.type === 'success' ? 'var(--morandi-success-bg)' :
+            notification.type === 'error' ? 'var(--morandi-error-bg)' :
+              notification.type === 'warning' ? 'var(--morandi-warning-bg)' : 'var(--morandi-primary)',
+          color: (notification.type === 'success' || notification.type === 'error' || notification.type === 'warning') ? '#fff' : 'var(--morandi-text-on-primary)',
+          border: `1px solid ${notification.type === 'success' ? 'rgba(34,139,94,0.3)' : notification.type === 'error' ? 'rgba(180,80,80,0.3)' : notification.type === 'warning' ? 'rgba(180,140,60,0.3)' : 'var(--morandi-primary)'}`
+        }">
         {{ notification.message }}
       </div>
     </transition>
 
-    <div class="flex flex-1 gap-6 z-10 relative p-6"
-      :class="{ 'blur-sm pointer-events-none': showCreateKnowledgeForm }">
-      <div
-        class="w-1/2 p-6 bg-white/20 backdrop-blur-xl rounded-3xl shadow-2xl ring-1 ring-white/30 flex flex-col gap-6">
-        <div class="text-center">
-          <h2 class="text-2xl font-bold text-gray-800 drop-shadow-sm mb-2">{{ currentAssistant?.name || '默认机器人' }}</h2>
-          <p class="text-gray-600">{{ currentAssistant?.description || '这是一个可以用于简单测试对话的智能助手' }}</p>
+    <!-- 顶部工具栏 -->
+    <header class="flex items-center justify-between px-6 py-4 border-b shrink-0" style="border-color: var(--morandi-border); background: var(--morandi-surface)">
+      <div class="flex items-center gap-3">
+        <h1 class="serif text-xl font-semibold tracking-wide" style="color: var(--morandi-text)">云谕助手</h1>
+        <span class="text-xs px-2 py-0.5 rounded-full morandi-badge" style="background: var(--morandi-tag-blue); color: #fff">对话测试</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <ThemeToggle :modelValue="themeMode" @update:modelValue="(v: any) => setTheme(v)" />
+        <button @click="goBack" class="morandi-btn morandi-btn-ghost text-sm">
+          <ArrowLeft class="w-4 h-4 inline mr-1" />
+          返回
+        </button>
+      </div>
+    </header>
+
+    <!-- 主内容区：双栏布局 -->
+    <div class="flex flex-1 min-h-0 overflow-hidden" :class="{ 'blur-sm pointer-events-none': showCreateKnowledgeForm }">
+      <!-- 左侧：助手设置面板 (w-72) -->
+      <aside class="w-72 shrink-0 border-r flex flex-col overflow-y-auto transparent-scrollbar" style="border-color: var(--morandi-border); background: var(--morandi-surface)">
+        <!-- 助手信息卡片 -->
+        <div class="p-5 border-b" style="border-color: var(--morandi-divider)">
+          <div class="text-center">
+            <h2 class="serif text-lg font-medium mb-1" style="color: var(--morandi-text)">{{ currentAssistant?.name || '默认机器人' }}</h2>
+            <p class="text-xs leading-relaxed" style="color: var(--morandi-text-secondary)">{{ currentAssistant?.description || '这是一个可以用于简单测试对话的智能助手' }}</p>
+          </div>
         </div>
 
-        <div class="flex-1 flex flex-col">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-gray-800">人设设置</h3>
-            <button @click="savePersonality" :disabled="!personalityChanged" :class="[
-              'px-6 py-2 rounded-xl font-medium transition-all duration-300 transform active:scale-95',
-              personalityChanged
-                ? 'bg-blue-500/80 backdrop-blur-lg text-white hover:bg-blue-600/80 shadow-lg ring-1 ring-blue-400/30'
-                : 'bg-gray-300/50 text-gray-500 cursor-not-allowed'
-            ]">
+        <!-- 人设编辑区 -->
+        <div class="flex-1 flex flex-col p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-medium" style="color: var(--morandi-text-secondary)">人设设置</h3>
+            <button @click="savePersonality" :disabled="!personalityChanged"
+              :class="['morandi-btn', personalityChanged ? 'morandi-btn-primary' : 'morandi-btn-ghost', 'morandi-btn-sm']">
               {{ saving ? '保存中...' : '保存人设' }}
             </button>
           </div>
           <textarea v-model="personalityText" @input="onPersonalityChange"
-            class="w-full flex-1 resize-none bg-white/30 backdrop-blur-lg rounded-2xl p-4 text-gray-800 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-400/50 transition-all duration-300 ring-1 ring-white/40 shadow-inner"
+            class="flex-1 w-full resize-none morandi-input rounded-lg p-3 text-sm leading-relaxed"
             placeholder="请输入机器人的人设描述，例如：你是一个专业的客服助手，擅长解答用户问题..."></textarea>
-          <div class="text-xs text-gray-600 mt-2 text-right">
+          <div class="text-xs mt-1.5 text-right" style="color: var(--morandi-text-muted)">
             {{ personalityText.length }}/500 字符
           </div>
         </div>
 
-        <div class="bg-white/25 backdrop-blur-lg rounded-2xl p-5 ring-1 ring-white/40 shadow-lg">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-gray-800">选择知识库</h3>
-            <div class="flex gap-3">
-              <button @click="openKnowledgeModal"
-                class="px-6 py-3 bg-blue-500/80 backdrop-blur-lg text-white rounded-xl hover:bg-blue-600/80 transition-all duration-300 font-medium ring-1 ring-blue-400/30 transform active:scale-95 shadow-lg">
-                管理知识库
-              </button>
-              <button @click="goBack"
-                class="px-6 py-3 bg-gray-500/60 backdrop-blur-lg text-white rounded-xl hover:bg-gray-600/60 transition-all duration-300 ring-1 ring-gray-400/30 transform active:scale-95 shadow-lg">
-                返回
-              </button>
-            </div>
-          </div>
+        <!-- 知识库选择区 -->
+        <div class="p-5 border-t" style="border-color: var(--morandi-divider)">
+          <h3 class="text-sm font-medium mb-3" style="color: var(--morandi-text-secondary)">知识库</h3>
 
           <div v-if="currentKnowledgeBase"
-            class="bg-white/40 backdrop-blur-lg px-4 py-3 rounded-xl ring-1 ring-white/50 mb-4">
+            class="morandi-card rounded-lg p-3 mb-3">
             <div class="flex items-center justify-between">
-              <div class="flex items-center">
-                <Database class="w-5 h-5 text-blue-600 mr-3" />
-                <div>
-                  <div class="font-medium text-gray-800">{{ currentKnowledgeBase.name }}</div>
-                  <div class="text-xs text-gray-600">
-                    {{ currentKnowledgeBase.documentCount || 0 }} 个文档 · {{ currentKnowledgeBase.chunkCount || 0 }} 切片
-                  </div>
-                </div>
+              <div class="flex items-center min-w-0 flex-1">
+                <Database class="w-4 h-4 mr-2 shrink-0" style="color: var(--morandi-accent)" />
+                <span class="text-sm truncate font-medium" style="color: var(--morandi-text)">{{ currentKnowledgeBase.name }}</span>
               </div>
-              <span class="text-xs text-green-600 bg-green-100/50 px-2 py-1 rounded-lg">已选择</span>
+              <span class="text-xs ml-2 shrink-0 px-2 py-0.5 rounded-full" style="background: var(--morandi-success-bg); color: #fff">已选</span>
+            </div>
+            <div class="text-xs mt-1 ml-6" style="color: var(--morandi-text-muted)">
+              {{ currentKnowledgeBase.documentCount || 0 }} 个文档 · {{ currentKnowledgeBase.chunkCount || 0 }} 切片
             </div>
           </div>
 
           <div v-else-if="selectedKnowledgeBases.length > 0"
-            class="bg-white/40 backdrop-blur-lg px-4 py-3 rounded-xl ring-1 ring-white/50 mb-4">
-            <div class="flex items-center justify-between mb-3">
+            class="morandi-card rounded-lg p-3 mb-3">
+            <div class="flex items-center justify-between mb-2">
               <div class="flex items-center">
-                <Database class="w-5 h-5 text-purple-600 mr-3" />
-                <div>
-                  <div class="font-medium text-gray-800">已选择 {{ selectedKnowledgeBases.length }} 个知识库</div>
-                  <div class="text-xs text-gray-600">多知识库联合检索模式</div>
-                </div>
+                <Database class="w-4 h-4 mr-2" style="color: var(--morandi-accent)" />
+                <span class="text-sm font-medium" style="color: var(--morandi-text)">已选择 {{ selectedKnowledgeBases.length }} 个</span>
               </div>
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-purple-600 bg-purple-100/50 px-2 py-1 rounded-lg">多选模式</span>
-                <button @click="clearMultiSelection"
-                  class="text-xs text-red-600 hover:text-red-700 bg-red-100/50 hover:bg-red-200/50 px-2 py-1 rounded-lg transition-colors">
-                  清空
-                </button>
-              </div>
+              <button @click="clearMultiSelection" class="text-xs px-2 py-0.5 rounded" style="color: var(--morandi-error); background: var(--morandi-error-bg)">
+                清空
+              </button>
             </div>
-            <div class="space-y-2 max-h-32 overflow-y-auto transparent-scrollbar">
+            <div class="space-y-1.5 max-h-24 overflow-y-auto transparent-scrollbar">
               <div v-for="kb in selectedKnowledgeBases" :key="kb.id"
-                class="flex items-center justify-between bg-white/30 px-3 py-2 rounded-lg">
-                <div class="flex items-center">
-                  <Check class="w-4 h-4 text-blue-500 mr-2" />
-                  <span class="text-sm text-gray-700">{{ kb.name }}</span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <span class="text-xs text-gray-500">{{ kb.documentCount || 0 }} 文档</span>
-                  <button @click.stop="removeFromSelection(kb)"
-                    class="text-red-500 hover:text-red-700 transition-colors">
-                    <X class="w-3 h-3" />
-                  </button>
-                </div>
+                class="flex items-center justify-between px-2 py-1.5 rounded" style="background: var(--morandi-input-bg)">
+                <span class="text-xs truncate" style="color: var(--morandi-text)">{{ kb.name }}</span>
+                <button @click.stop="removeFromSelection(kb)" class="shrink-0 ml-2" style="color: var(--morandi-error)">
+                  <X class="w-3 h-3" />
+                </button>
               </div>
             </div>
           </div>
 
           <div v-else
-            class="bg-white/30 backdrop-blur-lg px-4 py-6 rounded-xl ring-1 ring-white/50 text-center text-gray-600">
-            <FolderOpen class="w-8 h-8 text-gray-400 mx-auto mb-2" />
-            <p>点击"管理知识库"选择或创建知识库</p>
+            class="rounded-lg p-4 text-center" style="background: var(--morandi-input-bg); border: 1px dashed var(--morandi-border)">
+            <FolderOpen class="w-6 h-6 mx-auto mb-1.5" style="color: var(--morandi-text-faint)" />
+            <p class="text-xs" style="color: var(--morandi-text-muted)">暂未选择知识库</p>
           </div>
-        </div>
-      </div>
 
-      <div class="w-1/2 bg-white/20 backdrop-blur-xl rounded-3xl shadow-2xl ring-1 ring-white/30 flex flex-col">
-        <div class="flex justify-between items-center px-6 py-5 border-b border-white/30">
-          <h3 class="text-xl font-semibold text-gray-800">与 {{ currentAssistant?.name || '机器人' }} 对话测试</h3>
+          <button @click="openKnowledgeModal" class="morandi-btn morandi-btn-primary w-full mt-3 text-sm">
+            管理知识库
+          </button>
+        </div>
+      </aside>
+
+      <!-- 右侧：聊天区域 -->
+      <main class="flex-1 flex flex-col min-w-0">
+        <!-- 聊天头部 -->
+        <div class="flex justify-between items-center px-6 py-3 border-b shrink-0" style="border-color: var(--morandi-divider); background: var(--morandi-surface-raised)">
+          <h3 class="serif text-base font-medium" style="color: var(--morandi-text)">与 {{ currentAssistant?.name || '机器人' }} 对话</h3>
           <div class="flex items-center gap-3">
             <div v-if="voiceCallActive" class="flex items-center gap-2">
-              <span class="relative flex h-3 w-3">
-                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+              <span class="relative flex h-2.5 w-2.5">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background: var(--morandi-error)"></span>
+                <span class="relative inline-flex rounded-full h-2.5 w-2.5" style="background: var(--morandi-error)"></span>
               </span>
-              <span class="text-sm text-red-600 font-medium">语音通话中</span>
+              <span class="text-xs font-medium" style="color: var(--morandi-error)">语音通话中</span>
             </div>
-            <button @click="resetChat"
-              class="text-sm text-gray-600 hover:text-gray-800 hover:bg-white/20 px-3 py-1 rounded-lg transition-all duration-300">
+            <button @click="resetChat" class="morandi-btn morandi-btn-ghost morandi-btn-sm">
               重置对话
             </button>
           </div>
         </div>
 
+        <!-- ASR 语音识别文字 -->
         <div v-if="asrText && voiceCallActive"
-          class="mx-6 mt-3 px-4 py-2 bg-blue-50/80 rounded-xl border border-blue-200/50 text-sm text-blue-700">
-          <span class="font-medium">语音识别：</span>{{ asrText }}
+          class="mx-6 mt-3 px-4 py-2 rounded-lg border text-sm"
+          style="background: var(--morandi-input-bg); border-color: var(--morandi-border); color: var(--morandi-secondary)">
+          <span class="font-medium" style="color: var(--morandi-text-secondary)">语音识别：</span>{{ asrText }}
         </div>
 
+        <!-- 消息列表 -->
         <div class="flex-1 min-h-0">
           <ChatMessages :messages="messages" :auto-scroll="true"
-            @scroll-state-change="handleScrollStateChange" class="h-full transparent-scrollbar" />
+            @scroll-state-change="handleScrollStateChange" class="h-full" />
         </div>
 
-        <div class="border-t border-white/30 p-5">
+        <!-- 输入区域 -->
+        <div class="p-5 border-t shrink-0" style="border-color: var(--morandi-divider); background: var(--morandi-surface)">
+          <!-- 语音通话中 UI -->
           <div v-if="voiceCallActive" class="flex flex-col items-center gap-4 py-2">
             <div class="flex items-center gap-4">
               <div class="relative">
-                <Mic class="w-8 h-8 text-red-500 animate-pulse" />
-                <div class="absolute -inset-2 rounded-full border-2 border-red-400/50 animate-ping"></div>
+                <Mic class="w-7 h-7 animate-pulse" style="color: var(--morandi-error)" />
+                <div class="absolute -inset-2 rounded-full border-2 animate-ping" style="border-color: var(--morandi-error); opacity: 0.4"></div>
               </div>
               <div class="flex items-center gap-1">
-                <div v-for="i in 5" :key="i" class="w-1.5 rounded-full bg-blue-400 transition-all duration-150"
+                <div v-for="i in 5" :key="i" class="w-1.5 rounded-full transition-all duration-150"
                   :style="{
                     height: `${Math.max(4, audioLevel * 40 * (0.5 + Math.random() * 0.5))}px`,
-                    opacity: audioLevel > (i - 1) * 0.2 ? 1 : 0.3
+                    opacity: audioLevel > (i - 1) * 0.2 ? 1 : 0.3,
+                    background: 'var(--morandi-primary)'
                   }"></div>
               </div>
             </div>
             <button @click="endVoiceCall"
-              class="px-8 py-2.5 bg-red-500/80 text-white rounded-xl hover:bg-red-600/80 transition-all duration-300 font-medium shadow-lg ring-1 ring-red-400/30 transform active:scale-95">
-              <PhoneOff class="w-4 h-4 inline mr-2" />
+              class="morandi-btn morandi-btn-danger px-8 py-2 text-sm">
+              <PhoneOff class="w-4 h-4 inline mr-1.5" />
               挂断
             </button>
           </div>
 
+          <!-- 文字输入 UI -->
           <div v-else class="flex items-center gap-3">
             <input v-model="inputText" type="text"
-              class="flex-1 bg-white/30 backdrop-blur-lg rounded-xl px-4 py-3 text-gray-800 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-400/50 transition-all duration-300 ring-1 ring-white/40 shadow-inner"
+              class="flex-1 morandi-input rounded-lg px-4 py-2.5 text-sm"
               placeholder="请输入您想问的问题" @keyup.enter="sendMessage" :disabled="isTyping" />
             <button @click="startVoiceCall" :disabled="!currentAssistant?.id"
-              :class="[
-                'px-4 py-3 rounded-xl font-medium transition-all duration-300 transform active:scale-95',
-                !currentAssistant?.id
-                  ? 'bg-gray-300/50 text-gray-500 cursor-not-allowed'
-                  : 'bg-purple-500/80 backdrop-blur-lg text-white hover:bg-purple-600/80 shadow-lg ring-1 ring-purple-400/30'
-              ]">
+              class="morandi-btn morandi-btn-ghost px-3 py-2.5"
+              :class="{ 'opacity-40 cursor-not-allowed': !currentAssistant?.id }">
               <Mic class="w-5 h-5" />
             </button>
-            <button @click="sendMessage" :disabled="!inputText.trim() || isTyping" :class="[
-              'px-6 py-3 rounded-xl font-medium transition-all duration-300 transform active:scale-95',
-              (!inputText.trim() || isTyping)
-                ? 'bg-gray-300/50 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-500/80 backdrop-blur-lg text-white hover:bg-blue-600/80 shadow-lg ring-1 ring-blue-400/30'
-            ]">
+            <button @click="sendMessage" :disabled="!inputText.trim() || isTyping"
+              :class="['morandi-btn', 'morandi-btn-primary', (!inputText.trim() || isTyping) ? 'opacity-40 cursor-not-allowed' : '']">
               发送
             </button>
           </div>
         </div>
-      </div>
+      </main>
     </div>
 
+    <!-- ========== 知识库管理弹窗 ========== -->
     <div v-if="showKnowledgeModal"
-      class="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-md"
+      class="fixed inset-0 z-40 flex items-center justify-center"
+      style="background: var(--morandi-overlay)"
       @click.self="closeKnowledgeModal">
       <div :class="[
-        'animate-modal-in bg-white/10 backdrop-blur-xl max-h-[80vh] rounded-3xl shadow-2xl ring-1 ring-white/20 flex overflow-hidden transition-all duration-500',
-        showFileManager ? 'w-[1400px]' : 'w-[900px]'
+        'animate-modal-in morandi-card-elevated max-h-[85vh] rounded-2xl shadow-lg flex overflow-hidden',
+        showFileManager ? 'w-[1200px]' : 'w-[800px]'
       ]">
+        <!-- 左侧：知识库列表 -->
         <div :class="[
-          'transition-all duration-500 ease-in-out flex flex-col',
+          'transition-all duration-400 ease-in-out flex flex-col',
           showFileManager ? 'w-1/2' : 'w-full'
         ]">
-          <div class="p-8 border-b border-white/20">
-            <div class="flex items-center justify-between mb-6">
-              <h2 class="text-2xl font-bold text-white">知识库管理</h2>
-              <div class="flex items-center gap-4">
-                <div class="flex bg-white/10 rounded-lg p-1">
-                  <button @click="knowledgeBaseLayout = 'list'" :class="[
-                    'px-3 py-1 rounded text-sm transition-all duration-200',
-                    knowledgeBaseLayout === 'list'
-                      ? 'bg-blue-500 text-white'
-                      : 'text-white/60 hover:text-white'
-                  ]">
+          <!-- 弹窗头部 -->
+          <div class="px-6 py-5 border-b" style="border-color: var(--morandi-border)">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="serif text-lg font-semibold" style="color: var(--morandi-text)">知识库管理</h2>
+              <div class="flex items-center gap-3">
+                <div class="flex rounded-md p-0.5" style="background: var(--morandi-input-bg)">
+                  <button @click="knowledgeBaseLayout = 'list'"
+                    :class="['px-2.5 py-1 rounded text-sm transition-all', knowledgeBaseLayout === 'list' ? 'morandi-btn morandi-btn-primary morandi-btn-sm' : '']"
+                    :style="knowledgeBaseLayout !== 'list' ? { color: 'var(--morandi-text-muted)' } : {}">
                     <List class="w-4 h-4" />
                   </button>
-                  <button @click="knowledgeBaseLayout = 'grid'" :class="[
-                    'px-3 py-1 rounded text-sm transition-all duration-200',
-                    knowledgeBaseLayout === 'grid'
-                      ? 'bg-blue-500 text-white'
-                      : 'text-white/60 hover:text-white'
-                  ]">
+                  <button @click="knowledgeBaseLayout = 'grid'"
+                    :class="['px-2.5 py-1 rounded text-sm transition-all', knowledgeBaseLayout === 'grid' ? 'morandi-btn morandi-btn-primary morandi-btn-sm' : '']"
+                    :style="knowledgeBaseLayout !== 'grid' ? { color: 'var(--morandi-text-muted)' } : {}">
                     <LayoutGrid class="w-4 h-4" />
                   </button>
                 </div>
-                <button @click="closeKnowledgeModal" class="text-white/60 hover:text-white transition-colors">
-                  <X class="w-6 h-6" />
+                <button @click="closeKnowledgeModal" class="p-1 rounded hover:bg-morandi-input-bg transition-colors" style="color: var(--morandi-text-muted)">
+                  <X class="w-5 h-5" />
                 </button>
               </div>
             </div>
-
-            <div class="flex gap-3">
-              <button @click="openCreateKnowledgeForm"
-                class="px-4 py-2 bg-blue-500/80 text-white rounded-xl hover:bg-blue-600/80 transition-all duration-300 font-medium">
-                <Plus class="w-4 h-4 inline mr-2" />
-                新建知识库
-              </button>
-            </div>
+            <button @click="openCreateKnowledgeForm" class="morandi-btn morandi-btn-primary text-sm">
+              <Plus class="w-4 h-4 inline mr-1.5" /> 新建知识库
+            </button>
           </div>
 
-          <div class="flex-1 min-h-0 overflow-y-auto transparent-scrollbar p-8">
+          <!-- 知识库列表内容 -->
+          <div class="flex-1 min-h-0 overflow-y-auto morandi-scroll p-6">
             <div :class="[
               'transition-all duration-300',
-              knowledgeBaseLayout === 'grid' ? 'grid grid-cols-2 gap-4' : 'grid grid-cols-1 gap-4'
+              knowledgeBaseLayout === 'grid' ? 'grid grid-cols-2 gap-3' : 'flex flex-col gap-3'
             ]">
-              <div v-for="kb in knowledgeBases" :key="kb.id" @click="selectKnowledgeBase(kb)" :class="[
-                'bg-white/20 backdrop-blur-lg rounded-2xl p-4 cursor-pointer transition-all duration-300 ring-1 ring-white/30 hover:bg-white/30 transform hover:scale-[1.02]',
-                selectedKnowledgeBases.some(selected => selected.id === kb.id) ? 'ring-2 ring-blue-400 bg-blue-500/20' : '',
-                knowledgeBaseLayout === 'list' ? 'flex items-center' : 'block'
-              ]">
+              <div v-for="kb in knowledgeBases" :key="kb.id" @click="selectKnowledgeBase(kb)"
+                :class="[
+                  'morandi-card rounded-xl p-4 cursor-pointer transition-all duration-200 hover:shadow-md',
+                  knowledgeBaseLayout === 'list' ? 'flex items-center' : '',
+                  selectedKnowledgeBases.some(selected => selected.id === kb.id) ? 'ring-1' : ''
+                ]"
+                :style="selectedKnowledgeBases.some(selected => selected.id === kb.id)
+                  ? { borderColor: 'var(--morandi-primary)', background: 'var(--morandi-input-bg)' }
+                  : {}">
+
+                <!-- 列表模式 -->
                 <template v-if="knowledgeBaseLayout === 'list'">
-                  <div class="flex items-center">
-                    <div class="mr-3 flex-shrink-0">
-                      <div :class="[
-                        'w-5 h-5 rounded border-2 flex items-center justify-center transition-all duration-200',
-                        selectedKnowledgeBases.some(selected => selected.id === kb.id)
-                          ? 'bg-blue-500 border-blue-500'
-                          : 'border-white/40 hover:border-white/60'
-                      ]">
-                        <Check v-if="selectedKnowledgeBases.some(selected => selected.id === kb.id)"
-                          class="w-3 h-3 text-white" />
+                  <div class="mr-3 flex-shrink-0">
+                    <div :class="[
+                      'w-5 h-5 rounded border-2 flex items-center justify-center transition-all'
+                    ]"
+                      :style="selectedKnowledgeBases.some(selected => selected.id === kb.id)
+                        ? { background: 'var(--morandi-primary)', borderColor: 'var(--morandi-primary)' }
+                        : { borderColor: 'var(--morandi-border)' }">
+                      <Check v-if="selectedKnowledgeBases.some(selected => selected.id === kb.id)" class="w-3 h-3" style="color: #fff" />
+                    </div>
+                  </div>
+                  <div class="flex items-center flex-1 min-w-0">
+                    <Database class="w-5 h-5 mr-2.5 flex-shrink-0" style="color: var(--morandi-accent)" />
+                    <div class="flex-1 min-w-0">
+                      <h3 class="font-medium text-sm truncate" style="color: var(--morandi-text)">{{ kb.name }}</h3>
+                      <p class="text-xs truncate" style="color: var(--morandi-text-muted)">{{ kb.description || '暂无描述' }}</p>
+                    </div>
+                  </div>
+                  <div class="text-center mx-3 flex-shrink-0">
+                    <div class="font-bold text-sm" style="color: var(--morandi-text)">{{ kb.documentCount || 0 }}</div>
+                    <div class="text-xs" style="color: var(--morandi-text-faint)">文档</div>
+                  </div>
+                  <div class="flex gap-1 flex-shrink-0">
+                    <button @click.stop="selectKnowledgeBaseForFileManager(kb)" class="p-1.5 rounded transition-colors hover:bg-morandi-input-bg" style="color: var(--morandi-primary)">
+                      <FolderOpen class="w-4 h-4" />
+                    </button>
+                    <button @click.stop="deleteKnowledgeBase(kb)" class="p-1.5 rounded transition-colors hover:bg-morandi-input-bg" style="color: var(--morandi-error)">
+                      <Trash2 class="w-4 h-4" />
+                    </button>
+                  </div>
+                </template>
+
+                <!-- 网格模式 -->
+                <template v-else>
+                  <div class="flex items-start justify-between mb-2">
+                    <div class="flex items-center">
+                      <div class="mr-2.5 flex-shrink-0">
+                        <div :class="['w-5 h-5 rounded border-2 flex items-center justify-center transition-all']"
+                          :style="selectedKnowledgeBases.some(selected => selected.id === kb.id)
+                            ? { background: 'var(--morandi-primary)', borderColor: 'var(--morandi-primary)' }
+                            : { borderColor: 'var(--morandi-border)' }">
+                          <Check v-if="selectedKnowledgeBases.some(selected => selected.id === kb.id)" class="w-3 h-3" style="color: #fff" />
+                        </div>
+                      </div>
+                      <Database class="w-6 h-6 mr-2" style="color: var(--morandi-accent)" />
+                      <div>
+                        <h3 class="font-medium text-sm" style="color: var(--morandi-text)">{{ kb.name }}</h3>
+                        <p class="text-xs mt-0.5" style="color: var(--morandi-text-muted)">{{ kb.description || '暂无描述' }}</p>
                       </div>
                     </div>
-                    <div class="flex items-center flex-1 min-w-0">
-                      <Database class="w-6 h-6 text-yellow-400 mr-3 flex-shrink-0" />
-                      <div class="flex-1 min-w-0">
-                        <h3 class="font-bold text-white text-base truncate">{{ kb.name }}</h3>
-                        <p class="text-white/60 text-sm truncate">{{ kb.description || '暂无描述' }}</p>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-4 mx-4 flex-shrink-0">
-                      <div class="text-center">
-                        <div class="text-blue-300 font-bold text-sm">{{ kb.documentCount || 0 }}</div>
-                        <div class="text-white/50 text-xs">文档</div>
-                      </div>
-                    </div>
-                    <div class="flex gap-1 flex-shrink-0">
-                      <button @click.stop="selectKnowledgeBaseForFileManager(kb)"
-                        class="text-blue-400 hover:text-blue-300 transition-colors p-1.5 rounded hover:bg-white/10">
+                    <div class="flex gap-1.5">
+                      <button @click.stop="selectKnowledgeBaseForFileManager(kb)" class="p-1 rounded transition-colors hover:bg-morandi-input-bg" style="color: var(--morandi-primary)">
                         <FolderOpen class="w-4 h-4" />
                       </button>
-                      <button @click.stop="deleteKnowledgeBase(kb)"
-                        class="text-red-400 hover:text-red-300 transition-colors p-1.5 rounded hover:bg-white/10">
+                      <button @click.stop="deleteKnowledgeBase(kb)" class="p-1 rounded transition-colors hover:bg-morandi-input-bg" style="color: var(--morandi-error)">
                         <Trash2 class="w-4 h-4" />
                       </button>
                     </div>
                   </div>
-                </template>
-
-                <template v-else>
-                  <div class="flex items-start justify-between mb-3">
-                    <div class="flex items-center">
-                      <div class="mr-3 flex-shrink-0">
-                        <div :class="[
-                          'w-5 h-5 rounded border-2 flex items-center justify-center transition-all duration-200',
-                          selectedKnowledgeBases.some(selected => selected.id === kb.id)
-                            ? 'bg-blue-500 border-blue-500'
-                            : 'border-white/40 hover:border-white/60'
-                        ]">
-                          <Check v-if="selectedKnowledgeBases.some(selected => selected.id === kb.id)"
-                            class="w-3 h-3 text-white" />
-                        </div>
-                      </div>
-                      <Database class="w-8 h-8 text-yellow-400 mr-3" />
-                      <div>
-                        <h3 class="font-bold text-white text-lg">{{ kb.name }}</h3>
-                        <p class="text-white/70 text-sm">{{ kb.description || '暂无描述' }}</p>
-                      </div>
-                    </div>
-                    <div class="flex gap-2">
-                      <button @click.stop="selectKnowledgeBaseForFileManager(kb)"
-                        class="text-blue-400 hover:text-blue-300 transition-colors p-1 rounded hover:bg-white/10">
-                        <FolderOpen class="w-5 h-5" />
-                      </button>
-                      <button @click.stop="deleteKnowledgeBase(kb)"
-                        class="text-red-400 hover:text-red-300 transition-colors p-1 rounded hover:bg-white/10">
-                        <Trash2 class="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                  <div class="flex justify-between text-sm">
+                  <div class="flex justify-between text-xs pt-2 border-t" style="border-color: var(--morandi-divider)">
                     <div class="text-center">
-                      <div class="text-blue-300 font-bold text-lg">{{ kb.documentCount || 0 }}</div>
-                      <div class="text-white/60">包含文档数</div>
+                      <div class="font-bold" style="color: var(--morandi-text)">{{ kb.documentCount || 0 }}</div>
+                      <div style="color: var(--morandi-text-faint)">文档</div>
                     </div>
                     <div class="text-center">
-                      <div class="text-purple-300 font-bold text-lg">{{ kb.chunkCount || 0 }}</div>
-                      <div class="text-white/60">切片数</div>
+                      <div class="font-bold" style="color: var(--morandi-text)">{{ kb.chunkCount || 0 }}</div>
+                      <div style="color: var(--morandi-text-faint)">切片</div>
                     </div>
                   </div>
                 </template>
@@ -335,108 +319,101 @@
             </div>
           </div>
 
-          <div class="p-8 pt-4 border-t border-white/20">
-            <div class="mb-4">
+          <!-- 弹窗底部操作 -->
+          <div class="px-6 py-4 border-t" style="border-color: var(--morandi-border)">
+            <div class="mb-3">
               <div class="flex items-center justify-between mb-2">
-                <span class="text-white/80 text-sm font-medium">
+                <span class="text-xs font-medium" style="color: var(--morandi-text-secondary)">
                   已选择 {{ selectedKnowledgeBases.length }} 个知识库
                 </span>
-                <button v-if="selectedKnowledgeBases.length > 0" @click="clearAllSelections"
-                  class="text-red-400 hover:text-red-300 text-sm transition-colors">
+                <button v-if="selectedKnowledgeBases.length > 0" @click="clearAllSelections" class="text-xs transition-colors" style="color: var(--morandi-error)">
                   清空选择
                 </button>
               </div>
-              <div v-if="selectedKnowledgeBases.length > 0" class="flex flex-wrap gap-2">
+              <div v-if="selectedKnowledgeBases.length > 0" class="flex flex-wrap gap-1.5">
                 <div v-for="kb in selectedKnowledgeBases" :key="kb.id"
-                  class="bg-blue-500/20 text-blue-300 px-3 py-1 rounded-lg text-sm flex items-center gap-2">
+                  class="px-2.5 py-1 rounded-md text-xs flex items-center gap-1.5"
+                  style="background: var(--morandi-input-bg); color: var(--morandi-text); border: 1px solid var(--morandi-border)">
                   <span>{{ kb.name }}</span>
-                  <button @click="removeFromSelection(kb)" class="text-blue-300 hover:text-blue-200 transition-colors">
+                  <button @click="removeFromSelection(kb)" style="color: var(--morandi-text-muted)">
                     <X class="w-3 h-3" />
                   </button>
                 </div>
               </div>
-              <div v-else class="text-white/50 text-sm">
+              <div v-else class="text-xs" style="color: var(--morandi-text-faint)">
                 未选择任何知识库
               </div>
             </div>
-            <div class="flex justify-end gap-3">
-              <button @click="closeKnowledgeModal"
-                class="px-6 py-2 bg-gray-500/60 text-white rounded-xl hover:bg-gray-600/60 transition-all duration-300">
-                取消
-              </button>
-              <button @click="confirmSelection"
-                class="px-6 py-2 bg-blue-500/80 text-white rounded-xl hover:bg-blue-600/80 transition-all duration-300 font-medium">
-                确认选择
-              </button>
+            <div class="flex justify-end gap-2.5">
+              <button @click="closeKnowledgeModal" class="morandi-btn morandi-btn-ghost text-sm">取消</button>
+              <button @click="confirmSelection" class="morandi-btn morandi-btn-primary text-sm">确认选择</button>
             </div>
           </div>
         </div>
 
+        <!-- 右侧：文件管理面板 -->
         <div v-if="showFileManager"
-          class="w-1/2 bg-white/5 backdrop-blur-lg border-l border-white/20 flex flex-col animate-slide-in-right">
-          <div class="p-6 border-b border-white/20">
-            <div class="flex items-center justify-between mb-4">
+          class="w-1/2 flex flex-col animate-slide-in-right border-l"
+          style="background: var(--morandi-surface); border-left-color: var(--morandi-border)">
+          <div class="px-5 py-4 border-b" style="border-color: var(--morandi-border)">
+            <div class="flex items-center justify-between mb-3">
               <div class="flex items-center">
-                <button @click="closeFileManager" class="text-white/60 hover:text-white transition-colors mr-4">
+                <button @click="closeFileManager" class="p-1 rounded mr-2.5 transition-colors hover:bg-morandi-input-bg" style="color: var(--morandi-text-muted)">
                   <ChevronLeft class="w-5 h-5" />
                 </button>
-                <h3 class="text-xl font-bold text-white">文件管理</h3>
+                <h3 class="serif text-base font-medium" style="color: var(--morandi-text)">文件管理</h3>
               </div>
-              <div class="flex gap-2">
-                <button @click="triggerFileUpload" :disabled="isUploading"
-                  class="px-3 py-2 bg-purple-500/80 text-white rounded-lg hover:bg-purple-600/80 transition-all duration-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                  <Upload class="w-4 h-4 inline mr-1" />
-                  {{ isUploading ? '上传中...' : '上传文件' }}
-                </button>
-              </div>
+              <button @click="triggerFileUpload" :disabled="isUploading"
+                :class="['morandi-btn', isUploading ? 'morandi-btn-ghost' : '', 'text-sm']"
+                :style="{ opacity: isUploading ? 0.45 : 1 }">
+                <Upload class="w-4 h-4 inline mr-1" />
+                {{ isUploading ? '上传中...' : '上传文件' }}
+              </button>
             </div>
 
-            <div v-if="isUploading && uploadProgress > 0" class="mb-4">
-              <div class="flex justify-between text-sm text-white/80 mb-2">
+            <div v-if="isUploading && uploadProgress > 0" class="mb-3">
+              <div class="flex justify-between text-xs mb-1.5" style="color: var(--morandi-text-secondary)">
                 <span>上传进度</span>
                 <span>{{ Math.round(uploadProgress) }}%</span>
               </div>
-              <div class="w-full bg-white/20 rounded-full h-2">
-                <div class="bg-purple-500 h-2 rounded-full transition-all duration-300"
-                  :style="{ width: uploadProgress + '%' }"></div>
+              <div class="w-full rounded-full h-1.5" style="background: var(--morandi-input-bg)">
+                <div class="h-1.5 rounded-full transition-all duration-300"
+                  :style="{ width: uploadProgress + '%', background: 'var(--morandi-accent)' }"></div>
               </div>
             </div>
 
-            <div v-if="currentFileManagerKB" class="bg-white/10 rounded-lg p-3">
+            <div v-if="currentFileManagerKB" class="rounded-md p-2.5" style="background: var(--morandi-input-bg)">
               <div class="flex items-center">
-                <Database class="w-5 h-5 text-yellow-400 mr-2" />
-                <span class="text-white font-medium">{{ currentFileManagerKB.name }}</span>
-                <span class="text-white/60 text-sm ml-2">{{ currentFileManagerKB.description }}</span>
+                <Database class="w-4 h-4 mr-2" style="color: var(--morandi-accent)" />
+                <span class="text-sm font-medium" style="color: var(--morandi-text)">{{ currentFileManagerKB.name }}</span>
               </div>
             </div>
           </div>
 
-          <div class="flex-1 overflow-y-auto transparent-scrollbar p-6">
-            <div v-if="currentFiles.length === 0" class="text-center text-white/60 py-12">
-              <FileText class="w-16 h-16 mx-auto mb-4 text-white/40" />
-              <p class="text-lg">暂无文件</p>
-              <p class="text-sm">点击上传文件按钮添加文档</p>
+          <div class="flex-1 overflow-y-auto morandi-scroll p-5">
+            <div v-if="currentFiles.length === 0" class="text-center py-12">
+              <FileText class="w-12 h-12 mx-auto mb-3" style="color: var(--morandi-text-faint)" />
+              <p class="text-sm" style="color: var(--morandi-text-muted)">暂无文件</p>
+              <p class="text-xs mt-1" style="color: var(--morandi-text-faint)">点击上传按钮添加文档</p>
             </div>
-            <div v-else class="space-y-3">
+            <div v-else class="space-y-2.5">
               <div v-for="file in currentFiles" :key="file.id"
-                class="bg-white/10 backdrop-blur-lg rounded-lg p-4 hover:bg-white/20 transition-all duration-300">
+                class="morandi-card rounded-lg p-3.5 transition-all duration-200 hover:shadow-sm">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center flex-1 min-w-0">
-                    <FileText class="w-8 h-8 text-blue-400 mr-3 flex-shrink-0" />
+                    <FileText class="w-6 h-6 mr-2.5 flex-shrink-0" style="color: var(--morandi-primary)" />
                     <div class="flex-1 min-w-0">
-                      <h4 class="text-white font-medium truncate">{{ file.name }}</h4>
-                      <div class="flex items-center text-sm text-white/60 mt-1">
+                      <h4 class="text-sm font-medium truncate" style="color: var(--morandi-text)">{{ file.name }}</h4>
+                      <div class="flex items-center text-xs mt-0.5" style="color: var(--morandi-text-muted)">
                         <span>{{ formatFileSize(file.size) }}</span>
-                        <span class="mx-2">·</span>
+                        <span class="mx-1.5">&middot;</span>
                         <span>{{ file.run || '未知' }}</span>
                       </div>
                     </div>
                   </div>
-                  <div class="flex items-center gap-2 ml-4">
-                    <button @click="deleteFile(file)" class="text-red-400 hover:text-red-300 transition-colors">
-                      <Trash2 class="w-4 h-4" />
-                    </button>
-                  </div>
+                  <button @click="deleteFile(file)" class="ml-3 p-1.5 rounded transition-colors hover:bg-morandi-input-bg shrink-0" style="color: var(--morandi-error)">
+                    <Trash2 class="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -445,35 +422,33 @@
       </div>
     </div>
 
+    <!-- ========== 创建知识库弹窗 ========== -->
     <div v-if="showCreateKnowledgeForm"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/10 backdrop-blur-md"
+      class="fixed inset-0 z-50 flex items-center justify-center"
+      style="background: var(--morandi-overlay)"
       @click.self="showCreateKnowledgeForm = false">
-      <div
-        class="animate-modal-in bg-black/50 backdrop-blur-xl w-96 p-8 rounded-3xl shadow-2xl ring-1 ring-white/30 border border-white/20">
-        <h3 class="text-xl font-bold text-white mb-6">创建知识库</h3>
+      <div class="animate-modal-in morandi-card-elevated w-[420px] p-7 rounded-2xl shadow-lg">
+        <h3 class="serif text-lg font-semibold mb-5" style="color: var(--morandi-text)">创建知识库</h3>
         <div class="space-y-4">
           <div>
-            <label class="block text-white text-sm font-medium mb-2">
-              <span class="text-red-500">*</span> 知识库名称：
+            <label class="block text-sm font-medium mb-1.5" style="color: var(--morandi-text-secondary)">
+              <span style="color: var(--morandi-error)">*</span> 知识库名称
             </label>
             <input v-model="newKnowledgeBase.name" type="text" placeholder="请输入知识库名称" maxlength="20"
-              class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-200 text-black placeholder:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 transition" />
-            <div class="text-xs text-gray-500 mt-1 text-right">{{ newKnowledgeBase.name.length }}/20</div>
+              class="w-full px-3.5 py-2.5 rounded-lg morandi-input text-sm" />
+            <div class="text-xs mt-1 text-right" style="color: var(--morandi-text-faint)">{{ newKnowledgeBase.name.length }}/20</div>
           </div>
           <div>
-            <label class="block text-white text-sm font-medium mb-2">知识库描述：</label>
+            <label class="block text-sm font-medium mb-1.5" style="color: var(--morandi-text-secondary)">知识库描述</label>
             <textarea v-model="newKnowledgeBase.description" placeholder="请输入知识库描述" maxlength="200" rows="3"
-              class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-200 text-black placeholder:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400 transition resize-none" />
-            <div class="text-xs text-gray-500 mt-1 text-right">{{ newKnowledgeBase.description.length }}/200</div>
+              class="w-full px-3.5 py-2.5 rounded-lg morandi-input text-sm resize-none" />
+            <div class="text-xs mt-1 text-right" style="color: var(--morandi-text-faint)">{{ newKnowledgeBase.description.length }}/200</div>
           </div>
         </div>
-        <div class="flex justify-end gap-3 mt-6">
-          <button @click="showCreateKnowledgeForm = false"
-            class="px-6 py-2 bg-gray-500 text-white rounded-xl hover:bg-gray-600 transition-all duration-300">
-            取消
-          </button>
+        <div class="flex justify-end gap-2.5 mt-6">
+          <button @click="showCreateKnowledgeForm = false" class="morandi-btn morandi-btn-ghost text-sm">取消</button>
           <button @click="createKnowledgeBase" :disabled="!newKnowledgeBase.name.trim()"
-            class="px-6 py-2 rounded-xl transition-all duration-300 font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">
+            :class="['morandi-btn', 'morandi-btn-primary', 'text-sm', !newKnowledgeBase.name.trim() ? 'opacity-40 cursor-not-allowed' : '']">
             创建
           </button>
         </div>
@@ -487,13 +462,17 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   Database, FolderOpen, Check, X, Plus, List, LayoutGrid,
-  Trash2, ChevronLeft, Upload, FileText, Mic, PhoneOff
+  Trash2, ChevronLeft, Upload, FileText, Mic, PhoneOff, ArrowLeft
 } from 'lucide-vue-next'
 import ChatMessages from '../components/ChatMessages.vue'
+import ThemeToggle from '../components/ThemeToggle.vue'
+import { useTheme } from '../composables/useTheme'
 import { useWebSocket } from '../utils/websocket'
 import { useWebRTC } from '../composables/useWebRTC'
 import { fetchAssistant, fetchKnowledgeConfig } from '../api/assistant'
 import type { Assistant, DisplayMessage, KnowledgeBase, RAGFlowConfig, AsrDeltaData } from '../types'
+
+const { themeMode, setTheme } = useTheme()
 
 const router = useRouter()
 const route = useRoute()
@@ -1239,21 +1218,21 @@ onBeforeUnmount(() => {
 }
 
 .animate-slide-in-right {
-  animation: slide-in-right 0.5s ease-out;
+  animation: slide-in-right 0.4s ease-out;
 }
 
 .notification-enter-active,
 .notification-leave-active {
-  transition: all 0.3s ease;
+  transition: all 0.25s ease;
 }
 
 .notification-enter-from {
   opacity: 0;
-  transform: translateX(100%);
+  transform: translateY(-8px);
 }
 
 .notification-leave-to {
   opacity: 0;
-  transform: translateX(100%);
+  transform: translateY(-8px);
 }
 </style>

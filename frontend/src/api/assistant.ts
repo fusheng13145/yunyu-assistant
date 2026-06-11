@@ -67,3 +67,12 @@ export async function fetchKnowledgeConfig(): Promise<RAGFlowConfig> {
   })
   return parseResponse<RAGFlowConfig>(response)
 }
+
+export async function cloneAssistant(id: string): Promise<Assistant> {
+  const original = await fetchAssistant(id)
+  return createAssistant({
+    name: `${original.name}（副本）`,
+    description: original.description,
+    personality: original.personality,
+  })
+}

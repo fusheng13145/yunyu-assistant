@@ -47,9 +47,4 @@ export async function register(data: RegisterData): Promise<AuthResponse> {
   return parseResponse<AuthResponse>(response)
 }
 
-export async function getCurrentUser(): Promise<User> {
-  const response = await fetch(`${API_BASE}/auth/me`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<User>(response)
-}
+

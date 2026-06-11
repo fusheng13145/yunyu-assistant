@@ -27,8 +27,16 @@ public class ApiResponse<T> {
         return new ApiResponse<>(500, msg, null);
     }
 
+    public static <T> ApiResponse<T> error(String msg, T data) {
+        return new ApiResponse<>(500, msg, data);
+    }
+
     public static <T> ApiResponse<T> paramError(String msg) {
         return new ApiResponse<>(400, msg, null);
+    }
+
+    public static <T> ApiResponse<T> paramError(String msg, T data) {
+        return new ApiResponse<>(400, msg, data);
     }
 
     public int getCode() {

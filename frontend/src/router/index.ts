@@ -1,7 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import SmartRobot from '../views/SmartRobot.vue'
-import Login from '../views/Login.vue'
-import Register from '../views/Register.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -13,22 +10,29 @@ const router = createRouter({
     {
       path: '/login',
       name: 'Login',
-      component: Login,
+      component: () => import('../views/Login.vue'),
     },
     {
       path: '/register',
       name: 'Register',
-      component: Register,
+      component: () => import('../views/Register.vue'),
     },
     {
       path: '/smartrobot',
       name: 'SmartRobot',
-      component: SmartRobot,
+      component: () => import('../views/SmartRobot.vue'),
       meta: { requiresAuth: true },
     },
     {
-      path: '/chat-robot/:assistantId?',
-      redirect: () => ({ name: 'SmartRobot' }),
+      path: '/chatrobot',
+      name: 'ChatRobot',
+      component: () => import('../views/ChatRobot.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'NotFound',
+      component: () => import('../views/NotFound.vue'),
     },
   ],
 })

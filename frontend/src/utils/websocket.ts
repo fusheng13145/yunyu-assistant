@@ -8,8 +8,12 @@ interface WebSocketHandlers {
 export function useWebSocket(url: string, handlers: WebSocketHandlers = {}) {
   let ws: WebSocket | null = null
 
+  const token = localStorage.getItem('token')
+
   const connect = () => {
-    ws = new WebSocket(url)
+    // 通过 Sec-WebSocket-Protocol 头传递 token（握手阶段认证，避免出现在 URL 中）
+    ws = token ? new WebSocket(url, [token]) : new WebSocket(url)
+
     ws.onopen = handlers.onOpen || (() => {})
     ws.onmessage = handlers.onMessage || (() => {})
     ws.onclose = handlers.onClose || (() => {})

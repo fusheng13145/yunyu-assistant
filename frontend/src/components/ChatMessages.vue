@@ -1,76 +1,139 @@
 <template>
-  <div ref="chatContentRef" class="h-full w-full overflow-y-auto px-5 py-10 space-y-8 transparent-scrollbar min-h-0"
-    @scroll="handleScroll">
-    <div v-for="(msg, i) in messages" :key="i"
-      :class="msg.role === 'user' ? 'flex justify-end' : 'flex items-start'">
-      <template v-if="msg.role === 'assistant'">
-        <div
-          class="w-12 h-12 bg-gradient-to-br from-purple-400 to-blue-400 rounded-full flex items-center justify-center mr-4 flex-shrink-0 shadow-lg text-2xl">
-          <Bot class="w-8 h-8 text-white" />
-        </div>
-        <div
-          class="rounded-3xl px-6 py-4 max-w-[70%] break-words bg-gradient-to-br from-blue-50 to-indigo-100 text-slate-800 shadow-xl border border-blue-200/50 text-base relative backdrop-blur-sm">
-          <div class="leading-relaxed whitespace-pre-wrap">{{ msg.text }}</div>
-          <span v-if="msg.isStreaming" class="inline-block w-2 h-5 bg-blue-500 ml-1 animate-pulse"></span>
+  <div ref="chatContentRef" class="h-full w-full morandi-scroll px-6 py-8 space-y-6 min-h-0" @scroll="handleScroll">
+    <!-- 空状态 -->
+    <div v-if="messages.length === 0" class="flex flex-col items-center justify-center h-full text-center">
+      <div class="w-16 h-16 rounded-full flex items-center justify-center mb-5" style="background: var(--morandi-input-bg)">
+        <Bot class="w-8 h-8" style="color: var(--morandi-text-muted)" />
+      </div>
+      <p class="serif text-lg font-medium mb-2" style="color: var(--morandi-text)">开始对话</p>
+      <p class="text-sm max-w-xs leading-relaxed" style="color: var(--morandi-text-secondary)">在下方输入框中发送消息，与智能助手开始交流</p>
+    </div>
 
-          <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="mt-3 space-y-2">
-            <div v-for="(toolCall, ti) in msg.toolCalls" :key="ti"
-              class="bg-indigo-50/80 rounded-xl border border-indigo-200/50 overflow-hidden">
-              <button @click="toggleToolCall(i, ti)"
-                class="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-indigo-100/50 transition-colors">
-                <div class="flex items-center gap-2">
-                  <Wrench class="w-4 h-4 text-indigo-500" />
-                  <span class="text-sm font-medium text-indigo-700">工具调用</span>
-                  <span class="text-xs text-indigo-500 bg-indigo-100 px-2 py-0.5 rounded-md">{{ toolCall.name }}</span>
-                </div>
-                <ChevronDown :class="[
-                  'w-4 h-4 text-indigo-400 transition-transform duration-200',
-                  expandedToolCalls[`${i}-${ti}`] ? 'rotate-180' : ''
-                ]" />
-              </button>
-              <div v-if="expandedToolCalls[`${i}-${ti}`]" class="px-4 pb-3 space-y-2">
-                <div>
-                  <div class="text-xs text-indigo-400 mb-1 font-medium">参数</div>
-                  <pre class="text-xs bg-white/60 rounded-lg p-2.5 overflow-x-auto whitespace-pre-wrap text-slate-700 border border-indigo-100">{{ formatJson(toolCall.arguments) }}</pre>
-                </div>
-                <div>
-                  <div class="text-xs text-indigo-400 mb-1 font-medium">结果</div>
-                  <pre class="text-xs bg-white/60 rounded-lg p-2.5 overflow-x-auto whitespace-pre-wrap text-slate-700 border border-indigo-100">{{ formatJson(toolCall.result) }}</pre>
+    <!-- 消息列表 -->
+    <template v-for="(msg, i) in messages" :key="i">
+      <!-- tool_call 类型消息 -->
+      <div v-if="msg.role === 'tool_call'" class="flex items-start">
+        <div
+          class="w-9 h-9 rounded-full flex items-center justify-center mr-3 shrink-0"
+          style="background: var(--morandi-warning-bg)">
+          <Wrench class="w-4.5 h-4.5" style="color: #fff" />
+        </div>
+        <div class="morandi-card rounded-lg px-4 py-3 max-w-[72%] border-l-2" style="border-left-color: var(--morandi-accent)">
+          <div class="flex items-center gap-2 mb-1.5">
+            <div class="w-1.5 h-1.5 rounded-full animate-pulse" style="background: var(--morandi-accent)"></div>
+            <span class="text-xs font-medium" style="color: var(--morandi-text-secondary)">正在调用工具</span>
+            <span class="text-xs px-1.5 py-0.5 rounded" style="color: var(--morandi-accent); background: var(--morandi-input-bg)">{{ msg.toolName || msg.text }}</span>
+          </div>
+          <div v-if="msg.isStreaming" class="flex items-center gap-1">
+            <div v-for="n in 3" :key="n" class="w-1 h-1 rounded-full animate-bounce"
+              :style="{ animationDelay: `${n * 0.15}s`, background: 'var(--morandi-accent)' }"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- tool_result 类型消息 -->
+      <div v-else-if="msg.role === 'tool_result'" class="flex items-start">
+        <div
+          class="w-9 h-9 rounded-full flex items-center justify-center mr-3 shrink-0"
+          style="background: var(--morandi-success-bg)">
+          <CheckCircle class="w-4.5 h-4.5" style="color: #fff" />
+        </div>
+        <div class="morandi-card rounded-lg px-4 py-3 max-w-[72%] border-l-2" style="border-left-color: var(--morandi-success-bg)">
+          <button @click="toggleToolResult(i)"
+            class="w-full flex items-center justify-between gap-2 transition-colors rounded-md px-1 -mt-0.5 -mx-1 py-1 hover:bg-morandi-input-bg"
+            style="color: var(--morandi-text-secondary)">
+            <div class="flex items-center gap-2">
+              <CheckCircle class="w-3.5 h-3.5" style="color: var(--morandi-success-bg)" />
+              <span class="text-xs font-medium" style="color: var(--morandi-text)">工具执行结果</span>
+              <span v-if="msg.toolName" class="text-xs px-1.5 py-0.5 rounded" style="color: var(--morandi-text-secondary); background: var(--morandi-input-bg)">{{ msg.toolName }}</span>
+            </div>
+            <ChevronDown :class="[
+              'w-3.5 h-3.5 transition-transform duration-200',
+              expandedToolResults[i] ? 'rotate-180' : ''
+            ]" style="color: var(--morandi-text-muted)" />
+          </button>
+          <div v-if="expandedToolResults[i]" class="mt-2.5 overflow-hidden">
+            <pre class="text-xs rounded-md p-3 overflow-x-auto whitespace-pre-wrap leading-relaxed morandi-input border" style="border-color: var(--morandi-border); color: var(--morandi-text)">{{ formatJson(msg.toolResult || msg.text) }}</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- user / assistant 消息 -->
+      <div v-else :class="msg.role === 'user' ? 'flex justify-end' : 'flex items-start'">
+        <!-- AI 消息 -->
+        <template v-if="msg.role === 'assistant'">
+          <div
+            class="w-9 h-9 rounded-full flex items-center justify-center mr-3 shrink-0"
+            style="background: var(--morandi-primary)">
+            <Bot class="w-4.5 h-4.5" style="color: var(--morandi-text-on-primary)" />
+          </div>
+          <div class="morandi-card rounded-xl px-5 py-3.5 max-w-[72%] break-words">
+            <div class="text-sm leading-relaxed whitespace-pre-wrap" style="color: var(--morandi-text)">{{ msg.text }}</div>
+            <span v-if="msg.isStreaming" class="inline-block w-1.5 h-4 ml-0.5 align-middle animate-blink" style="background: var(--morandi-primary)"></span>
+
+            <!-- 工具调用折叠区域 -->
+            <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="mt-3 space-y-2">
+              <div v-for="(toolCall, ti) in msg.toolCalls" :key="ti"
+                class="morandi-card rounded-lg overflow-hidden border-l-2"
+                style="border-left-color: var(--morandi-accent)">
+                <button @click="toggleToolCall(i, ti)"
+                  class="w-full flex items-center justify-between px-3.5 py-2.5 text-left transition-colors hover:bg-morandi-input-bg">
+                  <div class="flex items-center gap-2">
+                    <Wrench class="w-3.5 h-3.5" style="color: var(--morandi-accent)" />
+                    <span class="text-xs font-medium" style="color: var(--morandi-text-secondary)">工具调用</span>
+                    <span class="text-xs px-1.5 py-0.5 rounded" style="color: var(--morandi-accent); background: var(--morandi-input-bg)">{{ toolCall.name }}</span>
+                  </div>
+                  <ChevronDown :class="[
+                    'w-3.5 h-3.5 transition-transform duration-200',
+                    expandedToolCalls[`${i}-${ti}`] ? 'rotate-180' : ''
+                  ]" style="color: var(--morandi-text-muted)" />
+                </button>
+                <div v-if="expandedToolCalls[`${i}-${ti}`]" class="px-3.5 pb-3 space-y-2 border-t" style="border-color: var(--morandi-divider)">
+                  <div>
+                    <div class="text-xs mb-1 font-medium" style="color: var(--morandi-text-muted)">参数</div>
+                    <pre class="text-xs rounded-md p-2.5 overflow-x-auto whitespace-pre-wrap morandi-input border" style="border-color: var(--morandi-border); color: var(--morandi-text)">{{ formatJson(toolCall.arguments) }}</pre>
+                  </div>
+                  <div>
+                    <div class="text-xs mb-1 font-medium" style="color: var(--morandi-text-muted)">结果</div>
+                    <pre class="text-xs rounded-md p-2.5 overflow-x-auto whitespace-pre-wrap morandi-input border" style="border-color: var(--morandi-border); color: var(--morandi-text)">{{ formatJson(toolCall.result) }}</pre>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div v-if="!msg.isStreaming && msg.costTime"
-            class="flex justify-between items-end pt-2 border-t border-blue-200/30">
-            <div
-              class="text-xs text-slate-500 bg-white/60 px-2 py-1 rounded-full backdrop-blur-sm flex items-center">
-              <span class="inline-flex items-center">
+            <!-- 消息元信息 -->
+            <div v-if="!msg.isStreaming && (msg.costTime || (msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))))"
+              class="flex items-center gap-3 pt-2 mt-2 border-t" style="border-color: var(--morandi-divider)">
+              <span v-if="msg.costTime" class="text-xs flex items-center" style="color: var(--morandi-text-faint)">
                 <Clock class="w-3 h-3 mr-1" />
                 {{ (msg.costTime / 1000).toFixed(2) }}s
               </span>
               <span
-                v-if="msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))">
-                &emsp;引用文档 {{ msg.knowledgebase.docCount || 0 }}个 : {{ msg.knowledgebase.docName?.join(', ') }}
+                v-if="msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))"
+                class="text-xs" style="color: var(--morandi-text-faint)">
+                引用文档 {{ msg.knowledgebase.docCount || 0 }}个
               </span>
             </div>
           </div>
-        </div>
-      </template>
-      <template v-else>
-        <div
-          class="rounded-3xl px-8 py-5 max-w-[70%] break-words bg-gradient-to-r from-blue-400 to-purple-400 text-white font-bold shadow-lg text-lg relative">
-          {{ msg.text }}
-          <span v-if="msg.isStreaming" class="inline-block w-2 h-5 bg-white ml-1 animate-pulse"></span>
-        </div>
-      </template>
-    </div>
+        </template>
+
+        <!-- 用户消息 -->
+        <template v-else>
+          <div
+            class="rounded-2xl px-6 py-3 max-w-[68%] break-words text-sm shadow-sm"
+            style="background: var(--morandi-primary); color: var(--morandi-text-on-primary)">
+            {{ msg.text }}
+            <span v-if="msg.isStreaming" class="inline-block w-1.5 h-4 ml-0.5 align-middle animate-blink" style="background: rgba(255,255,255,0.7)"></span>
+          </div>
+        </template>
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, nextTick, watch, reactive } from 'vue'
-import { Bot, Clock, Wrench, ChevronDown } from 'lucide-vue-next'
+import { Bot, Clock, Wrench, ChevronDown, CheckCircle } from 'lucide-vue-next'
 import type { DisplayMessage } from '../types'
 
 const props = withDefaults(defineProps<{
@@ -89,10 +152,15 @@ const userScrolledManually = ref(false)
 const lastScrollTime = ref(0)
 const SCROLL_TIMEOUT = 10000
 const expandedToolCalls = reactive<Record<string, boolean>>({})
+const expandedToolResults = reactive<Record<number, boolean>>({})
 
 const toggleToolCall = (msgIndex: number, toolIndex: number) => {
   const key = `${msgIndex}-${toolIndex}`
   expandedToolCalls[key] = !expandedToolCalls[key]
+}
+
+const toggleToolResult = (msgIndex: number) => {
+  expandedToolResults[msgIndex] = !expandedToolResults[msgIndex]
 }
 
 const formatJson = (str: string): string => {

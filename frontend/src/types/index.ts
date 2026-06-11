@@ -15,8 +15,6 @@ export interface Assistant {
   name: string
   description: string
   personality: string
-  chatMessage: ChatMessage[]
-  knowledgeIds: string[]
   voice: string
   userId: string
   createdAt: string
@@ -49,12 +47,14 @@ export interface VoiceCallState {
 }
 
 export interface DisplayMessage {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'tool_call' | 'tool_result'
   text: string
   isStreaming?: boolean
   costTime?: number
   knowledgebase?: KnowledgebaseInfo
   toolCalls?: ToolCallResult[]
+  toolName?: string
+  toolResult?: string
 }
 
 export interface KnowledgeBase {
@@ -83,12 +83,12 @@ export interface UpdateAssistantData extends CreateAssistantData {
 }
 
 export interface LoginData {
-  name: string
+  username: string
   password: string
 }
 
 export interface RegisterData {
-  name: string
+  username: string
   password: string
 }
 
@@ -100,9 +100,29 @@ export interface AuthResponse {
 
 export interface User {
   id: string
-  name: string
-  assistantIds: string[]
-  knowledgeIds: string[]
+  username: string
+  nickname: string
+  avatar: string
+  email: string
+  phone: string
   createdAt: string
   updatedAt: string
+}
+
+export interface ToolCallMessage {
+  type: 'tool_call' | 'tool_result'
+  name?: string
+  arguments?: string
+  result?: string
+}
+
+export interface QueryEndData {
+  message?: string
+  costTime?: number
+  knowledgebase?: KnowledgebaseInfo
+}
+
+export interface WsChatMessage {
+  type: 'assistant_message' | 'tool_call' | 'tool_result' | 'error' | 'query_end'
+  data: ChatAnswer | ToolCallMessage | QueryEndData | string
 }
