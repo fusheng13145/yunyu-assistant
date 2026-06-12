@@ -9,14 +9,21 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.LocalDateTime;
 
 /**
- * 助手实体类
+ * 助手信息实体
  * 对应数据表：assistants
+ *
+ * @author leyon
  */
 @TableName("assistants")
 public class Assistant {
 
+    /** 逻辑删除-未删除 */
+    public static final int NOT_DELETED = 0;
+    /** 逻辑删除-已删除 */
+    public static final int DELETED = 1;
+
     /**
-     * 助手UUID（主键）
+     * 主键ID（UUID）
      */
     @TableId(type = IdType.ASSIGN_UUID)
     private String id;
@@ -27,39 +34,40 @@ public class Assistant {
     private String name;
 
     /**
-     * 助手描述
+     * 助手简介描述
      */
     private String description;
 
     /**
-     * 系统提示词/人设
+     * AI 人设 / 系统提示词
      */
     private String personality;
 
     /**
-     * 助手音色
+     * TTS 语音音色编码
      */
     private String voice;
 
     /**
-     * 所属用户ID
+     * 归属用户ID
      */
     private String userId;
 
     /**
-     * 创建时间，插入自动填充
+     * 创建时间，自动填充
      */
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
     /**
-     * 更新时间，插入&更新自动填充
+     * 最后更新时间，自动填充
      */
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 
     /**
-     * 逻辑删除：0-未删除 1-已删除
+     * 逻辑删除标识
+     * 0 = 正常，1 = 已删除
      */
     @TableLogic
     private Integer isDeleted;
@@ -67,6 +75,20 @@ public class Assistant {
     public Assistant() {
     }
 
+    public Assistant(String id, String name, String description, String personality, String voice,
+                     String userId, LocalDateTime createdAt, LocalDateTime updatedAt, Integer isDeleted) {
+        this.id = id;
+        this.name = name;
+        this.description = description;
+        this.personality = personality;
+        this.voice = voice;
+        this.userId = userId;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+        this.isDeleted = isDeleted;
+    }
+
+    // ========== Getter & Setter ==========
     public String getId() {
         return id;
     }
@@ -137,5 +159,20 @@ public class Assistant {
 
     public void setIsDeleted(Integer isDeleted) {
         this.isDeleted = isDeleted;
+    }
+
+    @Override
+    public String toString() {
+        return "Assistant{" +
+                "id='" + id + '\'' +
+                ", name='" + name + '\'' +
+                ", description='" + description + '\'' +
+                ", personality='" + personality + '\'' +
+                ", voice='" + voice + '\'' +
+                ", userId='" + userId + '\'' +
+                ", createdAt=" + createdAt +
+                ", updatedAt=" + updatedAt +
+                ", isDeleted=" + isDeleted +
+                '}';
     }
 }

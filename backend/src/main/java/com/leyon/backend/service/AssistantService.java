@@ -4,10 +4,15 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.mapper.AssistantMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
-import java.util.UUID;
 
+/**
+ * 助手业务服务
+ *
+ * @author leyon
+ */
 @Service
 public class AssistantService {
 
@@ -17,29 +22,65 @@ public class AssistantService {
         this.assistantMapper = assistantMapper;
     }
 
+    /**
+     * 创建助手信息
+     * @param assistant 助手实体
+     * @return 保存后的助手对象
+     */
     public Assistant create(Assistant assistant) {
-        assistant.setId(UUID.randomUUID().toString());
+        // MP 已配置 ASSIGN_UUID，无需手动生成ID，移除重复UUID逻辑
         assistantMapper.insert(assistant);
         return assistant;
     }
 
+    /**
+     * 根据用户ID查询所属助手列表（按创建时间倒序）
+     * @param userId 用户ID
+     * @return 助手集合
+     */
     public List<Assistant> listByUserId(String userId) {
-        return assistantMapper.selectList(
-            new LambdaQueryWrapper<Assistant>()
+        if (!StringUtils.hasText(userId)) {
+            return List.of();
+        }
+        LambdaQueryWrapper<Assistant> queryWrapper = new LambdaQueryWrapper<Assistant>()
                 .eq(Assistant::getUserId, userId)
-                .orderByDesc(Assistant::getCreatedAt)
-        );
+                .orderByDesc(Assistant::getCreatedAt);
+        return assistantMapper.selectList(queryWrapper);
     }
 
+    /**
+     * 根据主键ID查询单条助手
+     * @param id 助手ID
+     * @return 助手实体，不存在返回 null
+     */
     public Assistant getById(String id) {
+        if (!StringUtils.hasText(id)) {
+            return null;
+        }
         return assistantMapper.selectById(id);
     }
 
+    /**
+     * 根据ID删除助手（逻辑删除）
+     * @param id 助手ID
+     * @return true-删除成功 false-删除失败
+     */
     public boolean delete(String id) {
+        if (!StringUtils.hasText(id)) {
+            return false;
+        }
         return assistantMapper.deleteById(id) > 0;
     }
 
+    /**
+     * 更新助手信息（根据主键更新）
+     * @param assistant 待更新实体（必须包含主键ID）
+     * @return true-更新成功 false-更新失败
+     */
     public boolean update(Assistant assistant) {
+        if (assistant == null || !StringUtils.hasText(assistant.getId())) {
+            return false;
+        }
         return assistantMapper.updateById(assistant) > 0;
     }
 }

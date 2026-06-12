@@ -4,6 +4,11 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+/**
+ * 项目启动入口
+ *
+ * @author leyon
+ */
 @SpringBootApplication
 @MapperScan("com.leyon.backend.mapper")
 public class BackendApplication {

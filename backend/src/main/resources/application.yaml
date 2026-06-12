@@ -42,7 +42,7 @@ spring:
 
 # MyBatis-Plus 閰嶇疆
 mybatis-plus:
-  # XML 鏄犲皠鏂囦欢浣嶇疆锛堜繚鐣欏吋瀹癸紝铏界劧鍩烘湰涓嶇敤浜嗭級
+  # XML 鏄犲皠鏂囦欢浣嶇疆
   mapper-locations: classpath:mapper/*.xml
   type-aliases-package: com.leyon.backend.entity
   configuration:
