@@ -22,6 +22,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import reactor.core.Disposable;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -305,10 +306,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
      * 从请求路径解析 assistantId
      */
     private String getAssistantId(@NonNull WebSocketSession session) {
-        if (session.getUri() == null) {
+        URI uri = session.getUri();
+        if (uri == null) {
             return null;
         }
-        String path = session.getUri().getPath();
+        String path = uri.getPath();
         int lastSlashIndex = path.lastIndexOf('/');
         if (lastSlashIndex < 0 || lastSlashIndex >= path.length() - 1) {
             return null;

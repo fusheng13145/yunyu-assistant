@@ -12,7 +12,7 @@
         <p class="brand-subtitle">智能协作，静谧致远</p>
       </header>
 
-      <!-- 表单卡片 -->
+      <!-- 注册表单卡片 -->
       <main class="morandi-card form-card animate-fade-up">
         <h2 class="form-title">创建账号</h2>
 
@@ -50,7 +50,7 @@
             />
           </div>
 
-          <!-- 密码规则提示 -->
+          <!-- 填写规则提示 -->
           <div class="rule-hint">
             <svg class="rule-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 12l2 2 4-4"></path>
@@ -59,10 +59,12 @@
             <span>用户名唯一，密码至少6位。注册成功后将自动登录。</span>
           </div>
 
+          <!-- 错误提示 -->
           <div v-if="errorMsg" class="error-msg">
             {{ errorMsg }}
           </div>
 
+          <!-- 注册按钮 -->
           <button
             type="button"
             @click="handleRegister"
@@ -79,6 +81,7 @@
             <span v-else>注册</span>
           </button>
 
+          <!-- 登录跳转 -->
           <div class="form-footer">
             <span class="footer-hint">已有账号？</span>
             <router-link to="/login" class="footer-link">返回登录</router-link>
@@ -86,7 +89,7 @@
         </form>
       </main>
 
-      <!-- 体验账号提示 -->
+      <!-- 体验账号提示卡片 -->
       <aside class="morandi-card info-tip animate-fade-up">
         <div class="tip-inner">
           <svg class="tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -96,7 +99,7 @@
           </svg>
           <div class="tip-content">
             <p class="tip-title">体验账号</p>
-            <p class="tip-desc">联系管理员获取体验账号，或使用上方表单注册新账号。</p>
+            <p class="tip-desc">联系管理员获取体验账号，也可使用上方表单注册新账号。</p>
           </div>
         </div>
       </aside>
@@ -114,31 +117,38 @@ import { register } from '../api/auth'
 const router = useRouter()
 const { themeMode } = useTheme()
 
+// 注册表单数据
 const form = ref({
   username: '',
   password: '',
   confirmPassword: '',
 })
 
+// 状态标识
 const loading = ref(false)
 const errorMsg = ref('')
 
-const canSubmit = computed(() =>
-  form.value.username.trim() &&
-  form.value.password.trim() &&
-  form.value.confirmPassword.trim()
-)
+// 表单校验：全部输入不为空才可提交
+const canSubmit = computed(() => {
+  return form.value.username.trim() &&
+    form.value.password.trim() &&
+    form.value.confirmPassword.trim()
+})
 
+/**
+ * 注册提交逻辑
+ */
 const handleRegister = async () => {
   if (!canSubmit.value || loading.value) return
 
+  // 密码一致性校验
   if (form.value.password !== form.value.confirmPassword) {
-    errorMsg.value = '两次输入的密码不一致'
+    errorMsg.value = '两次输入的密码不一致，请重新填写'
     return
   }
-
+  // 密码长度校验
   if (form.value.password.length < 6) {
-    errorMsg.value = '密码长度不能少于6位'
+    errorMsg.value = '密码长度不能少于6位，请调整'
     return
   }
 
@@ -150,12 +160,14 @@ const handleRegister = async () => {
       username: form.value.username.trim(),
       password: form.value.password,
     })
+    // 存储登录信息
     localStorage.setItem('token', res.token)
     localStorage.setItem('userId', res.userId)
     localStorage.setItem('username', res.username)
+    // 注册成功跳转首页
     router.push('/smartrobot')
-  } catch (error) {
-    errorMsg.value = (error as Error).message || '注册失败'
+  } catch (err) {
+    errorMsg.value = (err as Error).message || '账号注册失败，请稍后重试'
   } finally {
     loading.value = false
   }
@@ -171,8 +183,10 @@ const handleRegister = async () => {
   background: var(--morandi-bg-base);
   position: relative;
   overflow: hidden;
+  transition: background-color 0.3s ease;
 }
 
+/* 背景渐变装饰 */
 .register-page::before {
   content: '';
   position: absolute;
@@ -184,8 +198,10 @@ const handleRegister = async () => {
     var(--morandi-bg-cool) 100%
   );
   opacity: 0.6;
+  z-index: 0;
 }
 
+/* 主题切换定位 */
 .theme-toggle-wrap {
   position: absolute;
   top: 20px;
@@ -193,6 +209,7 @@ const handleRegister = async () => {
   z-index: 10;
 }
 
+/* 内容容器 */
 .register-container {
   position: relative;
   z-index: 1;
@@ -205,7 +222,7 @@ const handleRegister = async () => {
   gap: 20px;
 }
 
-/* 品牌区域 */
+/* 品牌头部 */
 .brand-header {
   text-align: center;
   margin-bottom: 4px;
@@ -217,6 +234,7 @@ const handleRegister = async () => {
   color: var(--morandi-text);
   letter-spacing: 0.04em;
   line-height: 1.3;
+  margin: 0;
 }
 
 .brand-subtitle {
@@ -224,6 +242,7 @@ const handleRegister = async () => {
   font-size: 14px;
   color: var(--morandi-text-muted);
   letter-spacing: 0.06em;
+  margin: 0;
 }
 
 /* 表单卡片 */
@@ -231,6 +250,7 @@ const handleRegister = async () => {
   width: 100%;
   padding: 36px 32px 28px;
   border-radius: var(--radius-lg);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
 }
 
 .form-title {
@@ -238,11 +258,11 @@ const handleRegister = async () => {
   font-weight: 600;
   color: var(--morandi-text);
   text-align: center;
-  margin-bottom: 24px;
+  margin: 0 0 24px;
   letter-spacing: 0.02em;
 }
 
-/* 表单项 */
+/* 表单布局 */
 .register-form {
   display: flex;
   flex-direction: column;
@@ -268,16 +288,20 @@ const handleRegister = async () => {
   font-size: 14px;
   border-radius: var(--radius-md);
   box-sizing: border-box;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
-/* 密码规则提示 */
+.form-group .morandi-input:focus {
+  box-shadow: 0 0 0 2px rgba(140, 129, 120, 0.15);
+}
+
+/* 规则提示栏 */
 .rule-hint {
   display: flex;
   align-items: flex-start;
   gap: 7px;
   padding: 11px 13px;
-  margin-top: 2px;
-  margin-bottom: 4px;
+  margin: 2px 0 4px;
   font-size: 12px;
   line-height: 1.55;
   color: var(--morandi-text-muted);
@@ -295,7 +319,7 @@ const handleRegister = async () => {
   opacity: 0.65;
 }
 
-/* 错误信息 */
+/* 错误提示 */
 .error-msg {
   margin-top: 4px;
   padding: 10px 14px;
@@ -305,9 +329,10 @@ const handleRegister = async () => {
   background: rgba(211, 84, 84, 0.08);
   color: var(--morandi-error);
   border: 1px solid rgba(211, 84, 84, 0.15);
+  line-height: 1.5;
 }
 
-/* 提交按钮 */
+/* 注册按钮 */
 .submit-btn {
   width: 100%;
   height: 44px;
@@ -317,12 +342,14 @@ const handleRegister = async () => {
   letter-spacing: 0.04em;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 200ms ease;
+  transition: all 0.2s ease;
 }
 
 .submit-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 .submit-btn:not(:disabled):hover {
@@ -351,7 +378,7 @@ const handleRegister = async () => {
   to { transform: rotate(360deg); }
 }
 
-/* 底部链接 */
+/* 底部跳转链接 */
 .form-footer {
   margin-top: 20px;
   text-align: center;
@@ -366,7 +393,7 @@ const handleRegister = async () => {
   color: var(--morandi-primary);
   font-weight: 500;
   margin-left: 4px;
-  transition: color 200ms ease;
+  transition: color 0.2s ease;
 }
 
 .footer-link:hover {
@@ -375,7 +402,7 @@ const handleRegister = async () => {
   text-underline-offset: 3px;
 }
 
-/* 体验账号提示 */
+/* 体验账号提示卡片 */
 .info-tip {
   width: 100%;
   padding: 16px 18px;
@@ -405,12 +432,29 @@ const handleRegister = async () => {
   font-size: 13px;
   font-weight: 600;
   color: var(--morandi-text-secondary);
-  margin-bottom: 3px;
+  margin: 0 0 3px;
 }
 
 .tip-desc {
   font-size: 12px;
   color: var(--morandi-text-muted);
   line-height: 1.6;
+  margin: 0;
+}
+
+/* 全局淡入动画（与登录页、404页统一） */
+.animate-fade-up {
+  animation: fadeUp 0.4s ease-out;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

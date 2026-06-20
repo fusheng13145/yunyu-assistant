@@ -7,25 +7,26 @@ interface WebSocketHandlers {
 
 export function useWebSocket(url: string, handlers: WebSocketHandlers = {}) {
   let ws: WebSocket | null = null
-
   const token = localStorage.getItem('token')
 
   const connect = () => {
-    // 通过 Sec-WebSocket-Protocol 头传递 token（握手阶段认证，避免出现在 URL 中）
+    // 握手阶段通过子协议传递 token
     ws = token ? new WebSocket(url, [token]) : new WebSocket(url)
 
-    ws.onopen = handlers.onOpen || (() => {})
-    ws.onmessage = handlers.onMessage || (() => {})
-    ws.onclose = handlers.onClose || (() => {})
-    ws.onerror = handlers.onError || (() => {})
+    ws.onopen = handlers.onOpen ?? (() => {})
+    ws.onmessage = handlers.onMessage ?? (() => {})
+    ws.onclose = handlers.onClose ?? (() => {})
+    ws.onerror = handlers.onError ?? (() => {})
   }
 
+  /** 发送消息，自动序列化对象 */
   const send = (data: string | object) => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(typeof data === 'string' ? data : JSON.stringify(data))
-    }
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    const payload = typeof data === 'string' ? data : JSON.stringify(data)
+    ws.send(payload)
   }
 
+  /** 主动关闭连接 */
   const close = () => {
     if (ws) {
       ws.close()
@@ -38,6 +39,6 @@ export function useWebSocket(url: string, handlers: WebSocketHandlers = {}) {
   return {
     send,
     close,
-    get instance() { return ws },
+    get instance() { return ws }
   }
 }

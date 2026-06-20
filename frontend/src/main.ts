@@ -4,34 +4,33 @@ import './style.css'
 import App from './App.vue'
 import router from './router'
 
-// 初始化主题（在挂载前执行，避免闪烁）
+// 主题配置常量
 const THEME_KEY = 'yunyu-theme-mode'
-const savedTheme = localStorage.getItem(THEME_KEY) || 'system'
+type ThemeMode = 'light' | 'dark' | 'system'
 
-function applyInitialTheme(mode: string) {
+/** 应用主题样式 */
+function applyTheme(mode: ThemeMode) {
   const html = document.documentElement
-  const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+  const isSystemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
 
-  if (mode === 'dark' || (mode === 'system' && prefersDark)) {
-    html.classList.add('dark')
-  } else {
-    html.classList.remove('dark')
-  }
+  html.classList.toggle('dark', mode === 'dark' || (mode === 'system' && isSystemDark))
 }
 
-// 立即应用主题（同步，在渲染前）
-applyInitialTheme(savedTheme)
+// 初始化主题（防止页面闪烁，挂载前同步执行）
+const savedTheme = (localStorage.getItem(THEME_KEY) || 'system') as ThemeMode
+applyTheme(savedTheme)
 
-// 为根元素添加平滑过渡类
+// 开启主题切换过渡（修复：直接获取 document.documentElement）
 document.documentElement.classList.add('theme-transition')
 
-// 监听系统主题变化
+// 监听系统主题变化（仅跟随系统模式时生效）
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   if (localStorage.getItem(THEME_KEY) === 'system') {
     document.documentElement.classList.toggle('dark', e.matches)
   }
 })
 
+// 初始化应用
 const app = createApp(App)
 app.use(createPinia())
 app.use(router).mount('#app')

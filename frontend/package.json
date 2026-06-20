@@ -3,10 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "author": "",
+  "description": "云谕助手 - 前端项目",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "build:test": "vue-tsc -b && vite build --mode test",
+    "preview": "vite preview",
+    "type:check": "vue-tsc --noEmit",
+    "lint": "echo \"no lint config\""
   },
   "dependencies": {
     "lucide-vue-next": "^0.525.0",
@@ -22,7 +27,17 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "~6.0.2",
-    "vite": "^8.0.12",
+    "vite": "^6.2.0",
     "vue-tsc": "^3.2.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "peerDependencyRules": {
+      "ignoreMissing": [
+        "@rollup/rollup-linux-*"
+      ]
+    }
   }
 }

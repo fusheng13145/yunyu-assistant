@@ -1,18 +1,18 @@
 <template>
   <div class="login-page morandi-body">
-    <!-- 主题切换 -->
+    <!-- 主题切换按钮 -->
     <div class="theme-toggle-wrap">
       <ThemeToggle v-model="themeMode" />
     </div>
 
     <div class="login-container">
-      <!-- 品牌区域 -->
+      <!-- 品牌头部 -->
       <header class="brand-header">
         <h1 class="brand-title serif">云谕助手</h1>
         <p class="brand-subtitle">智能协作，静谧致远</p>
       </header>
 
-      <!-- 表单卡片 -->
+      <!-- 登录表单卡片 -->
       <main class="morandi-card form-card animate-fade-up">
         <h2 class="form-title">欢迎回来</h2>
 
@@ -39,10 +39,12 @@
             />
           </div>
 
+          <!-- 错误提示 -->
           <div v-if="errorMsg" class="error-msg">
             {{ errorMsg }}
           </div>
 
+          <!-- 登录按钮 -->
           <button
             type="button"
             @click="handleLogin"
@@ -52,13 +54,14 @@
             <span v-if="loading" class="btn-loading">
               <svg class="spin-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 5.824 3 7.938l3-2.647z"></path>
               </svg>
               登录中...
             </span>
             <span v-else>登录</span>
           </button>
 
+          <!-- 注册跳转 -->
           <div class="form-footer">
             <span class="footer-hint">还没有账号？</span>
             <router-link to="/register" class="footer-link">注册新账号</router-link>
@@ -66,7 +69,7 @@
         </form>
       </main>
 
-      <!-- 体验账号提示 -->
+      <!-- 体验账号提示卡片 -->
       <aside class="morandi-card info-tip animate-fade-up">
         <div class="tip-inner">
           <svg class="tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -76,7 +79,7 @@
           </svg>
           <div class="tip-content">
             <p class="tip-title">体验账号</p>
-            <p class="tip-desc">联系管理员获取体验账号，或使用注册功能创建新账号。</p>
+            <p class="tip-desc">联系管理员获取体验账号，也可通过注册功能自主创建新账号。</p>
           </div>
         </div>
       </aside>
@@ -91,19 +94,28 @@ import { useTheme } from '../composables/useTheme'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { login } from '../api/auth'
 
+// 路由 & 主题
 const router = useRouter()
 const { themeMode } = useTheme()
 
+// 登录表单数据
 const form = ref({
   username: '',
   password: '',
 })
 
+// 状态控制
 const loading = ref(false)
 const errorMsg = ref('')
 
-const canSubmit = computed(() => form.value.username.trim() && form.value.password.trim())
+// 表单是否可提交
+const canSubmit = computed(() => {
+  return form.value.username.trim() && form.value.password.trim()
+})
 
+/**
+ * 登录提交逻辑
+ */
 const handleLogin = async () => {
   if (!canSubmit.value || loading.value) return
 
@@ -115,12 +127,14 @@ const handleLogin = async () => {
       username: form.value.username.trim(),
       password: form.value.password,
     })
+    // 本地存储登录信息
     localStorage.setItem('token', res.token)
     localStorage.setItem('userId', res.userId)
     localStorage.setItem('username', res.username)
+    // 跳转至助手主页
     router.push('/smartrobot')
-  } catch (error) {
-    errorMsg.value = (error as Error).message || '登录失败'
+  } catch (err) {
+    errorMsg.value = (err as Error).message || '登录失败，请检查账号密码'
   } finally {
     loading.value = false
   }
@@ -128,6 +142,7 @@ const handleLogin = async () => {
 </script>
 
 <style scoped>
+/* 页面根容器 */
 .login-page {
   min-height: 100vh;
   display: flex;
@@ -136,8 +151,10 @@ const handleLogin = async () => {
   background: var(--morandi-bg-base);
   position: relative;
   overflow: hidden;
+  transition: background-color 0.3s ease;
 }
 
+/* 背景渐变装饰层 */
 .login-page::before {
   content: '';
   position: absolute;
@@ -149,8 +166,10 @@ const handleLogin = async () => {
     var(--morandi-bg-cool) 100%
   );
   opacity: 0.6;
+  z-index: 0;
 }
 
+/* 主题切换定位 */
 .theme-toggle-wrap {
   position: absolute;
   top: 20px;
@@ -158,6 +177,7 @@ const handleLogin = async () => {
   z-index: 10;
 }
 
+/* 登录内容容器 */
 .login-container {
   position: relative;
   z-index: 1;
@@ -170,7 +190,7 @@ const handleLogin = async () => {
   gap: 20px;
 }
 
-/* 品牌区域 */
+/* 品牌头部样式 */
 .brand-header {
   text-align: center;
   margin-bottom: 4px;
@@ -182,6 +202,7 @@ const handleLogin = async () => {
   color: var(--morandi-text);
   letter-spacing: 0.04em;
   line-height: 1.3;
+  margin: 0;
 }
 
 .brand-subtitle {
@@ -189,13 +210,15 @@ const handleLogin = async () => {
   font-size: 14px;
   color: var(--morandi-text-muted);
   letter-spacing: 0.06em;
+  margin: 0;
 }
 
-/* 表单卡片 */
+/* 登录表单卡片 */
 .form-card {
   width: 100%;
   padding: 36px 32px 28px;
   border-radius: var(--radius-lg);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
 }
 
 .form-title {
@@ -203,11 +226,11 @@ const handleLogin = async () => {
   font-weight: 600;
   color: var(--morandi-text);
   text-align: center;
-  margin-bottom: 28px;
+  margin: 0 0 28px;
   letter-spacing: 0.02em;
 }
 
-/* 表单项 */
+/* 表单布局 */
 .login-form {
   display: flex;
   flex-direction: column;
@@ -233,11 +256,16 @@ const handleLogin = async () => {
   font-size: 14px;
   border-radius: var(--radius-md);
   box-sizing: border-box;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
-/* 错误信息 */
+.form-group .morandi-input:focus {
+  box-shadow: 0 0 0 2px rgba(140, 129, 120, 0.15);
+}
+
+/* 错误提示 */
 .error-msg {
-  margin-top: 4px;
+  margin: 4px 0 8px;
   padding: 10px 14px;
   font-size: 13px;
   text-align: center;
@@ -245,9 +273,10 @@ const handleLogin = async () => {
   background: rgba(211, 84, 84, 0.08);
   color: var(--morandi-error);
   border: 1px solid rgba(211, 84, 84, 0.15);
+  line-height: 1.5;
 }
 
-/* 提交按钮 */
+/* 登录按钮 */
 .submit-btn {
   width: 100%;
   height: 44px;
@@ -257,12 +286,14 @@ const handleLogin = async () => {
   letter-spacing: 0.04em;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 200ms ease;
+  transition: all 0.2s ease;
 }
 
 .submit-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 .submit-btn:not(:disabled):hover {
@@ -291,7 +322,7 @@ const handleLogin = async () => {
   to { transform: rotate(360deg); }
 }
 
-/* 底部链接 */
+/* 表单底部跳转 */
 .form-footer {
   margin-top: 20px;
   text-align: center;
@@ -306,7 +337,7 @@ const handleLogin = async () => {
   color: var(--morandi-primary);
   font-weight: 500;
   margin-left: 4px;
-  transition: color 200ms ease;
+  transition: color 0.2s ease;
 }
 
 .footer-link:hover {
@@ -315,7 +346,7 @@ const handleLogin = async () => {
   text-underline-offset: 3px;
 }
 
-/* 体验账号提示 */
+/* 体验账号提示卡片 */
 .info-tip {
   width: 100%;
   padding: 16px 18px;
@@ -345,12 +376,29 @@ const handleLogin = async () => {
   font-size: 13px;
   font-weight: 600;
   color: var(--morandi-text-secondary);
-  margin-bottom: 3px;
+  margin: 0 0 3px;
 }
 
 .tip-desc {
   font-size: 12px;
   color: var(--morandi-text-muted);
   line-height: 1.6;
+  margin: 0;
+}
+
+/* 全局动画类复用 */
+.animate-fade-up {
+  animation: fadeUp 0.4s ease-out;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

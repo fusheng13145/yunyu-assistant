@@ -1,61 +1,54 @@
-/* ---- Google Fonts 引入（必须在最前面） ---- */
+/* Google Fonts 字体引入（优先级最高） */
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
 
+/* Tailwind 核心指令 */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ============================================
-   云谕助手 · 静谧编辑风设计系统
-   Quiet Editorial Design System
-   
-   设计理念：温暖纸质触感 + 精致衬线标题
-   克制动效 + 莫兰迪低饱和色板
-   亮色 / 暗色 / 系统跟随 三模式切换
-   ============================================ */
-
+/* ====================== 设计变量系统 ====================== */
+/* 莫兰迪 亮色主题 */
 :root {
-  /* ===== 莫兰迪亮色模式 ===== */
-  /* 背景：温暖的米灰调，模拟手工纸张 */
+  /* 背景色系 */
   --morandi-bg-base: #F2EDE6;
   --morandi-bg-warm: #EBE4DB;
   --morandi-bg-cool: #E5E0D8;
   --morandi-bg-subtle: #F7F4F0;
 
-  /* 主色：沉稳的灰蓝，不抢眼但有存在感 */
+  /* 主色 */
   --morandi-primary: #6B7C8A;
   --morandi-primary-hover: #5A6B78;
   --morandi-primary-active: #4A5A66;
-  --morandi-primary-light: rgba(107,124,138,0.10);
-  --morandi-primary-ring: rgba(107,124,138,0.25);
+  --morandi-primary-light: rgba(107, 124, 138, 0.10);
+  --morandi-primary-ring: rgba(107, 124, 138, 0.25);
 
-  /* 点缀：灰玫瑰，用于强调和交互 */
+  /* 点缀色 */
   --morandi-accent: #9E8E85;
   --morandi-accent-hover: #8E7E75;
-  --morandi-accent-light: rgba(158,142,133,0.12);
+  --morandi-accent-light: rgba(158, 142, 133, 0.12);
 
-  /* 语义色 */
+  /* 语义状态色 */
   --morandi-success: #7A9E82;
-  --morandi-success-bg: rgba(122,158,130,0.10);
+  --morandi-success-bg: rgba(122, 158, 130, 0.10);
   --morandi-error: #B87A7A;
-  --morandi-error-bg: rgba(184,122,122,0.10);
+  --morandi-error-bg: rgba(184, 122, 122, 0.10);
   --morandi-warning: #BCA074;
-  --morandi-warning-bg: rgba(188,160,116,0.12);
+  --morandi-warning-bg: rgba(188, 160, 116, 0.12);
   --morandi-info: #7A8E9E;
-  --morandi-info-bg: rgba(122,142,158,0.08);
+  --morandi-info-bg: rgba(122, 142, 158, 0.08);
 
-  /* 卡片与表面 */
-  --morandi-surface: rgba(255,255,255,0.72);
-  --morandi-surface-raised: rgba(255,255,255,0.88);
-  --morandi-border: rgba(60,55,50,0.10);
-  --morandi-border-strong: rgba(60,55,50,0.18);
-  --morandi-divider: rgba(60,55,50,0.06);
+  /* 面板/边框 */
+  --morandi-surface: rgba(255, 255, 255, 0.72);
+  --morandi-surface-raised: rgba(255, 255, 255, 0.88);
+  --morandi-border: rgba(60, 55, 50, 0.10);
+  --morandi-border-strong: rgba(60, 55, 50, 0.18);
+  --morandi-divider: rgba(60, 55, 50, 0.06);
 
   /* 输入框 */
-  --morandi-input-bg: rgba(255,255,255,0.50);
-  --morandi-input-border: rgba(60,55,50,0.12);
+  --morandi-input-bg: rgba(255, 255, 255, 0.50);
+  --morandi-input-border: rgba(60, 55, 50, 0.12);
   --morandi-input-focus-border: var(--morandi-primary);
-  --morandi-input-focus-ring: rgba(107,124,138,0.18);
+  --morandi-input-focus-ring: rgba(107, 124, 138, 0.18);
 
   /* 文字层级 */
   --morandi-text: #3D3833;
@@ -64,32 +57,32 @@
   --morandi-text-faint: #C8C4BE;
   --morandi-text-on-primary: #FAF8F5;
 
-  /* 功能色 */
-  --morandi-overlay: rgba(45,40,35,0.40);
-  --morandi-shadow-color: rgba(61,56,51,0.06);
-  --morandi-shadow-md: rgba(61,56,51,0.10);
-  --morandi-shadow-lg: rgba(61,56,51,0.15);
+  /* 遮罩 & 阴影 */
+  --morandi-overlay: rgba(45, 40, 35, 0.40);
+  --morandi-shadow-color: rgba(61, 56, 51, 0.06);
+  --morandi-shadow-md: rgba(61, 56, 51, 0.10);
+  --morandi-shadow-lg: rgba(61, 56, 51, 0.15);
 
-  /* 头像 / 标识 */
+  /* 标签色 */
   --morandi-tag-blue: #7B96AA;
   --morandi-tag-purple: #9E8E9E;
   --morandi-tag-gold: #B5A48A;
 
   /* 滚动条 */
-  --morandi-scroll-thumb: rgba(107,124,138,0.18);
-  --morandi-scroll-thumb-hover: rgba(107,124,138,0.32);
+  --morandi-scroll-thumb: rgba(107, 124, 138, 0.18);
+  --morandi-scroll-thumb-hover: rgba(107, 124, 138, 0.32);
 
-  /* 噪点纹理（亮色用浅噪点） */
+  /* 纹理透明度 */
   --noise-opacity: 0.03;
 
-  /* 圆角体系 */
+  /* 圆角统一体系 */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
   --radius-xl: 22px;
 }
 
-/* ===== 莫兰迪暗色模式 ===== */
+/* 莫兰迪 暗色主题 */
 .dark {
   --morandi-bg-base: #1A1917;
   --morandi-bg-warm: #1F1D1B;
@@ -99,32 +92,32 @@
   --morandi-primary: #94A3AF;
   --morandi-primary-hover: #A4B3BF;
   --morandi-primary-active: #B4C3CF;
-  --morandi-primary-light: rgba(148,163,175,0.10);
-  --morandi-primary-ring: rgba(148,163,175,0.20);
+  --morandi-primary-light: rgba(148, 163, 175, 0.10);
+  --morandi-primary-ring: rgba(148, 163, 175, 0.20);
 
   --morandi-accent: #B0A39A;
   --morandi-accent-hover: #C0B3AA;
-  --morandi-accent-light: rgba(176,163,154,0.10);
+  --morandi-accent-light: rgba(176, 163, 154, 0.10);
 
   --morandi-success: #8AB892;
-  --morandi-success-bg: rgba(138,184,146,0.09);
+  --morandi-success-bg: rgba(138, 184, 146, 0.09);
   --morandi-error: #C88A8A;
-  --morandi-error-bg: rgba(200,138,138,0.09);
+  --morandi-error-bg: rgba(200, 138, 138, 0.09);
   --morandi-warning: #CCB288;
-  --morandi-warning-bg: rgba(204,178,136,0.10);
+  --morandi-warning-bg: rgba(204, 178, 136, 0.10);
   --morandi-info: #8EA0AE;
-  --morandi-info-bg: rgba(142,160,174,0.07);
+  --morandi-info-bg: rgba(142, 160, 174, 0.07);
 
-  --morandi-surface: rgba(255,255,255,0.048);
-  --morandi-surface-raised: rgba(255,255,255,0.075);
-  --morandi-border: rgba(180,175,168,0.08);
-  --morandi-border-strong: rgba(180,175,168,0.14);
-  --morandi-divider: rgba(180,175,168,0.05);
+  --morandi-surface: rgba(255, 255, 255, 0.048);
+  --morandi-surface-raised: rgba(255, 255, 255, 0.075);
+  --morandi-border: rgba(180, 175, 168, 0.08);
+  --morandi-border-strong: rgba(180, 175, 168, 0.14);
+  --morandi-divider: rgba(180, 175, 168, 0.05);
 
-  --morandi-input-bg: rgba(255,255,255,0.055);
-  --morandi-input-border: rgba(180,175,168,0.10);
+  --morandi-input-bg: rgba(255, 255, 255, 0.055);
+  --morandi-input-border: rgba(180, 175, 168, 0.10);
   --morandi-input-focus-border: var(--morandi-primary);
-  --morandi-input-focus-ring: rgba(148,163,175,0.14);
+  --morandi-input-focus-ring: rgba(148, 163, 175, 0.14);
 
   --morandi-text: #E5E0DA;
   --morandi-text-secondary: #AAA49C;
@@ -132,25 +125,22 @@
   --morandi-text-faint: #4A4640;
   --morandi-text-on-primary: #1A1917;
 
-  --morandi-overlay: rgba(0,0,0,0.55);
-  --morandi-shadow-color: rgba(0,0,0,0.12);
-  --morandi-shadow-md: rgba(0,0,0,0.20);
-  --morandi-shadow-lg: rgba(0,0,0,0.30);
+  --morandi-overlay: rgba(0, 0, 0, 0.55);
+  --morandi-shadow-color: rgba(0, 0, 0, 0.12);
+  --morandi-shadow-md: rgba(0, 0, 0, 0.20);
+  --morandi-shadow-lg: rgba(0, 0, 0, 0.30);
 
   --morandi-tag-blue: #6B8CA4;
   --morandi-tag-purple: #908090;
   --morandi-tag-gold: #C4B298;
 
-  --morandi-scroll-thumb: rgba(148,163,175,0.14);
-  --morandi-scroll-thumb-hover: rgba(148,163,175,0.26);
+  --morandi-scroll-thumb: rgba(148, 163, 175, 0.14);
+  --morandi-scroll-thumb-hover: rgba(148, 163, 175, 0.26);
 
   --noise-opacity: 0.025;
 }
 
-/* ============================================
-   基础重置 & 全局排版
-   ============================================ */
-
+/* ====================== 全局基础样式 ====================== */
 html {
   height: 100%;
   -webkit-font-smoothing: antialiased;
@@ -174,29 +164,27 @@ body {
   flex-direction: column;
 }
 
-.flex-1 { flex: 1 1 0%; min-height: 0; }
+.flex-1 {
+  flex: 1 1 0%;
+  min-height: 0;
+}
 
-/* ---- 排版系统 ---- */
-
+/* 标题/衬线字体统一 */
 h1, h2, h3, h4, h5, h6,
 .serif {
-  font-family: 'Noto Serif SC', 'Georgia', 'Times New Roman', serif;
+  font-family: 'Noto Serif SC', Georgia, 'Times New Roman', serif;
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1.35;
 }
 
-/* ============================================
-   背景 & 纹理层
-   ============================================ */
-
+/* ====================== 页面背景 & 纸质噪点纹理 ====================== */
 .morandi-body {
   position: relative;
   background-color: var(--morandi-bg-base);
   min-height: 100vh;
 }
 
-/* 微妙的噪点纹理 — 让界面有纸质触感 */
 .morandi-body::before {
   content: '';
   position: fixed;
@@ -207,37 +195,31 @@ h1, h2, h3, h4, h5, h6,
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.80' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
   background-repeat: repeat;
   background-size: 256px 256px;
+  will-change: opacity;
 }
 
-/* ============================================
-   组件样式库
-   ============================================ */
-
-/* ---- 卡片 ---- */
+/* ====================== 通用组件样式 ====================== */
+/* 基础卡片 */
 .morandi-card {
   background: var(--morandi-surface);
   border: 1px solid var(--morandi-border);
   border-radius: var(--radius-lg);
-  box-shadow:
-    0 1px 3px var(--morandi-shadow-color),
-    0 4px 12px var(--morandi-shadow-color);
+  box-shadow: 0 1px 3px var(--morandi-shadow-color), 0 4px 12px var(--morandi-shadow-color);
   transition: box-shadow 250ms ease, border-color 250ms ease;
 }
 .morandi-card:hover {
-  box-shadow:
-    0 2px 4px var(--morandi-shadow-color),
-    0 8px 24px var(--morandi-shadow-md);
+  box-shadow: 0 2px 4px var(--morandi-shadow-color), 0 8px 24px var(--morandi-shadow-md);
 }
+
+/* 高突出卡片 */
 .morandi-card-elevated {
   background: var(--morandi-surface-raised);
   border: 1px solid var(--morandi-border-strong);
   border-radius: var(--radius-lg);
-  box-shadow:
-    0 4px 12px var(--morandi-shadow-md),
-    0 16px 40px var(--morandi-shadow-lg);
+  box-shadow: 0 4px 12px var(--morandi-shadow-md), 0 16px 40px var(--morandi-shadow-lg);
 }
 
-/* ---- 输入框 ---- */
+/* 输入框 */
 .morandi-input {
   background: var(--morandi-input-bg);
   border: 1px solid var(--morandi-input-border);
@@ -262,7 +244,7 @@ textarea.morandi-input {
   line-height: 1.6;
 }
 
-/* ---- 按钮 ---- */
+/* 按钮基础 */
 .morandi-btn {
   display: inline-flex;
   align-items: center;
@@ -287,20 +269,20 @@ textarea.morandi-input {
 .morandi-btn-primary {
   background: var(--morandi-primary);
   color: var(--morandi-text-on-primary);
-  box-shadow: 0 2px 8px rgba(107,124,138,0.20);
+  box-shadow: 0 2px 8px rgba(107, 124, 138, 0.20);
 }
 .morandi-btn-primary:hover:not(:disabled) {
   background: var(--morandi-primary-hover);
-  box-shadow: 0 4px 14px rgba(107,124,138,0.28);
+  box-shadow: 0 4px 14px rgba(107, 124, 138, 0.28);
   transform: translateY(-1px);
 }
 .morandi-btn-primary:active:not(:disabled) {
   background: var(--morandi-primary-active);
   transform: translateY(0);
-  box-shadow: 0 1px 4px rgba(107,124,138,0.20);
+  box-shadow: 0 1px 4px rgba(107, 124, 138, 0.20);
 }
 .morandi-btn-primary:disabled {
-  opacity: 0.40;
+  opacity: 0.4;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
@@ -327,21 +309,21 @@ textarea.morandi-input {
   transform: translateY(-1px);
 }
 
-/* 小按钮 */
+/* 小号按钮 */
 .morandi-btn-sm {
   padding: 5px 12px;
   font-size: 12.5px;
   border-radius: var(--radius-sm);
 }
 
-/* ---- 分割线 ---- */
+/* 分割线 */
 .morandi-divider {
   height: 1px;
   background: var(--morandi-divider);
   border: none;
 }
 
-/* ---- 徽章 / 标签 ---- */
+/* 标签/徽章 */
 .morandi-badge {
   display: inline-flex;
   align-items: center;
@@ -353,10 +335,7 @@ textarea.morandi-input {
   letter-spacing: 0.02em;
 }
 
-/* ============================================
-   滚动条
-   ============================================ */
-
+/* ====================== 滚动条美化 ====================== */
 .morandi-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--morandi-scroll-thumb) transparent;
@@ -395,11 +374,8 @@ textarea.morandi-input {
   background-color: var(--morandi-scroll-thumb-hover);
 }
 
-/* ============================================
-   动画
-   ============================================ */
-
-/* 弹窗入场 — 克制的弹性 */
+/* ====================== 动画动画 ====================== */
+/* 弹窗入场 */
 @keyframes modal-in {
   from {
     opacity: 0;
@@ -411,22 +387,34 @@ textarea.morandi-input {
   }
 }
 .animate-modal-in {
-  animation: modal-in 0.30s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: modal-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* 淡入上移 */
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .animate-fade-up {
   animation: fade-up 0.35s ease forwards;
 }
 
-/* 列表项依次入场 */
+/* 列表逐项入场 */
 @keyframes stagger-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 光标闪烁 */
@@ -443,9 +431,13 @@ textarea.morandi-input {
 .theme-transition *,
 .theme-transition *::before,
 .theme-transition *::after {
-  transition-property: background-color, color, border-color, fill, stroke, box-shadow, background-image !important;
-  transition-duration: 300ms !important;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: background-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+              color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+              fill 300ms cubic-bezier(0.4, 0, 0.2, 1),
+              stroke 300ms cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1),
+              background-image 300ms cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 /* 禁用过渡 */
@@ -455,10 +447,7 @@ textarea.morandi-input {
   transition: none !important;
 }
 
-/* ============================================
-   工具类
-   ============================================ */
-
+/* ====================== 自定义工具类 ====================== */
 .text-morandi { color: var(--morandi-text); }
 .text-morandi-secondary { color: var(--morandi-text-secondary); }
 .text-morandi-muted { color: var(--morandi-text-muted); }
@@ -477,13 +466,7 @@ textarea.morandi-input {
 .border-morandi { border-color: var(--morandi-border); }
 .border-morandi-strong { border-color: var(--morandi-border-strong); }
 
-/* 渐变背景（仅用于登录等特殊页面） */
+/* 渐变背景（专用页面） */
 .bg-morandi-gradient {
-  background:
-    linear-gradient(
-      135deg,
-      var(--morandi-bg-warm) 0%,
-      var(--morandi-bg-base) 40%,
-      var(--morandi-bg-cool) 100%
-    );
+  background: linear-gradient(135deg, var(--morandi-bg-warm) 0%, var(--morandi-bg-base) 40%, var(--morandi-bg-cool) 100%);
 }
