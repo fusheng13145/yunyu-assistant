@@ -1,48 +1,53 @@
-﻿# 鏈嶅姟鍩虹閰嶇疆
+# 服务基础配置
 server:
   port: ${SERVER_PORT:8080}
   error:
     whitelabel:
       enabled: false
 
-# Spring 鏍稿績閰嶇疆
+# Spring 核心配置
 spring:
   application:
     name: backend
-  # 鏁版嵁婧愰厤缃?
+  servlet:
+    # Multipart 上传限制：与前端单文件 50MB 上限对齐，避免大文件上传被默认 1MB 拒绝
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 60MB
+  # 数据源配置（生产环境必须通过环境变量注入，禁止使用默认值）
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:yunyu_assistant}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowMultiQueries=true&rewriteBatchedStatements=true
-    username: ${DB_USER:root}
-    password: ${DB_PASSWORD:1234}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    # 杩炴帴姹犻厤缃紙Spring Boot3 榛樿 HikariCP锛屾樉寮忛厤缃紭鍖栨€ц兘锛?
-    hikari:
-      minimum-idle: 5
-      maximum-pool-size: 20
-      auto-commit: true
-      idle-timeout: 300000
-      connection-timeout: 10000
-  # 鏁版嵁搴撳垵濮嬪寲鑴氭湰
+      url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:yunyu_assistant}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowMultiQueries=true&rewriteBatchedStatements=true
+      username: ${DB_USER}
+      password: ${DB_PASSWORD}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      # 连接池配置（Spring Boot3 默认 HikariCP，显式配置优化性能）
+      hikari:
+        minimum-idle: 5
+        maximum-pool-size: 20
+        auto-commit: true
+        idle-timeout: 300000
+        connection-timeout: 10000
+  # 数据库初始化脚本
   sql:
     init:
       mode: never
       schema-locations: classpath:index.sql
-      # 鐢熶骇鐜寤鸿鍏抽棴锛屼粎寮€鍙戝惎鐢?
+      # 生产环境建议关闭，仅开发启用
       continue-on-error: false
-  # Spring AI 澶фā鍨嬮厤缃?
+  # Spring AI 大模型配置（生产必须注入真实 API Key/Base URL；默认值为占位，保证无 Key 时系统仍可启动，LLM 调用将降级）
   ai:
     openai:
-      api-key: ${OPENAI_API_KEY:sk-f59643b1f01d40d797d3741b733e15f5}
-      base-url: ${OPENAI_BASE_URL:https://platform.deepseek.com/v1}
+      api-key: ${OPENAI_API_KEY:dev-placeholder-llm-key}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
       chat:
         options:
           model: ${AI_MODEL:deepseek-chat}
           temperature: ${AI_TEMPERATURE:0.7}
           max-tokens: 2048
 
-# MyBatis-Plus 閰嶇疆
+# MyBatis-Plus 配置
 mybatis-plus:
-  # XML 鏄犲皠鏂囦欢浣嶇疆
+  # XML 映射文件位置
   mapper-locations: classpath:mapper/*.xml
   type-aliases-package: com.leyon.backend.entity
   configuration:
@@ -50,55 +55,69 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
     db-config:
-      # 涓婚敭绛栫暐锛欰SSIGN_ID锛堢敤鎴疯緭鍏ワ級
+      # 主键策略：ASSIGN_ID（用户输入）
       id-type: assign_uuid
-      # 閫昏緫鍒犻櫎瀛楁鍚?
+      # 逻辑删除字段名
       logic-delete-field: isDeleted
-      # 閫昏緫鍒犻櫎鍊硷細0=鏈垹闄? 1=宸插垹闄?
+      # 逻辑删除值：0=未删除, 1=已删除
       logic-not-delete-value: 0
       logic-delete-value: 1
 
-# 鑷畾涔変笟鍔￠厤缃?
+# 自定义业务配置（所有敏感值必须通过环境变量注入，禁止硬编码默认值）
 app:
-  # JWT 璁よ瘉閰嶇疆
+  # JWT 认证配置（Secret 长度必须 ≥ 256 位 / 32 字节，生产环境使用强随机生成值）
   jwt:
-    secret: ${JWT_SECRET:yunyu-assistant-jwt-secret-key-2026-min-32-bytes!}
+    secret: ${JWT_SECRET}
     expiration: ${JWT_EXPIRATION:86400000}
-  # RAG 鐭ヨ瘑搴撴湇鍔?
+  # RAG 知识库服务（未配置时允许启动，检索功能降级）
   ragflow:
-    api-key: ${RAGFLOW_API_KEY:ragflow-Q5MGZjODk0NzM3YzExZjA5ZDE0NDIwMT}
-    endpoint: ${RAGFLOW_ENDPOINT:https://demo.ragflow.io}
-  # 鍏ㄧ綉鎼滅储鏈嶅姟
+    api-key: ${RAGFLOW_API_KEY:}
+    endpoint: ${RAGFLOW_ENDPOINT:}
+  # 全网搜索服务（未配置时工具调用降级）
   search:
-    api-key: ${SEARCH_API_KEY:sk-cc311683639848cf881d1d5434e50592}
-    endpoint: ${SEARCH_ENDPOINT:https://api.bochaai.com/v1/web-search}
-  # 澶╂皵鎺ュ彛
+    api-key: ${SEARCH_API_KEY:}
+    endpoint: ${SEARCH_ENDPOINT:}
+  # 天气接口（未配置时工具调用降级）
   weather:
-    api-key: ${WEATHER_API_KEY:344f2aacc73b0a22aca1c50cbe5d7652}
-  # WebSocket 璇煶鏈嶅姟
+    api-key: ${WEATHER_API_KEY:}
+  # WebSocket 语音服务（未配置时语音功能降级）
   rustpbx:
-    endpoint: ${RUSTPBX_ENDPOINT:ws://175.27.250.177:8080}
-  # 璇煶璇嗗埆 ASR锛堣吘璁簯锛?
+    endpoint: ${RUSTPBX_ENDPOINT:}
+    # 沉默追问超时（秒），30s 未说话自动追问
+    silence-timeout: ${RUSTPBX_SILENCE_TIMEOUT:30}
+    # 是否启用 VAD 打断 TTS
+    break-on-vad: ${RUSTPBX_BREAK_ON_VAD:true}
+  # 语音识别 ASR（腾讯云）
   asr:
     provider: ${ASR_PROVIDER:tencent}
     model: ${ASR_MODEL:16k_zh}
-    app-id: ${ASR_APP_ID:[REDACTED]}
-    secret-id: ${ASR_SECRET_ID:[REDACTED]}
-    secret-key: ${ASR_SECRET_KEY:[REDACTED]}
+    app-id: ${ASR_APP_ID:}
+    secret-id: ${ASR_SECRET_ID:}
+    secret-key: ${ASR_SECRET_KEY:}
     endpoint: ${ASR_ENDPOINT:asr.tencentcloudapi.com}
 
-  # 璇煶鍚堟垚 TTS锛堣吘璁簯锛?
+  # 语音合成 TTS（腾讯云）
   tts:
     provider: ${TTS_PROVIDER:tencent}
-    # 妯″瀷/闊宠壊閰嶇疆
+    # 模型/音色配置
     model: ${TTS_MODEL:cosvoice-v1}
     speaker: ${TTS_SPEAKER:longxiaochun}
-    app-id: ${TTS_APP_ID:[REDACTED]}
-    secret-id: ${TTS_SECRET_ID:[REDACTED]}
-    secret-key: ${TTS_SECRET_KEY:[REDACTED]}
+    app-id: ${TTS_APP_ID:}
+    secret-id: ${TTS_SECRET_ID:}
+    secret-key: ${TTS_SECRET_KEY:}
     endpoint: ${TTS_ENDPOINT:tts.tencentcloudapi.com}
 
-# 鏃ュ織绾у埆锛堝紑鍙戠幆澧冭皟璇曪級
+# Actuator 健康检查与运行指标（F9.4）
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# 日志级别（开发环境调试）
 logging:
   level:
     root: INFO

@@ -22,6 +22,10 @@ public class Record {
     public static final int ROLE_USER = 0;
     /** 角色-助手 */
     public static final int ROLE_ASSISTANT = 1;
+    /** 角色-工具调用 */
+    public static final int ROLE_TOOL_CALL = 2;
+    /** 角色-工具执行结果 */
+    public static final int ROLE_TOOL_RESULT = 3;
 
     // 逻辑删除常量
     /** 未删除 */
@@ -41,6 +45,11 @@ public class Record {
     private String assistantId;
 
     /**
+     * 关联通话记录ID（语音消息时）
+     */
+    private String callId;
+
+    /**
      * 消息角色
      * 0 = 用户消息，1 = 助手回复消息
      */
@@ -50,6 +59,26 @@ public class Record {
      * 聊天消息内容
      */
     private String message;
+
+    /**
+     * 工具名称（role 为 tool_call / tool_result 时）
+     */
+    private String toolName;
+
+    /**
+     * 工具参数（role 为 tool_call 时，JSON 字符串）
+     */
+    private String toolArgs;
+
+    /**
+     * 工具执行结果（role 为 tool_result 时，JSON 字符串）
+     */
+    private String toolResult;
+
+    /**
+     * 引用的知识库信息（JSON 字符串：{docCount, docName[]}）
+     */
+    private String knowledgebaseInfo;
 
     /**
      * AI 响应耗时(毫秒)，仅助手消息记录该字段
@@ -100,6 +129,14 @@ public class Record {
         this.assistantId = assistantId;
     }
 
+    public String getCallId() {
+        return callId;
+    }
+
+    public void setCallId(String callId) {
+        this.callId = callId;
+    }
+
     public Integer getRole() {
         return role;
     }
@@ -114,6 +151,38 @@ public class Record {
 
     public void setMessage(String message) {
         this.message = message;
+    }
+
+    public String getToolName() {
+        return toolName;
+    }
+
+    public void setToolName(String toolName) {
+        this.toolName = toolName;
+    }
+
+    public String getToolArgs() {
+        return toolArgs;
+    }
+
+    public void setToolArgs(String toolArgs) {
+        this.toolArgs = toolArgs;
+    }
+
+    public String getToolResult() {
+        return toolResult;
+    }
+
+    public void setToolResult(String toolResult) {
+        this.toolResult = toolResult;
+    }
+
+    public String getKnowledgebaseInfo() {
+        return knowledgebaseInfo;
+    }
+
+    public void setKnowledgebaseInfo(String knowledgebaseInfo) {
+        this.knowledgebaseInfo = knowledgebaseInfo;
     }
 
     public Long getCostTime() {

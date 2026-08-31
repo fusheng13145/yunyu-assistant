@@ -13,9 +13,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.RestClientException;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 /**
  * 网络搜索工具
@@ -40,9 +42,13 @@ public class SearchTool {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    public SearchTool(RestTemplate restTemplate, ObjectMapper objectMapper) {
-        this.restTemplate = restTemplate;
+    public SearchTool(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+        // 创建带超时配置的 RestTemplate，避免搜索请求阻塞
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(10));
+        factory.setReadTimeout(Duration.ofSeconds(30));
+        this.restTemplate = new RestTemplate(factory);
     }
 
     /**
@@ -108,9 +114,9 @@ public class SearchTool {
             return sb.toString();
 
         } catch (RestClientException e) {
-            return "搜索请求异常：接口调用失败，" + e.getMessage();
+            return "搜索请求异常：接口调用失败";
         } catch (Exception e) {
-            return "搜索解析异常：" + e.getMessage();
+            return "搜索解析异常：结果解析失败";
         }
     }
 

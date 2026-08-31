@@ -30,13 +30,24 @@
 
           <div class="form-group">
             <label class="form-label">密码</label>
-            <input
-              v-model="form.password"
-              type="password"
-              placeholder="请输入密码"
-              class="morandi-input"
-              @keyup.enter="handleLogin"
-            />
+            <div class="password-input-wrap">
+              <input
+                v-model="form.password"
+                :type="showPassword ? 'text' : 'password'"
+                placeholder="请输入密码"
+                class="morandi-input"
+                @keyup.enter="handleLogin"
+              />
+              <button
+                type="button"
+                class="password-toggle"
+                :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                @click="showPassword = !showPassword"
+              >
+                <EyeOff v-if="showPassword" class="w-4 h-4" />
+                <Eye v-else class="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           <!-- 错误提示 -->
@@ -90,6 +101,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { Eye, EyeOff } from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { login } from '../api/auth'
@@ -97,6 +109,9 @@ import { login } from '../api/auth'
 // 路由 & 主题
 const router = useRouter()
 const { themeMode } = useTheme()
+
+// 密码可见性
+const showPassword = ref(false)
 
 // 登录表单数据
 const form = ref({
@@ -261,6 +276,32 @@ const handleLogin = async () => {
 
 .form-group .morandi-input:focus {
   box-shadow: 0 0 0 2px rgba(140, 129, 120, 0.15);
+}
+
+/* 密码可见性切换 */
+.password-input-wrap {
+  position: relative;
+}
+.password-input-wrap .morandi-input {
+  width: 100%;
+  padding-right: 40px;
+}
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--morandi-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+.password-toggle:hover {
+  color: var(--morandi-text-secondary);
 }
 
 /* 错误提示 */

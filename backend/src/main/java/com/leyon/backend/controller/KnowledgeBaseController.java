@@ -1,5 +1,6 @@
 package com.leyon.backend.controller;
 
+import com.leyon.backend.annotation.Audit;
 import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.KnowledgeBase;
 import com.leyon.backend.service.KnowledgeBaseService;
@@ -54,6 +55,7 @@ public class KnowledgeBaseController {
     /**
      * 创建知识库
      */
+    @Audit(action = "KB_CREATE", targetType = "knowledge_base")
     @PostMapping
     public ApiResponse<KnowledgeBase> create(@RequestBody KnowledgeBase kb, HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");
@@ -111,6 +113,7 @@ public class KnowledgeBaseController {
     /**
      * 删除知识库（增加归属权限校验）
      */
+    @Audit(action = "KB_DELETE", targetType = "knowledge_base")
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@PathVariable String id, HttpServletRequest request) {
         if (!StringUtils.hasText(id)) {
@@ -158,20 +161,29 @@ public class KnowledgeBaseController {
             return ResponseEntity.badRequest().body("{\"error\":\"RAGFlow 密钥未配置\"}");
         }
 
-        // 拼接完整请求地址
-        String path = StringUtils.hasText(ragflowPath) ? ragflowPath : "/api/v1/datasets";
+        // 拼接完整请求地址（path 需经白名单校验，防止 SSRF/代理滥用）
+        String path = buildWhitelistedPath(ragflowPath);
+        if (path == null) {
+            return ResponseEntity.badRequest().body("{\"error\":\"非法的转发路径\"}");
+        }
         String targetUrl = ragflowEndpoint + path;
 
         // 构造请求头
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("Authorization", ragflowApiKey);
+        headers.setBearerAuth(ragflowApiKey);
+
+        // 仅允许安全方法，避免任意方法转发
+        String httpMethod = request.getMethod();
+        if (!isAllowedMethod(httpMethod)) {
+            return ResponseEntity.badRequest().body("{\"error\":\"不允许的转发方法\"}");
+        }
 
         try {
             HttpEntity<String> entity = new HttpEntity<>(body, headers);
             ResponseEntity<String> response = restTemplate.exchange(
                     targetUrl,
-                    HttpMethod.valueOf(request.getMethod()),
+                    HttpMethod.valueOf(httpMethod),
                     entity,
                     String.class
             );
@@ -180,5 +192,40 @@ public class KnowledgeBaseController {
             log.error("RAGFlow 代理请求异常，url:{}，msg:{}", targetUrl, e.getMessage(), e);
             return ResponseEntity.internalServerError().body("{\"error\":\"请求 RAGFlow 服务失败\"}");
         }
+    }
+
+    /**
+     * 转发路径白名单校验：
+     * 仅允许相对路径且必须以 /api/v1/ 开头，禁用协议、双斜杠、路径穿越。
+     *
+     * @param rawPath 客户端提供的路径（可为空）
+     * @return 校验通过的路径，非法返回 null
+     */
+    private String buildWhitelistedPath(String rawPath) {
+        String path = StringUtils.hasText(rawPath) ? rawPath.trim() : "/api/v1/datasets";
+        // 必须以 / 开头，且非协议形式、无双斜杠、无路径穿越
+        if (!path.startsWith("/api/v1/")) {
+            return null;
+        }
+        if (path.toLowerCase().startsWith("http://") || path.toLowerCase().startsWith("https://")) {
+            return null;
+        }
+        if (path.contains("://") || path.contains("//") || path.contains("..")) {
+            return null;
+        }
+        return path;
+    }
+
+    /**
+     * 是否允许的转发方法
+     */
+    private boolean isAllowedMethod(String method) {
+        if (method == null) {
+            return false;
+        }
+        return switch (method.toUpperCase()) {
+            case "GET", "POST", "PUT", "DELETE" -> true;
+            default -> false;
+        };
     }
 }

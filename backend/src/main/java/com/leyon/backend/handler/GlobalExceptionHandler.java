@@ -44,7 +44,29 @@ public class GlobalExceptionHandler {
         if (message == null || message.isBlank()) {
             message = DEFAULT_BUSINESS_ERROR_MSG;
         }
-        return ApiResponse.paramError(message);
+        // 安全改进：对可能包含内部信息的异常消息进行脱敏
+        String safeMessage = sanitizeErrorMessage(message);
+        return ApiResponse.paramError(safeMessage);
+    }
+
+    /**
+     * 异常消息脱敏，过滤可能泄露内部实现细节的信息
+     */
+    private String sanitizeErrorMessage(String rawMessage) {
+        if (rawMessage == null) return DEFAULT_BUSINESS_ERROR_MSG;
+        // 过滤常见敏感关键词
+        String lower = rawMessage.toLowerCase();
+        if (lower.contains("sql") || lower.contains("database") || lower.contains("jdbc")
+                || lower.contains("password") || lower.contains("secret") || lower.contains("credential")
+                || lower.contains("stacktrace") || lower.contains("classpath")
+                || lower.contains("internal") || lower.contains("path")) {
+            return DEFAULT_BUSINESS_ERROR_MSG;
+        }
+        // 限制返回消息长度，防止过长信息泄露
+        if (rawMessage.length() > 200) {
+            return DEFAULT_BUSINESS_ERROR_MSG;
+        }
+        return rawMessage;
     }
 
     /**
@@ -54,7 +76,9 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse<Void> handleIllegalArgument(IllegalArgumentException e) {
         log.warn("参数错误：{}", e.getMessage());
-        return ApiResponse.paramError(e.getMessage());
+        // 与 RuntimeException 一致地执行脱敏，避免泄露内部实现细节
+        String safeMessage = sanitizeErrorMessage(e.getMessage());
+        return ApiResponse.paramError(safeMessage);
     }
 
     /**

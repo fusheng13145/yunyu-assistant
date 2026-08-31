@@ -16,6 +16,11 @@ export interface Assistant {
   description: string
   personality: string
   voice: string
+  modelName?: string
+  temperature?: number
+  maxTokens?: number
+  /** 关联知识库ID列表（后端为 JSON 字符串时前端自行解析） */
+  knowledgeIds?: string[] | string
   userId: string
   createdAt: string
   updatedAt: string
@@ -46,6 +51,11 @@ export interface VoiceCallState {
   isConnecting: boolean
 }
 
+export interface TokenUsage {
+  promptTokens?: number
+  completionTokens?: number
+}
+
 export interface DisplayMessage {
   role: 'user' | 'assistant' | 'tool_call' | 'tool_result'
   text: string
@@ -55,6 +65,7 @@ export interface DisplayMessage {
   toolCalls?: ToolCallResult[]
   toolName?: string
   toolResult?: string
+  tokenUsage?: TokenUsage
 }
 
 export interface KnowledgeBase {
@@ -71,11 +82,52 @@ export interface RAGFlowConfig {
   apiKey: string
 }
 
+export interface VoiceInfo {
+  id: string
+  name: string
+  gender: number
+  description: string
+}
+
+export interface ModelInfo {
+  id: string
+  name: string
+  description: string
+}
+
+export interface CallRecord {
+  id: string
+  assistantId: string
+  assistantName: string
+  status: number
+  durationSec: number
+  messageCount: number
+  startedAt: string
+  endedAt: string
+  failReason?: string
+}
+
+export interface CallRecordDetail extends CallRecord {
+  messages: Array<{ role: number; message: string; costTime?: number; createdAt: string }>
+}
+
+export interface UsageStats {
+  range: string
+  callCount: number
+  totalDurationSec: number
+  messageCount: number
+  days: Array<{ date: string; callCount: number; durationSec: number }>
+}
+
 export interface CreateAssistantData {
   name: string
   description: string
   personality?: string
   voice?: string
+  modelName?: string
+  temperature?: number
+  maxTokens?: number
+  knowledgeIds?: string[]
 }
 
 export interface UpdateAssistantData extends CreateAssistantData {

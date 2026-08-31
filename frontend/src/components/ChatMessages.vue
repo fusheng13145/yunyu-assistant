@@ -68,7 +68,7 @@
             <Bot class="w-4.5 h-4.5" style="color: var(--morandi-text-on-primary)" />
           </div>
           <div class="morandi-card rounded-xl px-5 py-3.5 max-w-[72%] break-words">
-            <div class="text-sm leading-relaxed whitespace-pre-wrap" style="color: var(--morandi-text)">{{ msg.text }}</div>
+            <div class="text-sm leading-relaxed md-content" style="color: var(--morandi-text)" v-html="renderMarkdown(msg.text)"></div>
             <span v-if="msg.isStreaming" class="inline-block w-1.5 h-4 ml-0.5 align-middle animate-blink" style="background: var(--morandi-primary)"></span>
 
             <!-- 工具调用折叠区域 -->
@@ -102,16 +102,31 @@
             </div>
 
             <!-- 消息元信息 -->
-            <div v-if="!msg.isStreaming && (msg.costTime || (msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))))"
-              class="flex items-center gap-3 pt-2 mt-2 border-t" style="border-color: var(--morandi-divider)">
+            <div v-if="!msg.isStreaming && (msg.costTime || (msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))) || (msg.tokenUsage && (msg.tokenUsage.promptTokens || msg.tokenUsage.completionTokens)))"
+              class="flex items-center gap-3 pt-2 mt-2 border-t flex-wrap" style="border-color: var(--morandi-divider)">
               <span v-if="msg.costTime" class="text-xs flex items-center" style="color: var(--morandi-text-faint)">
                 <Clock class="w-3 h-3 mr-1" />
                 {{ (msg.costTime / 1000).toFixed(2) }}s
               </span>
               <span
                 v-if="msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))"
-                class="text-xs" style="color: var(--morandi-text-faint)">
-                引用文档 {{ msg.knowledgebase.docCount || 0 }}个
+                class="text-xs flex items-center gap-1.5 flex-wrap" style="color: var(--morandi-text-faint)">
+                <BookOpen class="w-3 h-3" />
+                引用文档 {{ msg.knowledgebase.docCount || (msg.knowledgebase.docName?.length || 0) }} 个
+                <span v-if="msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0" class="flex flex-wrap gap-1">
+                  <span
+                    v-for="(doc, di) in msg.knowledgebase.docName"
+                    :key="di"
+                    class="px-1.5 py-0.5 rounded text-[10px]"
+                    style="background: var(--morandi-input-bg); color: var(--morandi-text-secondary)"
+                  >{{ doc }}</span>
+                </span>
+              </span>
+              <span
+                v-if="msg.tokenUsage && (msg.tokenUsage.promptTokens || msg.tokenUsage.completionTokens)"
+                class="text-xs flex items-center gap-1" style="color: var(--morandi-text-faint)">
+                <Cpu class="w-3 h-3" />
+                {{ msg.tokenUsage.promptTokens || 0 }} prompt · {{ msg.tokenUsage.completionTokens || 0 }} completion
               </span>
             </div>
           </div>
@@ -133,8 +148,9 @@
 
 <script setup lang="ts">
 import { ref, nextTick, watch, reactive } from 'vue'
-import { Bot, Clock, Wrench, ChevronDown, CheckCircle } from 'lucide-vue-next'
+import { Bot, Clock, Wrench, ChevronDown, CheckCircle, BookOpen, Cpu } from 'lucide-vue-next'
 import type { DisplayMessage } from '../types'
+import { renderMarkdown } from '../utils/markdown'
 
 const props = withDefaults(defineProps<{
   messages: DisplayMessage[]
@@ -228,3 +244,60 @@ defineExpose({
   resetScrollState,
 })
 </script>
+
+<style scoped>
+/* Markdown 渲染样式 */
+.md-content :deep(.md-code-block) {
+  background: var(--morandi-input-bg);
+  border: 1px solid var(--morandi-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+}
+.md-content :deep(.md-inline-code) {
+  background: var(--morandi-input-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+.md-content :deep(.md-heading) {
+  font-weight: 600;
+  margin: 8px 0 4px;
+  line-height: 1.4;
+}
+.md-content :deep(h1.md-heading) { font-size: 1.25rem; }
+.md-content :deep(h2.md-heading) { font-size: 1.15rem; }
+.md-content :deep(h3.md-heading) { font-size: 1.05rem; }
+.md-content :deep(h4.md-heading) { font-size: 1rem; }
+.md-content :deep(.md-list) {
+  padding-left: 1.2em;
+  margin: 4px 0;
+}
+.md-content :deep(.md-list li) {
+  list-style: disc;
+  margin: 2px 0;
+}
+.md-content :deep(ol.md-list li) {
+  list-style: decimal;
+}
+.md-content :deep(.md-quote) {
+  border-left: 3px solid var(--morandi-accent);
+  padding-left: 12px;
+  margin: 6px 0;
+  opacity: 0.85;
+}
+.md-content :deep(.md-paragraph) {
+  margin: 4px 0;
+}
+.md-content :deep(.md-link) {
+  color: var(--morandi-primary);
+  text-decoration: underline;
+}
+.md-content :deep(strong) { font-weight: 600; }
+.md-content :deep(em) { font-style: italic; }
+</style>

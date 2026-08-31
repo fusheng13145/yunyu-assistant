@@ -39,6 +39,11 @@ public class KnowledgeBase {
     private String description;
 
     /**
+     * RAGFlow 数据集ID（外部键，与 RAGFlow dataset 关联）
+     */
+    private String datasetId;
+
+    /**
      * 知识库正文内容
      */
     private String content;
@@ -105,6 +110,14 @@ public class KnowledgeBase {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public String getDatasetId() {
+        return datasetId;
+    }
+
+    public void setDatasetId(String datasetId) {
+        this.datasetId = datasetId;
     }
 
     public String getContent() {

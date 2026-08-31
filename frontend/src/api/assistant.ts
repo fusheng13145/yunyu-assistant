@@ -1,4 +1,4 @@
-import type { Assistant, CreateAssistantData, UpdateAssistantData, RAGFlowConfig } from '../types'
+import type { Assistant, CreateAssistantData, UpdateAssistantData, VoiceInfo, ModelInfo } from '../types'
 import { getAuthHeaders } from './auth'
 
 const API_BASE = '/api'
@@ -61,11 +61,18 @@ export async function deleteAssistant(id: string): Promise<void> {
   await parseResponse<void>(response)
 }
 
-export async function fetchKnowledgeConfig(): Promise<RAGFlowConfig> {
-  const response = await fetch(`${API_BASE}/knowledges`, {
+export async function fetchVoices(): Promise<VoiceInfo[]> {
+  const response = await fetch(`${API_BASE}/voices`, {
     headers: getAuthHeaders(),
   })
-  return parseResponse<RAGFlowConfig>(response)
+  return parseResponse<VoiceInfo[]>(response)
+}
+
+export async function fetchModels(): Promise<ModelInfo[]> {
+  const response = await fetch(`${API_BASE}/models`, {
+    headers: getAuthHeaders(),
+  })
+  return parseResponse<ModelInfo[]>(response)
 }
 
 export async function cloneAssistant(id: string): Promise<Assistant> {

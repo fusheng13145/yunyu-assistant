@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.entity.Record;
 import org.springframework.ai.chat.messages.*;
-import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -12,8 +12,10 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 /**
  * AI 对话核心服务
@@ -26,8 +28,17 @@ public class ChatService {
     /** 工具返回结果最大长度，超长截断 */
     private static final int MAX_RESULT_LENGTH = 2000;
 
-    private final ChatModel chatModel;
-    private final KnowledgeService knowledgeService;
+    /** 单轮对话工具调用最大迭代轮次，防止 LLM 持续调用工具导致无限递归 */
+    private static final int MAX_TOOL_ITERATIONS = 5;
+
+    /** 注入 LLM 上下文的对话历史最大消息条数，防止无限增长 */
+    private static final int MAX_HISTORY_MESSAGES = 60;
+
+    /** 挂断工具名 */
+    private static final String TOOL_HANGUP = "hangup";
+
+    private final ModelAdapter modelAdapter;
+    private final KnowledgeProvider knowledgeProvider;
     private final ObjectMapper objectMapper;
     private final List<ToolCallback> toolCallbacks;
 
@@ -37,23 +48,58 @@ public class ChatService {
     private List<String> knowledgeIds;
     /** 对话历史消息上下文 */
     private final List<Message> conversationHistory;
-    /** 聊天记录实体集合 */
+    /** 本次会话新产生的聊天记录实体集合（用于落库） */
     private final List<Record> chatRecords;
+    /** 最近一次知识库检索命中结果（供 query_end 携带引用信息） */
+    private KnowledgeProvider.KnowledgeHit lastKnowledgeHit = KnowledgeProvider.KnowledgeHit.empty();
+    /** 最近一次对话的 Token 用量（供 query_end 携带诊断信息） */
+    private long lastPromptTokens;
+    private long lastCompletionTokens;
+    /** 挂断监听器：LLM 调用 hangup 工具时触发（语音通话场景） */
+    private Consumer<String> hangupListener;
+    /** 自定义模型名（助手级，覆盖全局配置） */
+    private String modelName;
+    /** 自定义温度（助手级，覆盖全局配置） */
+    private Double temperature;
+    /** 自定义最大输出 Token（助手级，覆盖全局配置） */
+    private Integer maxTokens;
 
-    public ChatService(ChatModel chatModel,
-                       KnowledgeService knowledgeService,
+    public ChatService(ModelAdapter modelAdapter,
+                       KnowledgeProvider knowledgeProvider,
                        ObjectMapper objectMapper,
                        String personality,
                        List<String> knowledgeIds,
                        List<ToolCallback> toolCallbacks) {
-        this.chatModel = chatModel;
-        this.knowledgeService = knowledgeService;
+        this.modelAdapter = modelAdapter;
+        this.knowledgeProvider = knowledgeProvider;
         this.objectMapper = objectMapper;
         this.systemPrompt = StringUtils.hasText(personality) ? personality : "";
         this.knowledgeIds = Objects.nonNull(knowledgeIds) ? new ArrayList<>(knowledgeIds) : new ArrayList<>();
         this.toolCallbacks = Objects.nonNull(toolCallbacks) ? new ArrayList<>(toolCallbacks) : new ArrayList<>();
         this.conversationHistory = new ArrayList<>();
         this.chatRecords = new ArrayList<>();
+    }
+
+    /**
+     * 设置挂断监听器（语音通话场景使用，LLM 调用 hangup 工具时触发）
+     *
+     * @param listener 挂断监听器，参数为挂断原因/描述
+     */
+    public void setHangupListener(Consumer<String> listener) {
+        this.hangupListener = listener;
+    }
+
+    /**
+     * 设置助手级模型参数（覆盖全局默认配置）
+     *
+     * @param modelName   模型名（可为空）
+     * @param temperature 温度 0-2（可为空）
+     * @param maxTokens   最大输出 Token（可为空）
+     */
+    public void setModelParams(String modelName, Double temperature, Integer maxTokens) {
+        this.modelName = modelName;
+        this.temperature = temperature;
+        this.maxTokens = maxTokens;
     }
 
     /**
@@ -70,53 +116,86 @@ public class ChatService {
         String effectiveSystemPrompt = buildEffectiveSystemPrompt(text);
         List<Message> messages = buildMessages(effectiveSystemPrompt, text);
         Prompt prompt = buildPrompt(messages);
-        return doChatLoop(prompt, text, startTime);
+        return doChatLoop(prompt, text, startTime, 0);
     }
 
     /**
-     * 对话主循环：处理流式返回、工具调用递归逻辑
+     * 对话主循环：真正的响应式流式处理，逐块推送文本，末尾检测工具调用
      */
-    private Flux<Map<String, Object>> doChatLoop(Prompt prompt, String userText, long startTime) {
-        StringBuilder fullResponse = new StringBuilder();
+    private Flux<Map<String, Object>> doChatLoop(Prompt prompt, String userText, long startTime, int depth) {
+        return Flux.create(sink -> {
+            StringBuilder fullResponse = new StringBuilder();
+            List<ChatResponse> allResponses = new ArrayList<>();
 
-        return chatModel.stream(prompt)
-                .collectList()
-                .flatMapMany(completeResponses -> {
-                    if (completeResponses.isEmpty()) {
-                        return Flux.just(createEndChunk(fullResponse.toString(), startTime));
+            modelAdapter.stream(prompt).subscribe(
+                    chunk -> {
+                        allResponses.add(chunk);
+                        String text = chunk.getResult() != null && chunk.getResult().getOutput() != null
+                                ? chunk.getResult().getOutput().getText() : "";
+                        if (StringUtils.hasText(text)) {
+                            fullResponse.append(text);
+                            Map<String, Object> segment = new HashMap<>();
+                            segment.put("segment", text);
+                            segment.put("streamEnd", false);
+                            sink.next(segment);
+                        }
+                    },
+                    sink::error,
+                    () -> {
+                        if (allResponses.isEmpty()) {
+                            sink.next(createEndChunk(fullResponse.toString(), startTime));
+                            sink.complete();
+                            return;
+                        }
+                        ChatResponse mergedResponse = mergeResponses(allResponses);
+                        // 提取 Token 用量（供 query_end 诊断信息）
+                        extractUsage(allResponses);
+                        AssistantMessage assistantOutput = mergedResponse.getResult() != null
+                                ? mergedResponse.getResult().getOutput()
+                                : null;
+
+                        // 检测工具调用
+                        if (assistantOutput != null && !assistantOutput.getToolCalls().isEmpty()) {
+                            // 达到工具调用迭代上限时不再递归，直接结束本轮，防止无限循环
+                            if (depth >= MAX_TOOL_ITERATIONS) {
+                                saveConversation(userText, fullResponse.toString(), startTime);
+                                sink.next(createEndChunk(fullResponse.toString(), startTime));
+                                sink.complete();
+                                return;
+                            }
+                            saveConversation(userText, fullResponse.toString(), startTime);
+                            handleToolCalls(assistantOutput, userText, startTime, depth).subscribe(
+                                    sink::next,
+                                    sink::error,
+                                    sink::complete
+                            );
+                        } else {
+                            saveConversation(userText, fullResponse.toString(), startTime);
+                            sink.next(createEndChunk(fullResponse.toString(), startTime));
+                            sink.complete();
+                        }
                     }
-
-                    ChatResponse mergedResponse = mergeResponses(completeResponses);
-                    AssistantMessage assistantOutput = mergedResponse.getResult() != null
-                            ? mergedResponse.getResult().getOutput()
-                            : null;
-
-                    // 检测工具调用
-                    if (assistantOutput != null && !assistantOutput.getToolCalls().isEmpty()) {
-                        return handleToolCalls(assistantOutput, userText, startTime);
-                    }
-
-                    // 纯文本返回
-                    String content = assistantOutput != null ? assistantOutput.getText() : "";
-                    if (StringUtils.hasText(content)) {
-                        fullResponse.append(content);
-                    }
-                    saveConversation(userText, fullResponse.toString(), startTime);
-
-                    return Flux.concat(
-                            emitContentSegments(content),
-                            Flux.just(createEndChunk(fullResponse.toString(), startTime))
-                    );
-                });
+            );
+        });
     }
 
     /**
      * 处理模型发起的工具调用，执行工具并继续递归对话
      */
     private Flux<Map<String, Object>> handleToolCalls(AssistantMessage assistantMessage,
-                                                        String userText, long startTime) {
+                                                        String userText, long startTime, int depth) {
         var toolCalls = assistantMessage.getToolCalls();
         conversationHistory.add(assistantMessage);
+
+        // 检测挂断工具调用，触发挂断监听器（语音通话场景）
+        if (hangupListener != null) {
+            for (var tc : toolCalls) {
+                if (TOOL_HANGUP.equals(tc.name())) {
+                    hangupListener.accept("LLM 判定对话结束，主动挂断");
+                    break;
+                }
+            }
+        }
 
         // 向前端推送工具调用通知
         List<Map<String, Object>> toolCallNotifications = new ArrayList<>();
@@ -173,11 +252,11 @@ public class ChatService {
 
         Prompt followUpPrompt = buildPrompt(followUpMessages);
 
-        // 流式推送：工具调用通知 -> 工具结果 -> 继续对话
+        // 流式推送：工具调用通知 -> 工具结果 -> 继续对话（深度+1）
         return Flux.concat(
                 Flux.fromIterable(toolCallNotifications),
                 Flux.fromIterable(toolResultList).map(this::wrapToolResultChunk),
-                doChatLoop(followUpPrompt, userText, startTime)
+                doChatLoop(followUpPrompt, userText, startTime, depth + 1)
         );
     }
 
@@ -244,6 +323,33 @@ public class ChatService {
     }
 
     /**
+     * 从流式响应中提取 Token 用量（usage 通常位于最后一个 chunk 的 metadata）
+     */
+    private void extractUsage(List<ChatResponse> responses) {
+        lastPromptTokens = 0;
+        lastCompletionTokens = 0;
+        for (int i = responses.size() - 1; i >= 0; i--) {
+            ChatResponse response = responses.get(i);
+            try {
+                if (response.getMetadata() != null && response.getMetadata().getUsage() != null) {
+                    Usage usage = response.getMetadata().getUsage();
+                    if (usage.getPromptTokens() != null) {
+                        lastPromptTokens = usage.getPromptTokens();
+                    }
+                    if (usage.getCompletionTokens() != null) {
+                        lastCompletionTokens = usage.getCompletionTokens();
+                    }
+                    if (lastPromptTokens > 0 || lastCompletionTokens > 0) {
+                        return;
+                    }
+                }
+            } catch (Exception ignored) {
+                // 某些响应无 usage 元数据，忽略
+            }
+        }
+    }
+
+    /**
      * 将文本按标点拆分，逐段流式输出
      */
     private Flux<Map<String, Object>> emitContentSegments(String content) {
@@ -282,6 +388,16 @@ public class ChatService {
         endChunk.put("message", message);
         endChunk.put("costTime", costTime);
         endChunk.put("role", "assistant");
+        // 携带知识库引用信息（docCount / docName）
+        Map<String, Object> knowledgebase = new HashMap<>();
+        knowledgebase.put("docCount", lastKnowledgeHit.docCount());
+        knowledgebase.put("docName", lastKnowledgeHit.docNames());
+        endChunk.put("knowledgebase", knowledgebase);
+        // 携带 Token 用量（供调试面板诊断）
+        Map<String, Object> tokenUsage = new HashMap<>();
+        tokenUsage.put("promptTokens", lastPromptTokens);
+        tokenUsage.put("completionTokens", lastCompletionTokens);
+        endChunk.put("tokenUsage", tokenUsage);
         return endChunk;
     }
 
@@ -302,12 +418,15 @@ public class ChatService {
      */
     private String buildEffectiveSystemPrompt(String userInput) {
         StringBuilder promptBuilder = new StringBuilder(systemPrompt);
+        // 重置命中信息
+        lastKnowledgeHit = KnowledgeProvider.KnowledgeHit.empty();
         if (!knowledgeIds.isEmpty()) {
             try {
-                String knowledgeContext = knowledgeService.queryKnowledgeBase(userInput, knowledgeIds);
-                if (StringUtils.hasText(knowledgeContext)) {
-                    promptBuilder.append("\n\n以下是从知识库检索到的参考信息：\n").append(knowledgeContext);
+                KnowledgeProvider.KnowledgeHit hit = knowledgeProvider.queryKnowledgeBaseWithDetail(userInput, knowledgeIds);
+                if (StringUtils.hasText(hit.context())) {
+                    promptBuilder.append("\n\n以下是从知识库检索到的参考信息：\n").append(hit.context());
                 }
+                lastKnowledgeHit = hit;
             } catch (Exception ignored) {
                 // 知识库查询异常，不阻断主流程
             }
@@ -327,16 +446,23 @@ public class ChatService {
     }
 
     /**
-     * 构建 Prompt，携带工具配置
+     * 构建 Prompt，携带工具配置与助手级模型参数
      */
     private Prompt buildPrompt(List<Message> messages) {
+        OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder();
         if (!toolCallbacks.isEmpty()) {
-            OpenAiChatOptions options = OpenAiChatOptions.builder()
-                    .toolCallbacks(toolCallbacks)
-                    .build();
-            return new Prompt(messages, options);
+            builder.toolCallbacks(toolCallbacks);
         }
-        return new Prompt(messages);
+        if (StringUtils.hasText(modelName)) {
+            builder.model(modelName);
+        }
+        if (temperature != null) {
+            builder.temperature(temperature);
+        }
+        if (maxTokens != null) {
+            builder.maxTokens(maxTokens);
+        }
+        return new Prompt(messages, builder.build());
     }
 
     /**
@@ -347,6 +473,8 @@ public class ChatService {
         // 维护消息上下文
         conversationHistory.add(new UserMessage(userText));
         conversationHistory.add(new AssistantMessage(assistantText));
+        // 截断历史，防止无上限增长
+        trimConversationHistory();
 
         // 构建数据库记录实体
         Record userRecord = new Record();
@@ -363,6 +491,7 @@ public class ChatService {
 
     /**
      * 加载历史聊天记录，恢复会话上下文
+     * 历史记录仅注入 LLM 上下文，不写入 chatRecords（避免落库时重复插入）
      *
      * @param history 历史记录列表
      */
@@ -370,7 +499,6 @@ public class ChatService {
         if (history == null || history.isEmpty()) {
             return;
         }
-        this.chatRecords.addAll(history);
         for (Record record : history) {
             if (Record.ROLE_USER == record.getRole()) {
                 conversationHistory.add(new UserMessage(record.getMessage()));
@@ -381,6 +509,24 @@ public class ChatService {
                         new ToolResponseMessage.ToolResponse("", "", record.getMessage()))));
             }
         }
+    }
+
+    /**
+     * 截断对话历史：仅保留最近 MAX_HISTORY_MESSAGES 条，控制注入 LLM 的上下文长度
+     */
+    private void trimConversationHistory() {
+        while (conversationHistory.size() > MAX_HISTORY_MESSAGES) {
+            conversationHistory.remove(0);
+        }
+    }
+
+    /**
+     * 获取本次会话新产生的聊天记录（供持久化到数据库）
+     *
+     * @return 新增记录列表（只读副本）
+     */
+    public List<Record> getNewRecords() {
+        return new ArrayList<>(chatRecords);
     }
 
     /**

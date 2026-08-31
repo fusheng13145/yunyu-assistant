@@ -27,6 +27,16 @@ public class CorsConfig implements WebMvcConfigurer {
      */
     private static final String[] ALLOWED_METHODS = {"GET", "POST", "PUT", "DELETE", "OPTIONS"};
     /**
+     * 允许的请求头（白名单模式，仅允许必要的请求头）
+     */
+    private static final String[] ALLOWED_HEADERS = {
+            "Authorization",
+            "Content-Type",
+            "Accept",
+            "Origin",
+            "X-Requested-With"
+    };
+    /**
      * 前端访问域名列表
      */
     private static final String[] ALLOWED_ORIGINS = {
@@ -43,8 +53,8 @@ public class CorsConfig implements WebMvcConfigurer {
                 .allowedOrigins(ALLOWED_ORIGINS)
                 // 允许的请求方式
                 .allowedMethods(ALLOWED_METHODS)
-                // 允许所有请求头
-                .allowedHeaders("*")
+                // 白名单请求头（安全改进：不再使用 "*" 通配符）
+                .allowedHeaders(ALLOWED_HEADERS)
                 // 允许携带Cookie、认证凭证
                 .allowCredentials(true)
                 // 预检请求缓存时间

@@ -46,7 +46,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function finalizeAssistantMessage(data: { message?: string; costTime?: number; knowledgebase?: any }) {
+  function finalizeAssistantMessage(data: { message?: string; costTime?: number; knowledgebase?: any; tokenUsage?: any }) {
     isTyping.value = false
     isFirstOfStream.value = true
     const lastMsg = messages.value[messages.value.length - 1]
@@ -55,6 +55,7 @@ export const useChatStore = defineStore('chat', () => {
       lastMsg.isStreaming = false
       lastMsg.costTime = data.costTime
       lastMsg.knowledgebase = data.knowledgebase
+      if (data.tokenUsage) lastMsg.tokenUsage = data.tokenUsage
     }
   }
 

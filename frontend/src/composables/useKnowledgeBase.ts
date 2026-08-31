@@ -1,7 +1,6 @@
 import { ref, reactive } from 'vue'
-import type { KnowledgeBase, RAGFlowConfig } from '../types'
-import { fetchKnowledgeConfig } from '../api/assistant'
-import { createRagflowApi } from '../api/ragflow'
+import type { KnowledgeBase } from '../types'
+import { RagflowApi } from '../api/ragflow'
 
 export interface KnowledgeBaseFile {
   id: string
@@ -20,9 +19,6 @@ export interface UseKnowledgeBaseOptions {
 }
 
 export function useKnowledgeBase(options: UseKnowledgeBaseOptions) {
-  const ragflowConfig = ref<RAGFlowConfig>({ endpoint: '', apiKey: '' })
-  const ragflowApi = createRagflowApi(() => ragflowConfig.value)
-
   const knowledgeBases = ref<KnowledgeBase[]>([])
   const showKnowledgeModal = ref(false)
   const showCreateKnowledgeForm = ref(false)
@@ -42,17 +38,9 @@ export function useKnowledgeBase(options: UseKnowledgeBaseOptions) {
 
   const notify = options.onNotification || ((_msg: string, _type: string) => {})
 
-  const loadRAGFlowConfig = async () => {
-    try {
-      ragflowConfig.value = await fetchKnowledgeConfig()
-    } catch (error) {
-      console.error('加载RAGFlow配置失败:', error)
-    }
-  }
-
   const loadKnowledgeBases = async () => {
     try {
-      knowledgeBases.value = await ragflowApi.getDatasets()
+      knowledgeBases.value = await RagflowApi.getDatasets(1, 1000)
     } catch (error) {
       console.error('获取知识库列表失败:', error)
       notify(`获取知识库列表失败: ${(error as Error).message}`, 'error')
@@ -128,7 +116,7 @@ export function useKnowledgeBase(options: UseKnowledgeBaseOptions) {
 
   const loadKnowledgeBaseFiles = async (knowledgeBaseId: string) => {
     try {
-      currentFiles.value = await ragflowApi.getDocuments(knowledgeBaseId)
+      currentFiles.value = await RagflowApi.getDocuments(knowledgeBaseId)
     } catch (error) {
       console.error('获取文档列表失败:', error)
       currentFiles.value = []
@@ -200,7 +188,7 @@ export function useKnowledgeBase(options: UseKnowledgeBaseOptions) {
     }
 
     try {
-      await ragflowApi.createDataset({
+      await RagflowApi.createDataset({
         name: newKnowledgeBase.name,
         description: newKnowledgeBase.description,
       })
@@ -220,7 +208,7 @@ export function useKnowledgeBase(options: UseKnowledgeBaseOptions) {
     if (!confirm(`确定要删除知识库"${kb.name}"吗？此操作不可撤销。`)) return
 
     try {
-      await ragflowApi.deleteDataset([kb.id])
+      await RagflowApi.deleteDataset([kb.id])
       notify('知识库删除成功', 'success')
       await loadKnowledgeBases()
       if (currentKnowledgeBase.value?.id === kb.id) {
@@ -265,7 +253,7 @@ export function useKnowledgeBase(options: UseKnowledgeBaseOptions) {
         }
 
         try {
-          const docIds = await ragflowApi.uploadDocument(currentFileManagerKB.value.id, file)
+          const docIds = await RagflowApi.uploadDocument(currentFileManagerKB.value.id, file)
           uploadedDocs.push(...docIds)
           notify(`文件 ${file.name} 上传成功`, 'success')
           uploadProgress.value = Math.round(((i + 1) / totalFiles) * 100)
@@ -280,7 +268,7 @@ export function useKnowledgeBase(options: UseKnowledgeBaseOptions) {
         await loadKnowledgeBaseFiles(currentFileManagerKB.value.id)
 
         try {
-          await ragflowApi.parseDocuments(currentFileManagerKB.value.id, uploadedDocs)
+          await RagflowApi.parseDocuments(currentFileManagerKB.value.id, uploadedDocs)
         } catch (parseError) {
           console.warn('文档解析失败，但文件已成功上传:', parseError)
           notify('文件上传成功，但自动解析失败，请手动解析', 'warning')
@@ -300,7 +288,7 @@ export function useKnowledgeBase(options: UseKnowledgeBaseOptions) {
     if (!confirm(`确定要删除文件"${file.name}"吗？此操作不可撤销。`)) return
 
     try {
-      await ragflowApi.deleteDocument(currentFileManagerKB.value.id, [file.id])
+      await RagflowApi.deleteDocument(currentFileManagerKB.value.id, [file.id])
       notify('文件删除成功', 'success')
       await loadKnowledgeBaseFiles(currentFileManagerKB.value.id)
     } catch (error) {
@@ -328,7 +316,6 @@ export function useKnowledgeBase(options: UseKnowledgeBaseOptions) {
   }
 
   return {
-    ragflowConfig,
     knowledgeBases,
     showKnowledgeModal,
     showCreateKnowledgeForm,
@@ -342,7 +329,6 @@ export function useKnowledgeBase(options: UseKnowledgeBaseOptions) {
     uploadProgress,
     newKnowledgeBase,
 
-    loadRAGFlowConfig,
     loadKnowledgeBases,
     restoreKnowledgeBaseSelection,
     saveKnowledgeBaseSelection,

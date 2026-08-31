@@ -11,14 +11,19 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
  * 音视频通话 WebSocket 服务
- * 对接 RustPBX 服务，实现 SDP 信令交互、语音转文字、语音合成推送
+ * 对接 RustPBX 服务，实现 SDP 信令交互、语音转文字、语音合成推送、打断与沉默追问
  *
  * @author leyon
  */
@@ -29,20 +34,56 @@ public class RustPBXService {
     @Value("${app.rustpbx.endpoint}")
     private String endpoint;
 
+    /** 默认 TTS 音色（助手未指定时兜底） */
+    @Value("${app.tts.speaker:longxiaochun}")
+    private String defaultSpeaker;
+
+    /** TTS 模型 */
+    @Value("${app.tts.model:cosvoice-v1}")
+    private String ttsModel;
+
+    /** ASR 供应商 */
+    @Value("${app.asr.provider:tencent}")
+    private String asrProvider;
+
+    /** ASR 模型 */
+    @Value("${app.asr.model:16k_zh}")
+    private String asrModel;
+
+    /** 沉默追问超时（秒） */
+    @Value("${app.rustpbx.silence-timeout:30}")
+    private int silenceTimeout;
+
+    /** 是否启用 VAD 打断 TTS */
+    @Value("${app.rustpbx.break-on-vad:true}")
+    private boolean breakOnVad;
+
     /** 会话 WebSocket 连接缓存 */
     private final ConcurrentHashMap<String, WebSocket> connections = new ConcurrentHashMap<>();
     /** SDP Answer 回调缓存 */
     private final ConcurrentHashMap<String, Consumer<String>> answerCallbacks = new ConcurrentHashMap<>();
     /** ASR 语音转文字回调缓存 */
     private final ConcurrentHashMap<String, Consumer<String>> asrCallbacks = new ConcurrentHashMap<>();
+    /** 沉默追问回调缓存（用户超时未说话时触发） */
+    private final ConcurrentHashMap<String, Consumer<String>> silenceCallbacks = new ConcurrentHashMap<>();
+    /** 沉默计时任务缓存 */
+    private final ConcurrentHashMap<String, ScheduledFuture<?>> silenceTasks = new ConcurrentHashMap<>();
+
+    /** 沉默计时线程池（每个会话一个单次定时任务，共享调度器） */
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
 
     private final ObjectMapper objectMapper;
     private final OkHttpClient httpClient;
 
     public RustPBXService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        // 全局单例 OkHttpClient，避免重复创建
-        this.httpClient = new OkHttpClient.Builder().build();
+        // 创建带超时配置的 OkHttpClient，语音通话需要较长读超时
+        this.httpClient = new OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(300, TimeUnit.SECONDS)
+                .pingInterval(60, TimeUnit.SECONDS)
+                .build();
     }
 
     /**
@@ -50,15 +91,21 @@ public class RustPBXService {
      *
      * @param offerSDP    本地 SDP 协商信息
      * @param assistantId 助手ID（用作会话标识，可为空）
+     * @param speaker     助手音色代码（为空时使用默认音色）
      * @param answerCallback 远端 Answer SDP 回调
      * @param asrCallback    语音转文字结果回调
+     * @param silenceCallback 沉默追问回调（可为空）
      * @return 会话ID
      */
-    public String connectToRustPBX(String offerSDP, String assistantId,
+    public String connectToRustPBX(String offerSDP, String assistantId, String speaker,
                                     Consumer<String> answerCallback,
-                                    Consumer<String> asrCallback) {
-        // 生成会话ID
-        String sessionId = StringUtils.hasText(assistantId) ? assistantId : UUID.randomUUID().toString();
+                                    Consumer<String> asrCallback,
+                                    Consumer<String> silenceCallback) {
+        // 生成会话ID：必须全局唯一，避免同一助手并发呼叫时回调缓存相互覆盖
+        String sessionId = UUID.randomUUID().toString();
+
+        // 音色兜底
+        String voice = StringUtils.hasText(speaker) ? speaker : defaultSpeaker;
 
         // 注册回调
         if (answerCallback != null) {
@@ -66,6 +113,9 @@ public class RustPBXService {
         }
         if (asrCallback != null) {
             asrCallbacks.put(sessionId, asrCallback);
+        }
+        if (silenceCallback != null) {
+            silenceCallbacks.put(sessionId, silenceCallback);
         }
 
         Request request = new Request.Builder()
@@ -76,11 +126,20 @@ public class RustPBXService {
             @Override
             public void onOpen(WebSocket ws, Response response) {
                 try {
-                    Map<String, Object> inviteMsg = Map.of(
-                            "type", "invite",
-                            "sdp", offerSDP,
-                            "session_id", sessionId
-                    );
+                    // invite 消息携带 callOption（降噪/VAD/ASR/TTS/音色/打断/沉默超时），对齐 Go 版 rustpbxgo 协议
+                    Map<String, Object> callOption = new HashMap<>();
+                    callOption.put("denoise", true);
+                    callOption.put("vad", Map.of("type", "silero"));
+                    callOption.put("asr", Map.of("provider", asrProvider, "model_type", asrModel));
+                    callOption.put("tts", Map.of("provider", "tencent", "speaker", voice, "model", ttsModel));
+                    callOption.put("break_on_vad", breakOnVad);
+                    callOption.put("silence_timeout", silenceTimeout);
+
+                    Map<String, Object> inviteMsg = new HashMap<>();
+                    inviteMsg.put("type", "invite");
+                    inviteMsg.put("sdp", offerSDP);
+                    inviteMsg.put("session_id", sessionId);
+                    inviteMsg.put("call_option", callOption);
                     ws.send(objectMapper.writeValueAsString(inviteMsg));
                 } catch (Exception e) {
                     // 消息发送异常，静默处理
@@ -108,6 +167,12 @@ public class RustPBXService {
                         if (callback != null && StringUtils.hasText(asrText)) {
                             callback.accept(asrText);
                         }
+                    } else if ("speaking".equals(type)) {
+                        // 用户开始说话：取消沉默计时
+                        cancelSilenceTask(sessionId);
+                    } else if ("track_end".equals(type) || "trackEnd".equals(type)) {
+                        // 音轨播放结束：重置沉默计时
+                        scheduleSilenceTask(sessionId);
                     }
                 } catch (Exception e) {
                     // 消息解析异常，静默处理
@@ -129,6 +194,34 @@ public class RustPBXService {
 
         connections.put(sessionId, webSocket);
         return sessionId;
+    }
+
+    /**
+     * 启动沉默计时任务：超时后触发沉默追问回调
+     */
+    private void scheduleSilenceTask(String sessionId) {
+        cancelSilenceTask(sessionId);
+        Consumer<String> callback = silenceCallbacks.get(sessionId);
+        if (callback == null) {
+            return;
+        }
+        ScheduledFuture<?> future = scheduler.schedule(() -> {
+            Consumer<String> cb = silenceCallbacks.get(sessionId);
+            if (cb != null) {
+                cb.accept("您还在吗？请说点什么吧!");
+            }
+        }, silenceTimeout, TimeUnit.SECONDS);
+        silenceTasks.put(sessionId, future);
+    }
+
+    /**
+     * 取消沉默计时任务
+     */
+    private void cancelSilenceTask(String sessionId) {
+        ScheduledFuture<?> future = silenceTasks.remove(sessionId);
+        if (future != null) {
+            future.cancel(false);
+        }
     }
 
     /**
@@ -171,10 +264,11 @@ public class RustPBXService {
             return;
         }
         try {
+            String voice = StringUtils.hasText(speaker) ? speaker : defaultSpeaker;
             Map<String, Object> ttsMsg = Map.of(
                     "type", "tts",
                     "text", text,
-                    "speaker", speaker,
+                    "speaker", voice,
                     "session_id", sessionId
             );
             ws.send(objectMapper.writeValueAsString(ttsMsg));
@@ -192,5 +286,7 @@ public class RustPBXService {
         connections.remove(sessionId);
         answerCallbacks.remove(sessionId);
         asrCallbacks.remove(sessionId);
+        silenceCallbacks.remove(sessionId);
+        cancelSilenceTask(sessionId);
     }
 }

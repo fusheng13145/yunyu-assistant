@@ -6,6 +6,7 @@ import com.leyon.backend.mapper.AssistantMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -58,6 +59,18 @@ public class AssistantService {
             return null;
         }
         return assistantMapper.selectById(id);
+    }
+
+    /**
+     * 批量查询助手（按主键），用于列表批量回填名称，避免 N+1 查询
+     * @param ids 助手ID集合
+     * @return 助手列表
+     */
+    public List<Assistant> listByIds(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return assistantMapper.selectBatchIds(ids);
     }
 
     /**

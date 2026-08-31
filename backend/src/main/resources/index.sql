@@ -33,43 +33,100 @@ CREATE TABLE `assistants` (
     `description` TEXT DEFAULT NULL COMMENT '助手描述',
     `personality` TEXT DEFAULT NULL COMMENT '系统提示词',
     `voice` VARCHAR(50) DEFAULT NULL COMMENT '助手音色',
+    `model_name` VARCHAR(64) DEFAULT NULL COMMENT 'LLM 模型名',
+    `temperature` DECIMAL(2,1) DEFAULT NULL COMMENT '温度 0-2',
+    `max_tokens` INT DEFAULT NULL COMMENT '最大输出 Token 数',
+    `knowledge_ids` JSON DEFAULT NULL COMMENT '关联知识库ID列表（JSON 数组）',
     `user_id` VARCHAR(36) NOT NULL COMMENT '所属用户ID',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+    KEY `idx_assistant_user_id` (`user_id`),
+    KEY `idx_assistant_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='助手表';
 
 -- ----------------------------
 -- 知识库表: knowledgebases
----- --------------------------
+-- --------------------------
 DROP TABLE IF EXISTS `knowledgebases`;
 CREATE TABLE `knowledgebases` (
     `id` VARCHAR(36) NOT NULL COMMENT '知识库UUID',
     `name` VARCHAR(100) NOT NULL COMMENT '知识库名',
     `description` TEXT DEFAULT NULL COMMENT '知识库描述',
+    `dataset_id` VARCHAR(64) DEFAULT NULL COMMENT 'RAGFlow 数据集ID（外部键）',
     `content` TEXT DEFAULT NULL COMMENT '知识库内容',
     `user_id` VARCHAR(36) NOT NULL COMMENT '所属用户ID',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+    KEY `idx_kb_user_dataset` (`user_id`, `dataset_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库表';
 
 -- ----------------------------
 -- 聊天记录表: records
----- --------------------------
+-- --------------------------
 DROP TABLE IF EXISTS `records`;
 CREATE TABLE `records` (
     `id` VARCHAR(36) NOT NULL COMMENT '聊天记录UUID',
     `assistant_id` VARCHAR(36) NOT NULL COMMENT '所属助手ID',
-    `role` TINYINT(1) NOT NULL COMMENT '角色 0:user, 1:assistant',
+    `call_id` VARCHAR(36) DEFAULT NULL COMMENT '关联通话记录ID（语音消息时）',
+    `role` TINYINT(1) NOT NULL COMMENT '角色 0:user, 1:assistant, 2:tool_call, 3:tool_result',
     `message` TEXT NOT NULL COMMENT '消息内容',
+    `tool_name` VARCHAR(100) DEFAULT NULL COMMENT '工具名称（tool_call/tool_result 时）',
+    `tool_args` JSON DEFAULT NULL COMMENT '工具参数（tool_call 时）',
+    `tool_result` JSON DEFAULT NULL COMMENT '工具执行结果（tool_result 时）',
+    `knowledgebase_info` JSON DEFAULT NULL COMMENT '引用的知识库信息 {docCount, docName[]}',
     `cost_time` BIGINT DEFAULT 0 COMMENT '响应耗时',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '消息时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+    KEY `idx_cm_assistant_id` (`assistant_id`),
+    KEY `idx_cm_created_at` (`created_at`),
+    KEY `idx_cm_assistant_created` (`assistant_id`, `created_at`),
+    KEY `idx_cm_call_id` (`call_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='聊天记录表';
+
+-- ----------------------------
+-- 通话记录表: call_records
+-- ----------------------------
+DROP TABLE IF EXISTS `call_records`;
+CREATE TABLE `call_records` (
+    `id` VARCHAR(36) NOT NULL COMMENT '通话记录UUID',
+    `user_id` VARCHAR(36) NOT NULL COMMENT '归属用户ID',
+    `assistant_id` VARCHAR(36) NOT NULL COMMENT '助手ID',
+    `status` TINYINT(1) DEFAULT 1 COMMENT '状态 0:失败 1:进行中 2:正常结束 3:中断',
+    `duration_sec` INT DEFAULT 0 COMMENT '通话时长（秒）',
+    `message_count` INT DEFAULT 0 COMMENT '消息数',
+    `started_at` TIMESTAMP NULL COMMENT '开始时间',
+    `ended_at` TIMESTAMP NULL COMMENT '结束时间',
+    `fail_reason` VARCHAR(255) DEFAULT NULL COMMENT '失败原因',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_cr_user_time` (`user_id`, `started_at`),
+    KEY `idx_cr_assistant_id` (`assistant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通话记录表';
+
+-- ----------------------------
+-- 审计日志表: audit_logs
+-- ----------------------------
+DROP TABLE IF EXISTS `audit_logs`;
+CREATE TABLE `audit_logs` (
+    `id` VARCHAR(36) NOT NULL COMMENT '审计日志UUID',
+    `user_id` VARCHAR(36) DEFAULT NULL COMMENT '操作人用户ID（未登录时为 null）',
+    `action` VARCHAR(64) NOT NULL COMMENT '操作动作（LOGIN/ASSISTANT_CREATE/...）',
+    `target_type` VARCHAR(64) DEFAULT NULL COMMENT '目标类型',
+    `target_id` VARCHAR(64) DEFAULT NULL COMMENT '目标ID',
+    `detail` TEXT DEFAULT NULL COMMENT '详情（JSON）',
+    `ip` VARCHAR(64) DEFAULT NULL COMMENT '客户端IP',
+    `result` TINYINT(1) DEFAULT 1 COMMENT '结果 1:成功 0:失败',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_audit_user_time` (`user_id`, `created_at`),
+    KEY `idx_audit_action_time` (`action`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='审计日志表';
 
 -- ----------------------------
 -- 插入用户数据

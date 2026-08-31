@@ -12,9 +12,12 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 /**
  * 知识库检索服务
@@ -23,7 +26,7 @@ import java.util.Map;
  * @author leyon
  */
 @Service
-public class KnowledgeService {
+public class KnowledgeService implements KnowledgeProvider {
 
     /** RAGFlow 接口密钥 */
     @Value("${app.ragflow.api-key}")
@@ -39,10 +42,21 @@ public class KnowledgeService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    public KnowledgeService(RestTemplate restTemplate, ObjectMapper objectMapper) {
-        this.restTemplate = restTemplate;
+    public KnowledgeService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+        // 创建带超时配置的 RestTemplate，避免外部请求阻塞
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(10));
+        factory.setReadTimeout(Duration.ofSeconds(30));
+        this.restTemplate = new RestTemplate(factory);
     }
+
+    /** 相似度阈值 */
+    private static final double SIMILARITY_THRESHOLD = 0.2;
+    /** 向量相似度权重 */
+    private static final double VECTOR_SIMILARITY_WEIGHT = 0.3;
+    /** 检索返回条数 */
+    private static final int PAGE_SIZE = 3;
 
     /**
      * 知识库检索
@@ -52,9 +66,22 @@ public class KnowledgeService {
      * @return 拼接后的检索上下文，异常/无数据返回空字符串
      */
     public String queryKnowledgeBase(String question, List<String> datasetIds) {
+        return queryKnowledgeBaseWithDetail(question, datasetIds).context();
+    }
+
+    /**
+     * 知识库检索（结构化结果）
+     * 返回上下文文本 + 命中文档名称列表，供 query_end 携带 knowledgebase 引用
+     *
+     * @param question   用户提问
+     * @param datasetIds 数据集ID列表
+     * @return 结构化命中结果，异常/无数据返回空结果
+     */
+    @Override
+    public KnowledgeHit queryKnowledgeBaseWithDetail(String question, List<String> datasetIds) {
         // 基础参数校验
         if (!StringUtils.hasText(question) || datasetIds == null || datasetIds.isEmpty()) {
-            return "";
+            return KnowledgeHit.empty();
         }
 
         try {
@@ -63,10 +90,14 @@ public class KnowledgeService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(apiKey);
 
-            // 构造请求体
+            // 构造请求体（对齐 RAGFlow retrieval 语义：相似度阈值 0.2、向量权重 0.3、top3）
             Map<String, Object> body = new HashMap<>();
             body.put("question", question);
             body.put("dataset_ids", datasetIds);
+            body.put("similarity_threshold", SIMILARITY_THRESHOLD);
+            body.put("vector_similarity_weight", VECTOR_SIMILARITY_WEIGHT);
+            body.put("page", 1);
+            body.put("page_size", PAGE_SIZE);
 
             HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(body, headers);
             String requestUrl = endpoint + RETRIEVAL_PATH;
@@ -75,32 +106,102 @@ public class KnowledgeService {
             ResponseEntity<String> response = restTemplate.postForEntity(requestUrl, requestEntity, String.class);
             String responseBody = response.getBody();
             if (!StringUtils.hasText(responseBody)) {
-                return "";
+                return KnowledgeHit.empty();
             }
 
             // 解析返回数据
             JsonNode rootNode = objectMapper.readTree(responseBody);
             JsonNode chunksNode = rootNode.path("data").path("chunks");
             if (!chunksNode.isArray() || chunksNode.isEmpty()) {
-                return "";
+                return KnowledgeHit.empty();
             }
 
-            // 拼接检索内容
+            // 拼接检索内容，同时收集命中文档名称
             StringBuilder context = new StringBuilder();
+            List<String> docNames = new ArrayList<>();
             for (JsonNode chunk : chunksNode) {
                 String content = chunk.path("content").asText("");
                 if (StringUtils.hasText(content)) {
                     context.append(content).append("\n");
                 }
+                String docName = chunk.path("document_keyword").asText("");
+                if (!StringUtils.hasText(docName)) {
+                    docName = chunk.path("docnm_kwd").asText("");
+                }
+                if (StringUtils.hasText(docName) && !docNames.contains(docName)) {
+                    docNames.add(docName);
+                }
             }
-            return context.toString().trim();
+            return new KnowledgeHit(context.toString().trim(), docNames.size(), docNames);
 
         } catch (RestClientException e) {
             // 网络/接口调用异常，静默降级返回空
-            return "";
+            return KnowledgeHit.empty();
         } catch (Exception e) {
             // 解析等其他异常，静默降级返回空
-            return "";
+            return KnowledgeHit.empty();
         }
+    }
+
+    /**
+     * 检索效果测试（F5.5 扩展）
+     * 返回命中的 chunk 原始信息（内容 + 相似度 + 文档名），供调试面板预览
+     *
+     * @param question   测试问题
+     * @param datasetIds 数据集ID列表
+     * @return 命中 chunk 列表，每个元素含 content/similarity/document
+     */
+    public List<Map<String, Object>> testRetrieval(String question, List<String> datasetIds) {
+        if (!StringUtils.hasText(question) || datasetIds == null || datasetIds.isEmpty()) {
+            return List.of();
+        }
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(apiKey);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("question", question);
+            body.put("dataset_ids", datasetIds);
+            body.put("similarity_threshold", SIMILARITY_THRESHOLD);
+            body.put("vector_similarity_weight", VECTOR_SIMILARITY_WEIGHT);
+            body.put("page", 1);
+            body.put("page_size", PAGE_SIZE);
+
+            HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+            ResponseEntity<String> response = restTemplate.postForEntity(endpoint + RETRIEVAL_PATH, requestEntity, String.class);
+            String responseBody = response.getBody();
+            if (!StringUtils.hasText(responseBody)) {
+                return List.of();
+            }
+
+            JsonNode rootNode = objectMapper.readTree(responseBody);
+            JsonNode chunksNode = rootNode.path("data").path("chunks");
+            if (!chunksNode.isArray()) {
+                return List.of();
+            }
+
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (JsonNode chunk : chunksNode) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("content", chunk.path("content").asText(""));
+                item.put("similarity", chunk.path("similarity").asDouble(0.0));
+                String docName = chunk.path("document_keyword").asText("");
+                if (!StringUtils.hasText(docName)) {
+                    docName = chunk.path("docnm_kwd").asText("");
+                }
+                item.put("document", docName);
+                result.add(item);
+            }
+            return result;
+        } catch (Exception e) {
+            // 测试检索异常，静默返回空
+            return List.of();
+        }
+    }
+
+    @Override
+    public String getProviderName() {
+        return "RAGFlow";
     }
 }

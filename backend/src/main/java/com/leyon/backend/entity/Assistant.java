@@ -6,7 +6,13 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 助手信息实体
@@ -21,6 +27,9 @@ public class Assistant {
     public static final int NOT_DELETED = 0;
     /** 逻辑删除-已删除 */
     public static final int DELETED = 1;
+
+    /** 用于 knowledge_ids JSON 字符串与数组互转 */
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     /**
      * 主键ID（UUID）
@@ -47,6 +56,28 @@ public class Assistant {
      * TTS 语音音色编码
      */
     private String voice;
+
+    /**
+     * LLM 模型名（如 deepseek-chat、qwen-turbo）
+     */
+    private String modelName;
+
+    /**
+     * 温度（0-2），控制生成随机性
+     */
+    private Double temperature;
+
+    /**
+     * 最大输出 Token 数
+     */
+    private Integer maxTokens;
+
+    /**
+     * 关联知识库ID列表（JSON 数组字符串，如 ["kb_001","kb_002"]）
+     * 数据库存储为字符串，JSON 对外表现为数组
+     */
+    @JsonIgnore
+    private String knowledgeIds;
 
     /**
      * 归属用户ID
@@ -127,6 +158,66 @@ public class Assistant {
 
     public void setVoice(String voice) {
         this.voice = voice;
+    }
+
+    public String getModelName() {
+        return modelName;
+    }
+
+    public void setModelName(String modelName) {
+        this.modelName = modelName;
+    }
+
+    public Double getTemperature() {
+        return temperature;
+    }
+
+    public void setTemperature(Double temperature) {
+        this.temperature = temperature;
+    }
+
+    public Integer getMaxTokens() {
+        return maxTokens;
+    }
+
+    public void setMaxTokens(Integer maxTokens) {
+        this.maxTokens = maxTokens;
+    }
+
+    /** MyBatis-Plus 映射 DB 使用（对外 JSON 隐藏） */
+    @JsonIgnore
+    public String getKnowledgeIds() {
+        return knowledgeIds;
+    }
+
+    @JsonIgnore
+    public void setKnowledgeIds(String knowledgeIds) {
+        this.knowledgeIds = knowledgeIds;
+    }
+
+    /** JSON 对外暴露 knowledgeIds 为数组 */
+    @JsonProperty("knowledgeIds")
+    public List<String> getKnowledgeIdList() {
+        if (knowledgeIds == null || knowledgeIds.isBlank()) {
+            return List.of();
+        }
+        try {
+            return JSON_MAPPER.readValue(knowledgeIds, new TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /** JSON 反序列化：接收数组，转存为 JSON 字符串（空数组存为 "[]" 以确保可更新） */
+    @JsonProperty("knowledgeIds")
+    public void setKnowledgeIdList(List<String> ids) {
+        try {
+            this.knowledgeIds = (ids == null || ids.isEmpty())
+                    ? "[]"
+                    : JSON_MAPPER.writeValueAsString(ids);
+        } catch (Exception e) {
+            this.knowledgeIds = "[]";
+        }
     }
 
     public String getUserId() {

@@ -10,6 +10,10 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * JWT 工具类
  * 负责令牌生成、解析、校验
@@ -30,6 +34,34 @@ public class JwtUtil {
      */
     @Value("${app.jwt.expiration}")
     private long expiration;
+
+    private static final Logger logger = LoggerFactory.getLogger(JwtUtil.class);
+    /** HMAC-SHA 密钥最小长度（字节） */
+    private static final int MIN_SECRET_LENGTH = 32;
+
+    /**
+     * 启动时校验 JWT Secret 强度，防止使用弱密钥
+     */
+    @PostConstruct
+    public void validateSecret() {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("JWT Secret 未配置，请设置环境变量 JWT_SECRET");
+        }
+        if (secret.getBytes(StandardCharsets.UTF_8).length < MIN_SECRET_LENGTH) {
+            throw new IllegalStateException(
+                "JWT Secret 长度不足 " + MIN_SECRET_LENGTH + " 字节（当前: "
+                    + secret.getBytes(StandardCharsets.UTF_8).length + " 字节），"
+                    + "请使用强随机密钥。生成命令: openssl rand -base64 32"
+            );
+        }
+        // 检测是否使用了已知弱默认值
+        if ("yunyu-assistant-jwt-secret-key-2026-min-32-bytes!".equals(secret)) {
+            throw new IllegalStateException(
+                "检测到默认/示例 JWT Secret，生产环境必须更换为强随机值"
+            );
+        }
+        logger.info("JWT 密钥校验通过，长度: {} 字节", secret.getBytes(StandardCharsets.UTF_8).length);
+    }
 
     /**
      * 获取签名密钥

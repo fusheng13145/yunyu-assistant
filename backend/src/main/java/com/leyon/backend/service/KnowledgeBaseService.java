@@ -70,6 +70,22 @@ public class KnowledgeBaseService {
     }
 
     /**
+     * 校验指定数据集是否属于当前用户（对象级授权，防越权）
+     * @param datasetId RAGFlow 数据集ID
+     * @param userId    登录用户ID
+     * @return 属于当前用户返回 true，否则 false
+     */
+    public boolean isOwnedDataset(String datasetId, String userId) {
+        if (!StringUtils.hasText(datasetId) || !StringUtils.hasText(userId)) {
+            return false;
+        }
+        LambdaQueryWrapper<KnowledgeBase> queryWrapper = new LambdaQueryWrapper<KnowledgeBase>()
+                .eq(KnowledgeBase::getDatasetId, datasetId)
+                .eq(KnowledgeBase::getUserId, userId);
+        return knowledgeBaseMapper.selectCount(queryWrapper) > 0;
+    }
+
+    /**
      * 根据ID删除知识库（逻辑删除）
      * @param id 知识库ID
      * @return true-删除成功 false-删除失败

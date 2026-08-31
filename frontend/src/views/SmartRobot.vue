@@ -1,5 +1,10 @@
 <template>
-  <div class="morandi-body theme-transition h-screen w-full flex overflow-hidden antialiased">
+  <!-- 首次加载骨架屏 -->
+  <div v-if="pageLoading" class="morandi-body theme-transition h-screen w-full flex overflow-hidden antialiased">
+    <SkeletonLoader />
+  </div>
+
+  <div v-else class="morandi-body theme-transition h-screen w-full flex overflow-hidden antialiased">
     <!-- 通知提示 -->
     <transition name="notification">
       <div
@@ -32,6 +37,13 @@
         >
           <Plus class="w-4 h-4" />
           <span>新建助手</span>
+        </button>
+        <button
+          @click="router.push('/records')"
+          class="morandi-btn morandi-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
+        >
+          <History class="w-4 h-4" />
+          <span>通话记录</span>
         </button>
       </div>
 
@@ -319,6 +331,16 @@
               ></textarea>
             </div>
             <div>
+              <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">人设模板</label>
+              <select
+                class="w-full morandi-input px-4 py-2.5 rounded-md"
+                @change="onTemplateChange($event, 'create')"
+              >
+                <option value="">选择模板（可选）</option>
+                <option v-for="tpl in personaTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+              </select>
+            </div>
+            <div>
               <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">系统提示词</label>
               <textarea
                 v-model="formData.personality"
@@ -326,6 +348,51 @@
                 class="w-full morandi-input px-4 py-2.5 rounded-md resize-none"
                 rows="4"
               ></textarea>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">音色</label>
+              <select
+                v-model="formData.voice"
+                class="w-full morandi-input px-4 py-2.5 rounded-md"
+              >
+                <option value="">默认音色</option>
+                <option v-for="v in voices" :key="v.id" :value="v.id">
+                  {{ v.name }}（{{ v.gender === 1 ? '女' : '男' }}）
+                </option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">模型</label>
+              <select
+                v-model="formData.modelName"
+                class="w-full morandi-input px-4 py-2.5 rounded-md"
+              >
+                <option value="">默认模型</option>
+                <option v-for="m in models" :key="m.id" :value="m.id">{{ m.name }}</option>
+              </select>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">温度 (0-2)</label>
+                <input
+                  v-model.number="formData.temperature"
+                  type="number"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  class="w-full morandi-input px-4 py-2.5 rounded-md"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">最大输出</label>
+                <input
+                  v-model.number="formData.maxTokens"
+                  type="number"
+                  min="1"
+                  step="1"
+                  class="w-full morandi-input px-4 py-2.5 rounded-md"
+                />
+              </div>
             </div>
           </div>
           <div class="flex justify-end gap-3 mt-6">
@@ -389,6 +456,13 @@
                 {{ saving ? '保存中...' : '保存人设' }}
               </button>
             </div>
+            <select
+              class="w-full morandi-input rounded-md px-4 py-2.5 mb-3"
+              @change="onTemplateChange($event, 'settings')"
+            >
+              <option value="">选择人设模板（可选）</option>
+              <option v-for="tpl in personaTemplates" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+            </select>
             <textarea
               v-model="personalityText"
               @input="onPersonalityChange"
@@ -400,17 +474,90 @@
             </div>
           </div>
 
+          <!-- 音色设置 -->
+          <div class="setting-card morandi-card rounded-lg p-5">
+            <div class="card-head flex items-center justify-between mb-4">
+              <h3 class="font-semibold text-morandi-text">音色设置</h3>
+              <button
+                @click="saveVoice"
+                class="morandi-btn morandi-btn-primary text-sm px-4 py-1.5"
+              >
+                保存音色
+              </button>
+            </div>
+            <select v-model="settingsVoice" class="w-full morandi-input rounded-md px-4 py-2.5">
+              <option value="">默认音色</option>
+              <option v-for="v in voices" :key="v.id" :value="v.id">
+                {{ v.name }}（{{ v.gender === 1 ? '女' : '男' }}） - {{ v.description }}
+              </option>
+            </select>
+          </div>
+
+          <!-- 模型参数设置 -->
+          <div class="setting-card morandi-card rounded-lg p-5">
+            <div class="card-head flex items-center justify-between mb-4">
+              <h3 class="font-semibold text-morandi-text">模型参数</h3>
+              <button
+                @click="saveModelParams"
+                class="morandi-btn morandi-btn-primary text-sm px-4 py-1.5"
+              >
+                保存参数
+              </button>
+            </div>
+            <div class="space-y-3">
+              <div>
+                <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">模型</label>
+                <select v-model="settingsModelName" class="w-full morandi-input rounded-md px-4 py-2.5">
+                  <option value="">默认模型</option>
+                  <option v-for="m in models" :key="m.id" :value="m.id">{{ m.name }}</option>
+                </select>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">温度 (0-2)</label>
+                  <input
+                    v-model.number="settingsTemperature"
+                    type="number"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    class="w-full morandi-input rounded-md px-4 py-2.5"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">最大输出</label>
+                  <input
+                    v-model.number="settingsMaxTokens"
+                    type="number"
+                    min="1"
+                    step="1"
+                    class="w-full morandi-input rounded-md px-4 py-2.5"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- 知识库配置 -->
           <div class="setting-card morandi-card rounded-lg p-5">
             <div class="card-head flex items-center justify-between mb-4">
               <h3 class="font-semibold text-morandi-text">知识库配置</h3>
-              <button
-                @click="openKnowledgeModal"
-                class="morandi-btn morandi-btn-primary text-sm px-4 py-1.5 flex items-center gap-1.5"
-              >
-                <Database class="w-4 h-4" />
-                <span>管理知识库</span>
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  @click="showRetrievalTest = true"
+                  class="morandi-btn morandi-btn-ghost text-sm px-3 py-1.5 flex items-center gap-1.5"
+                >
+                  <Search class="w-4 h-4" />
+                  <span>检索测试</span>
+                </button>
+                <button
+                  @click="openKnowledgeModal"
+                  class="morandi-btn morandi-btn-primary text-sm px-4 py-1.5 flex items-center gap-1.5"
+                >
+                  <Database class="w-4 h-4" />
+                  <span>管理知识库</span>
+                </button>
+              </div>
             </div>
 
             <!-- 单知识库选中 -->
@@ -699,11 +846,17 @@
             </div>
           </div>
 
-          <div class="file-list flex-1 overflow-y-auto morandi-scroll transparent-scrollbar p-6">
+          <div
+            class="file-list flex-1 overflow-y-auto morandi-scroll transparent-scrollbar p-6"
+            :class="{ 'drag-active': dragActive }"
+            @dragover.prevent="dragActive = true"
+            @dragleave.prevent="dragActive = false"
+            @drop.prevent="handleDrop"
+          >
             <div v-if="currentFiles.length === 0" class="empty-state text-center py-12">
               <FileText class="w-14 h-14 mx-auto mb-3 text-morandi-text-faint" />
               <p class="text-sm font-medium text-morandi-text-muted">暂无文件</p>
-              <p class="text-xs mt-1 text-morandi-text-faint">点击上传按钮添加文档</p>
+              <p class="text-xs mt-1 text-morandi-text-faint">点击上传按钮或拖拽文件到此区域</p>
             </div>
             <div v-else class="file-items space-y-2.5">
               <div
@@ -783,6 +936,62 @@
         </div>
       </div>
     </div>
+
+    <!-- 检索效果测试弹窗（F5.5） -->
+    <div
+      v-if="showRetrievalTest"
+      class="modal-mask fixed inset-0 z-50 flex items-center justify-center bg-morandi-overlay"
+      @click.self="showRetrievalTest = false"
+    >
+      <div class="modal-card animate-modal-in morandi-card-elevated rounded-xl w-[560px] max-h-[80vh] flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b" style="border-color: var(--morandi-divider)">
+          <h3 class="serif font-semibold text-morandi-text">检索效果测试</h3>
+          <button @click="showRetrievalTest = false" class="p-1" style="color: var(--morandi-text-muted)">
+            <X class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="flex-1 min-h-0 overflow-y-auto morandi-scroll p-6">
+          <div class="flex gap-2 mb-4">
+            <input
+              v-model="testQuestion"
+              type="text"
+              placeholder="输入测试问题，验证检索命中效果..."
+              class="flex-1 morandi-input rounded-md px-4 py-2.5"
+              @keyup.enter="runRetrievalTest"
+            />
+            <button
+              @click="runRetrievalTest"
+              :disabled="testLoading"
+              class="morandi-btn morandi-btn-primary px-4 py-2.5 whitespace-nowrap"
+            >
+              {{ testLoading ? '测试中...' : '测试' }}
+            </button>
+          </div>
+
+          <div v-if="testResults.length === 0 && !testLoading" class="text-center py-10 text-sm" style="color: var(--morandi-text-muted)">
+            暂无检索结果，请输入问题并点击测试
+          </div>
+
+          <div v-else class="space-y-3">
+            <div
+              v-for="(chunk, i) in testResults"
+              :key="i"
+              class="morandi-card rounded-lg p-4"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs" style="color: var(--morandi-text-secondary)">
+                  {{ chunk.document || '未知文档' }}
+                </span>
+                <span class="text-xs px-2 py-0.5 rounded" style="background: var(--morandi-input-bg); color: var(--morandi-primary)">
+                  相似度 {{ (chunk.similarity * 100).toFixed(1) }}%
+                </span>
+              </div>
+              <p class="text-sm leading-relaxed whitespace-pre-wrap" style="color: var(--morandi-text)">{{ chunk.content }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -793,18 +1002,21 @@ import {
   Bot, LogOut, Settings, RotateCcw, MessageCircle,
   Database, FolderOpen, Check, X, Plus, List, LayoutGrid,
   Trash2, ChevronLeft, Upload, FileText, Mic, PhoneOff,
-  Search, Download, Zap
+  Search, Download, Zap, History
 } from 'lucide-vue-next'
 import ChatMessages from '../components/ChatMessages.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
+import SkeletonLoader from '../components/SkeletonLoader.vue'
+import { personaTemplates } from '../composables/usePersonaTemplates'
 import { useTheme } from '../composables/useTheme'
 import { useMessageSearch } from '../composables/useMessageSearch'
 import { useQuickCommands } from '../composables/useQuickCommands'
 import { exportChatToMarkdown, exportChatToJson } from '../utils/exportChat'
 import { useWebSocket } from '../utils/websocket'
 import { useWebRTC } from '../composables/useWebRTC'
-import { fetchAssistants, createAssistant, deleteAssistant, fetchKnowledgeConfig } from '../api/assistant'
-import type { Assistant, DisplayMessage, KnowledgeBase, RAGFlowConfig, AsrDeltaData } from '../types'
+import { fetchAssistants, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels } from '../api/assistant'
+import { RagflowApi } from '../api/ragflow'
+import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, VoiceInfo, ModelInfo } from '../types'
 
 // 主题与路由
 const { themeMode, setTheme } = useTheme()
@@ -813,6 +1025,7 @@ const router = useRouter()
 // 助手数据
 const assistants = ref<Assistant[]>([])
 const selectedAssistant = ref<Assistant | null>(null)
+const pageLoading = ref(true)
 
 // 用户信息
 const userName = typeof localStorage !== 'undefined'
@@ -824,10 +1037,12 @@ const userInitial = userName.charAt(0).toUpperCase()
 const showModal = ref(false)
 const showDeleteModal = ref(false)
 const deleteTarget = ref<Assistant | null>(null)
-const formData = ref({ name: '', description: '', personality: '' })
+const formData = ref({ name: '', description: '', personality: '', voice: '', modelName: '', temperature: 0.7, maxTokens: 1024 })
 
-// RAG 配置
-const ragflowConfig = ref<RAGFlowConfig>({ endpoint: '', apiKey: '' })
+// 音色字典
+const voices = ref<VoiceInfo[]>([])
+// 模型字典
+const models = ref<ModelInfo[]>([])
 
 // WebSocket 实例
 let ws: ReturnType<typeof useWebSocket> | null = null
@@ -885,6 +1100,10 @@ const settingsAssistant = ref<Assistant | null>(null)
 const personalityText = ref('')
 const originalPersonality = ref('')
 const saving = ref(false)
+const settingsVoice = ref('')
+const settingsModelName = ref('')
+const settingsTemperature = ref(0.7)
+const settingsMaxTokens = ref(1024)
 
 const personalityChanged = computed(() =>
   personalityText.value !== originalPersonality.value && personalityText.value.trim() !== ''
@@ -899,10 +1118,27 @@ const onPersonalityChange = () => {
 const savePersonality = async () => {
   if (!personalityChanged.value) return
   saving.value = true
+  const bot = settingsAssistant.value
   try {
+    // 热更新当前会话人设
     ws?.send({ type: 'prompt', content: personalityText.value })
-    showNotification('人设保存成功！', 'success')
+    // 持久化到服务器助手记录，避免切换/重连后人设丢失
+    if (bot?.id) {
+      await updateAssistant({
+        id: bot.id,
+        name: bot.name,
+        description: bot.description,
+        personality: personalityText.value,
+        voice: bot.voice,
+        knowledgeIds: bot.knowledgeIds,
+      })
+      bot.personality = personalityText.value
+      if (selectedAssistant.value?.id === bot.id) {
+        selectedAssistant.value.personality = personalityText.value
+      }
+    }
     originalPersonality.value = personalityText.value
+    showNotification('人设保存成功！', 'success')
   } catch (error) {
     showNotification(`保存失败：${(error as Error).message}`, 'error')
   } finally {
@@ -915,6 +1151,10 @@ const knowledgeBases = ref<KnowledgeBase[]>([])
 const showKnowledgeModal = ref(false)
 const showCreateKnowledgeForm = ref(false)
 const showFileManager = ref(false)
+const showRetrievalTest = ref(false)
+const testQuestion = ref('')
+const testResults = ref<Array<{ content: string; similarity: number; document: string }>>([])
+const testLoading = ref(false)
 const currentFileManagerKB = ref<KnowledgeBase | null>(null)
 const currentFiles = ref<any[]>([])
 const knowledgeBaseLayout = ref<'list' | 'grid'>('grid')
@@ -922,6 +1162,7 @@ const selectedKnowledgeBases = ref<KnowledgeBase[]>([])
 const currentKnowledgeBase = ref<KnowledgeBase | null>(null)
 const isUploading = ref(false)
 const uploadProgress = ref(0)
+const dragActive = ref(false)
 const newKnowledgeBase = ref({ name: '', description: '' })
 
 // 获取助手类型
@@ -947,6 +1188,15 @@ const loadAssistants = async () => {
   }
 }
 
+// 加载音色字典
+const loadVoices = async () => {
+  try {
+    voices.value = await fetchVoices()
+  } catch (error) {
+    console.error('获取音色列表失败:', error)
+  }
+}
+
 // 选择助手
 const selectAssistant = (bot: Assistant) => {
   if (selectedAssistant.value?.id === bot.id) return
@@ -968,8 +1218,29 @@ const selectAssistant = (bot: Assistant) => {
 
 // 新增助手弹窗
 const openModal = () => {
-  formData.value = { name: '', description: '', personality: '' }
+  formData.value = { name: '', description: '', personality: '', voice: '', modelName: '', temperature: 0.7, maxTokens: 1024 }
   showModal.value = true
+}
+
+// 加载模型字典
+const loadModels = async () => {
+  try {
+    models.value = await fetchModels()
+  } catch (error) {
+    console.error('获取模型列表失败:', error)
+  }
+}
+
+// 人设模板一键填充
+const onTemplateChange = (event: Event, mode: 'create' | 'settings') => {
+  const id = (event.target as HTMLSelectElement).value
+  const tpl = personaTemplates.find(t => t.id === id)
+  if (!tpl) return
+  if (mode === 'create') {
+    formData.value.personality = tpl.prompt
+  } else {
+    personalityText.value = tpl.prompt
+  }
 }
 const closeModal = () => showModal.value = false
 
@@ -980,7 +1251,10 @@ const addAssistant = async () => {
     return
   }
   try {
-    await createAssistant({ ...formData.value })
+    await createAssistant({
+      ...formData.value,
+      modelName: formData.value.modelName || undefined,
+    })
     await loadAssistants()
     closeModal()
   } catch (error) {
@@ -1018,9 +1292,67 @@ const openSettingsModal = (bot: Assistant) => {
   settingsAssistant.value = bot
   personalityText.value = bot.personality || '这是一个默认的智能助手，擅长解答用户问题，提供准确、有用的信息。'
   originalPersonality.value = personalityText.value
+  settingsVoice.value = bot.voice || ''
+  settingsModelName.value = bot.modelName || ''
+  settingsTemperature.value = bot.temperature ?? 0.7
+  settingsMaxTokens.value = bot.maxTokens ?? 1024
   showSettings.value = true
 }
 const closeSettingsModal = () => showSettings.value = false
+
+// 保存音色
+const saveVoice = async () => {
+  const bot = settingsAssistant.value
+  if (!bot?.id) return
+  try {
+    await updateAssistant({
+      id: bot.id,
+      name: bot.name,
+      description: bot.description,
+      personality: bot.personality,
+      voice: settingsVoice.value,
+      knowledgeIds: bot.knowledgeIds,
+    })
+    bot.voice = settingsVoice.value
+    // 同步选中助手
+    if (selectedAssistant.value?.id === bot.id) {
+      selectedAssistant.value.voice = settingsVoice.value
+    }
+    showNotification('音色保存成功！', 'success')
+  } catch (error) {
+    showNotification(`音色保存失败：${(error as Error).message}`, 'error')
+  }
+}
+
+// 保存模型参数
+const saveModelParams = async () => {
+  const bot = settingsAssistant.value
+  if (!bot?.id) return
+  try {
+    await updateAssistant({
+      id: bot.id,
+      name: bot.name,
+      description: bot.description,
+      personality: bot.personality,
+      voice: bot.voice,
+      modelName: settingsModelName.value || undefined,
+      temperature: settingsTemperature.value,
+      maxTokens: settingsMaxTokens.value,
+      knowledgeIds: bot.knowledgeIds,
+    })
+    bot.modelName = settingsModelName.value
+    bot.temperature = settingsTemperature.value
+    bot.maxTokens = settingsMaxTokens.value
+    if (selectedAssistant.value?.id === bot.id) {
+      selectedAssistant.value.modelName = settingsModelName.value
+      selectedAssistant.value.temperature = settingsTemperature.value
+      selectedAssistant.value.maxTokens = settingsMaxTokens.value
+    }
+    showNotification('模型参数保存成功！', 'success')
+  } catch (error) {
+    showNotification(`模型参数保存失败：${(error as Error).message}`, 'error')
+  }
+}
 
 // 语音通话
 const startVoiceCall = async () => {
@@ -1136,7 +1468,8 @@ const handleStreamMessage = (answer: { streamEnd: boolean; segment: string }) =>
 const finishStreamMessage = (queryData: { 
   message: string; 
   costTime: number; 
-  knowledgebase?: string | { docCount?: number; docName?: string[] } 
+  knowledgebase?: string | { docCount?: number; docName?: string[] };
+  tokenUsage?: { promptTokens?: number; completionTokens?: number }
 }) => {
   isTyping.value = false
   isFirstOfStream.value = true
@@ -1150,6 +1483,9 @@ const finishStreamMessage = (queryData: {
       lastMsg.knowledgebase = { docName: [queryData.knowledgebase] }
     } else {
       lastMsg.knowledgebase = queryData.knowledgebase
+    }
+    if (queryData.tokenUsage) {
+      lastMsg.tokenUsage = queryData.tokenUsage
     }
   }
 }
@@ -1189,34 +1525,10 @@ const handleLogout = () => {
   router.push('/login')
 }
 
-// 加载 RAG 配置
-const loadRAGFlowConfig = async () => {
-  try {
-    ragflowConfig.value = await fetchKnowledgeConfig()
-  } catch (error) {
-    console.error('加载RAGFlow配置失败:', error)
-  }
-}
-
-// 加载知识库列表
+// 加载知识库列表（通过后端代理，密钥零下发）
 const loadKnowledgeBases = async () => {
-  if (!ragflowConfig.value.endpoint || !ragflowConfig.value.apiKey) return
   try {
-    const res = await fetch(`${ragflowConfig.value.endpoint}/api/v1/datasets?page=1&page_size=10`, {
-      headers: { Authorization: ragflowConfig.value.apiKey },
-    })
-    if (!res.ok) throw new Error(`获取数据集列表失败：${res.status}`)
-    const result = await res.json()
-    if (result.code === 0) {
-      knowledgeBases.value = result.data.map((ds: any) => ({
-        id: ds.id,
-        name: ds.name,
-        description: ds.description,
-        documentCount: ds.document_count || 0,
-        chunkCount: ds.chunk_count || 0,
-        tokenCount: ds.token_count || 0,
-      }))
-    }
+    knowledgeBases.value = await RagflowApi.getDatasets(1, 1000)
   } catch (error) {
     showNotification(`获取知识库列表失败：${(error as Error).message}`, 'error')
   }
@@ -1225,6 +1537,38 @@ const loadKnowledgeBases = async () => {
 // 恢复知识库选择
 const restoreKnowledgeBaseSelection = () => {
   if (!selectedAssistant.value?.id) return
+
+  // 优先从服务端持久化的 knowledge_ids 恢复
+  const rawIds = selectedAssistant.value.knowledgeIds
+  let serverIds: string[] = []
+  if (Array.isArray(rawIds)) {
+    serverIds = rawIds
+  } else if (typeof rawIds === 'string' && rawIds.trim()) {
+    try {
+      const parsed = JSON.parse(rawIds)
+      if (Array.isArray(parsed)) serverIds = parsed
+    } catch {
+      serverIds = []
+    }
+  }
+
+  if (serverIds.length > 0 && knowledgeBases.value.length > 0) {
+    const matched = serverIds
+      .map(id => knowledgeBases.value.find(kb => kb.id === id))
+      .filter((kb): kb is KnowledgeBase => !!kb)
+    if (matched.length === 1) {
+      currentKnowledgeBase.value = matched[0]
+      selectedKnowledgeBases.value = []
+      return
+    }
+    if (matched.length > 1) {
+      currentKnowledgeBase.value = null
+      selectedKnowledgeBases.value = matched
+      return
+    }
+  }
+
+  // 兜底：从 localStorage 恢复
   try {
     const saved = localStorage.getItem(`knowledgeBaseSelection_${selectedAssistant.value.id}`)
     if (saved) {
@@ -1290,28 +1634,12 @@ const closeFileManager = () => {
 
 // 加载文件列表
 const loadKnowledgeBaseFiles = async (kbId: string) => {
-  if (!kbId || !ragflowConfig.value.endpoint) {
+  if (!kbId) {
     currentFiles.value = []
     return
   }
   try {
-    const res = await fetch(
-      `${ragflowConfig.value.endpoint}/api/v1/datasets/${kbId}/documents?page=1&page_size=100`,
-      { headers: { Authorization: ragflowConfig.value.apiKey } }
-    )
-    if (!res.ok) throw new Error(`获取文档列表失败: ${res.status}`)
-    const result = await res.json()
-    currentFiles.value = result.code === 0 && result.data?.docs
-      ? result.data.docs.map((doc: any) => ({
-          id: doc.id,
-          name: doc.name,
-          size: doc.size || 0,
-          type: doc.type || doc.name?.split('.').pop()?.toUpperCase() || 'Unknown',
-          run: doc.run,
-          chunkCount: doc.chunk_count || 0,
-          progress: doc.progress || 0,
-        }))
-      : []
+    currentFiles.value = await RagflowApi.getDocuments(kbId)
   } catch (error) {
     showNotification(`获取文件列表失败：${(error as Error).message}`, 'error')
     currentFiles.value = []
@@ -1334,13 +1662,61 @@ const confirmSelection = () => {
       ? [currentKnowledgeBase.value.id]
       : selectedKnowledgeBases.value.map(kb => kb.id)
     ws?.send({ type: 'selectedKbIds', ids: kbIds })
+    // 服务端持久化知识库关联（换设备/浏览器不丢失）
+    persistKnowledgeIds(kbIds)
   } else {
     currentKnowledgeBase.value = null
     selectedKnowledgeBases.value = []
     showNotification('已清空知识库选择', 'info')
+    ws?.send({ type: 'selectedKbIds', ids: [] })
+    persistKnowledgeIds([])
   }
   saveKnowledgeBaseSelection()
   closeKnowledgeModal()
+}
+
+/**
+ * 服务端持久化助手关联的知识库ID列表
+ */
+const persistKnowledgeIds = async (ids: string[]) => {
+  const assistant = selectedAssistant.value
+  if (!assistant?.id) return
+  try {
+    await updateAssistant({
+      id: assistant.id,
+      name: assistant.name,
+      description: assistant.description,
+      personality: assistant.personality,
+      voice: assistant.voice,
+      knowledgeIds: ids,
+    })
+  } catch (error) {
+    console.error('持久化知识库关联失败:', error)
+  }
+}
+
+// 检索效果测试（F5.5）
+const runRetrievalTest = async () => {
+  const ids = currentKnowledgeBase.value
+    ? [currentKnowledgeBase.value.id]
+    : selectedKnowledgeBases.value.map(kb => kb.id)
+  if (!ids.length) {
+    showNotification('请先选择知识库', 'warning')
+    return
+  }
+  if (!testQuestion.value.trim()) {
+    showNotification('请输入测试问题', 'warning')
+    return
+  }
+  testLoading.value = true
+  try {
+    testResults.value = await RagflowApi.testRetrieval(testQuestion.value.trim(), ids)
+  } catch (error) {
+    showNotification(`检索测试失败：${(error as Error).message}`, 'error')
+    testResults.value = []
+  } finally {
+    testLoading.value = false
+  }
 }
 
 const clearAllSelections = () => {
@@ -1371,36 +1747,15 @@ const openCreateKnowledgeForm = () => {
 const createKnowledgeBase = async () => {
   if (!newKnowledgeBase.value.name.trim()) return
   try {
-    const res = await fetch(`${ragflowConfig.value.endpoint}/api/v1/datasets`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: ragflowConfig.value.apiKey,
-      },
-      body: JSON.stringify({
-        name: newKnowledgeBase.value.name.trim(),
-        description: newKnowledgeBase.value.description.trim(),
-        embedding_model: 'text-embedding-v3@Tongyi-Qianwen',
-        chunk_method: 'naive',
-        parser_config: {
-          layout_recognize: 'true',
-          delimiter: '\n',
-          html4excel: false,
-          filename_embd_weight: 0.1,
-          raptor: { use_raptor: false },
-          graphrag: { use_graphrag: false },
-        },
-      }),
+    await RagflowApi.createDataset({
+      name: newKnowledgeBase.value.name.trim(),
+      description: newKnowledgeBase.value.description.trim(),
     })
-    if (!res.ok) throw new Error(`创建数据集失败：${res.status}`)
-    const result = await res.json()
-    if (result.code === 0) {
-      showNotification('知识库创建成功！', 'success')
-      await loadKnowledgeBases()
-      newKnowledgeBase.value = { name: '', description: '' }
-      showCreateKnowledgeForm.value = false
-      showKnowledgeModal.value = true
-    }
+    showNotification('知识库创建成功！', 'success')
+    await loadKnowledgeBases()
+    newKnowledgeBase.value = { name: '', description: '' }
+    showCreateKnowledgeForm.value = false
+    showKnowledgeModal.value = true
   } catch (error) {
     showNotification(`创建知识库失败：${(error as Error).message}`, 'error')
   }
@@ -1410,22 +1765,11 @@ const createKnowledgeBase = async () => {
 const deleteKnowledgeBase = async (kb: KnowledgeBase) => {
   if (!confirm(`确定要删除知识库"${kb.name}"吗？此操作不可撤销。`)) return
   try {
-    const res = await fetch(`${ragflowConfig.value.endpoint}/api/v1/datasets`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: ragflowConfig.value.apiKey,
-      },
-      body: JSON.stringify({ ids: [kb.id] }),
-    })
-    if (!res.ok) throw new Error(`删除数据集失败：${res.status}`)
-    const result = await res.json()
-    if (result.code === 0) {
-      showNotification('知识库删除成功！', 'success')
-      await loadKnowledgeBases()
-      if (currentKnowledgeBase.value?.id === kb.id) currentKnowledgeBase.value = null
-      selectedKnowledgeBases.value = selectedKnowledgeBases.value.filter(s => s.id !== kb.id)
-    }
+    await RagflowApi.deleteDataset([kb.id])
+    showNotification('知识库删除成功！', 'success')
+    await loadKnowledgeBases()
+    if (currentKnowledgeBase.value?.id === kb.id) currentKnowledgeBase.value = null
+    selectedKnowledgeBases.value = selectedKnowledgeBases.value.filter(s => s.id !== kb.id)
   } catch (error) {
     showNotification(`删除知识库失败：${(error as Error).message}`, 'error')
   }
@@ -1445,6 +1789,15 @@ const triggerFileUpload = () => {
   input.click()
 }
 
+// 拖拽上传
+const handleDrop = (event: DragEvent) => {
+  dragActive.value = false
+  const files = Array.from(event.dataTransfer?.files || [])
+  if (files.length > 0) {
+    processFilesForFileManager(files)
+  }
+}
+
 const processFilesForFileManager = async (files: File[]) => {
   if (!files.length || !currentFileManagerKB.value) return
   isUploading.value = true
@@ -1460,28 +1813,19 @@ const processFilesForFileManager = async (files: File[]) => {
         continue
       }
       try {
-        const form = new FormData()
-        form.append('file', file)
-        const res = await fetch(
-          `${ragflowConfig.value.endpoint}/api/v1/datasets/${currentFileManagerKB.value!.id}/documents`,
-          { method: 'POST', headers: { Authorization: ragflowConfig.value.apiKey }, body: form }
-        )
-        if (!res.ok) throw new Error(`上传失败: ${res.status}`)
-        const result = await res.json()
-        if (result.code === 0) {
-          result.data.forEach((item: any) => uploaded.push(item.id))
-          showNotification(`文件 ${file.name} 上传成功`, 'success')
-        }
+        const docIds = await RagflowApi.uploadDocument(currentFileManagerKB.value!.id, file)
+        uploaded.push(...docIds)
+        showNotification(`文件 ${file.name} 上传成功`, 'success')
         uploadProgress.value = Math.round(((i + 1) / total) * 100)
       } catch (error) {
-        showNotification(`上传文件 ${file.name} 失败`, 'error')
+        showNotification(`上传文件 ${file.name} 失败: ${(error as Error).message}`, 'error')
       }
     }
 
     if (uploaded.length > 0) {
       await loadKnowledgeBaseFiles(currentFileManagerKB.value!.id)
       try {
-        await parseDocuments(currentFileManagerKB.value!.id, uploaded)
+        await RagflowApi.parseDocuments(currentFileManagerKB.value!.id, uploaded)
       } catch {
         showNotification('文件上传成功，但自动解析失败，请手动解析', 'warning')
       }
@@ -1492,43 +1836,14 @@ const processFilesForFileManager = async (files: File[]) => {
   }
 }
 
-const parseDocuments = async (datasetId: string, docIds: string[]) => {
-  const valid = docIds.filter(id => id && typeof id === 'string')
-  if (!valid.length) return
-  const res = await fetch(`${ragflowConfig.value.endpoint}/api/v1/datasets/${datasetId}/chunks`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: ragflowConfig.value.apiKey,
-    },
-    body: JSON.stringify({ document_ids: valid }),
-  })
-  if (!res.ok) throw new Error(`解析文档失败: ${res.status}`)
-  showNotification('文档解析已开始，请稍后查看进度', 'success')
-}
-
 // 删除文件
 const deleteFile = async (file: any) => {
   if (!currentFileManagerKB.value) return
   if (!confirm(`确定要删除文件"${file.name}"吗？此操作不可撤销。`)) return
   try {
-    const res = await fetch(
-      `${ragflowConfig.value.endpoint}/api/v1/datasets/${currentFileManagerKB.value.id}/documents`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: ragflowConfig.value.apiKey,
-        },
-        body: JSON.stringify({ ids: [file.id] }),
-      }
-    )
-    if (!res.ok) throw new Error(`删除文档失败: ${res.status}`)
-    const result = await res.json()
-    if (result.code === 0) {
-      showNotification('文件删除成功', 'success')
-      await loadKnowledgeBaseFiles(currentFileManagerKB.value!.id)
-    }
+    await RagflowApi.deleteDocument(currentFileManagerKB.value.id, [file.id])
+    showNotification('文件删除成功', 'success')
+    await loadKnowledgeBaseFiles(currentFileManagerKB.value!.id)
   } catch (error) {
     showNotification(`删除文件失败：${(error as Error).message}`, 'error')
   }
@@ -1544,17 +1859,56 @@ const formatFileSize = (bytes: number): string => {
 
 // 生命周期
 onMounted(async () => {
-  await loadRAGFlowConfig()
-  await loadAssistants()
-  await loadKnowledgeBases()
+  try {
+    await loadVoices()
+    await loadModels()
+    await loadAssistants()
+    await loadKnowledgeBases()
+  } finally {
+    pageLoading.value = false
+  }
+  window.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
   ws?.close()
   voiceWs?.send({ type: 'hangup' })
   voiceWs?.close()
   webrtc.hangup()
 })
+
+// 全局快捷键：Esc 关闭最上层弹窗
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape') return
+  if (showQuickCommands.value) {
+    showQuickCommands.value = false
+    return
+  }
+  if (showCreateKnowledgeForm.value) {
+    showCreateKnowledgeForm.value = false
+    return
+  }
+  if (showFileManager.value) {
+    closeFileManager()
+    return
+  }
+  if (showKnowledgeModal.value) {
+    closeKnowledgeModal()
+    return
+  }
+  if (showSettings.value) {
+    closeSettingsModal()
+    return
+  }
+  if (showDeleteModal.value) {
+    cancelDelete()
+    return
+  }
+  if (showModal.value) {
+    closeModal()
+  }
+}
 </script>
 
 <style scoped>
@@ -1600,5 +1954,12 @@ onBeforeUnmount(() => {
 .notification-leave-to {
   opacity: 0;
   transform: translateX(24px);
+}
+
+/* 拖拽上传高亮 */
+.file-list.drag-active {
+  background: var(--morandi-bg-subtle);
+  outline: 2px dashed var(--morandi-primary);
+  outline-offset: -8px;
 }
 </style>

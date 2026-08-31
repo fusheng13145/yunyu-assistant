@@ -442,11 +442,17 @@
             </div>
           </div>
 
-          <div class="flex-1 overflow-y-auto morandi-scroll p-5">
+          <div
+            class="flex-1 overflow-y-auto morandi-scroll p-5"
+            :class="{ 'drag-active': dragActive }"
+            @dragover.prevent="dragActive = true"
+            @dragleave.prevent="dragActive = false"
+            @drop.prevent="handleDrop"
+          >
             <div v-if="currentFiles.length === 0" class="text-center py-12">
               <FileText class="w-12 h-12 mx-auto mb-3 text-morandi-faint" />
               <p class="text-sm text-morandi-muted">暂无文件</p>
-              <p class="text-xs mt-1 text-morandi-faint">点击上传按钮添加文档</p>
+              <p class="text-xs mt-1 text-morandi-faint">点击上传按钮或拖拽文件到此区域</p>
             </div>
             <div v-else class="space-y-2.5">
               <div
@@ -546,8 +552,9 @@ import ThemeToggle from '../components/ThemeToggle.vue'
 import { useTheme } from '../composables/useTheme'
 import { useWebSocket } from '../utils/websocket'
 import { useWebRTC } from '../composables/useWebRTC'
-import { fetchAssistant, fetchKnowledgeConfig } from '../api/assistant'
-import type { Assistant, DisplayMessage, KnowledgeBase, RAGFlowConfig, AsrDeltaData } from '../types'
+import { fetchAssistant } from '../api/assistant'
+import { RagflowApi } from '../api/ragflow'
+import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData } from '../types'
 
 // ==================== 全局依赖 & 公共状态 ====================
 const { themeMode, setTheme } = useTheme()
@@ -559,9 +566,8 @@ const webrtc = useWebRTC()
 let ws: ReturnType<typeof useWebSocket> | null = null
 let voiceWs: ReturnType<typeof useWebSocket> | null = null
 
-// 助手信息 & RAG 配置
+// 助手信息
 const currentAssistant = ref<Assistant | null>(null)
-const ragflowConfig = ref<RAGFlowConfig>({ endpoint: '', apiKey: '' })
 
 // 流式输出标记
 const isFirstOfStream = ref(true)
@@ -598,6 +604,7 @@ const selectedKnowledgeBases = ref<KnowledgeBase[]>([])
 const currentKnowledgeBase = ref<KnowledgeBase | null>(null)
 const isUploading = ref(false)
 const uploadProgress = ref(0)
+const dragActive = ref(false)
 
 // 新建知识库表单
 const newKnowledgeBase = ref({
@@ -737,6 +744,7 @@ const connectWebSocket = () => {
             lastMsg.isStreaming = false
             lastMsg.costTime = queryData.costTime
             lastMsg.knowledgebase = queryData.knowledgebase
+            if (queryData.tokenUsage) lastMsg.tokenUsage = queryData.tokenUsage
           }
         }
       } catch (e) {
@@ -801,6 +809,7 @@ const startVoiceCall = async () => {
               lastMsg.isStreaming = false
               lastMsg.costTime = queryData.costTime
               lastMsg.knowledgebase = queryData.knowledgebase
+              if (queryData.tokenUsage) lastMsg.tokenUsage = queryData.tokenUsage
             }
             asrText.value = ''
           } else if (data.type === 'hangup') {
@@ -930,39 +939,14 @@ const createKnowledgeBase = async () => {
   }
 
   try {
-    const res = await fetch(`${ragflowConfig.value.endpoint}/api/v1/datasets`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': ragflowConfig.value.apiKey,
-      },
-      body: JSON.stringify({
-        name,
-        description: newKnowledgeBase.value.description.trim(),
-        embedding_model: 'text-embedding-v3@Tongyi-Qianwen',
-        chunk_method: 'naive',
-        parser_config: {
-          layout_recognize: 'true',
-          delimiter: '\n',
-          html4excel: false,
-          filename_embd_weight: 0.1,
-          raptor: { use_raptor: false },
-          graphrag: { use_graphrag: false },
-        },
-      }),
+    await RagflowApi.createDataset({
+      name,
+      description: newKnowledgeBase.value.description.trim(),
     })
-
-    if (!res.ok) throw new Error(`创建数据集失败: ${res.status}`)
-    const result = await res.json()
-
-    if (result.code === 0) {
-      showNotification('知识库创建成功', 'success')
-      await loadKnowledgeBases()
-      newKnowledgeBase.value = { name: '', description: '' }
-      showCreateKnowledgeForm.value = false
-    } else {
-      throw new Error(result.message || '创建知识库失败')
-    }
+    showNotification('知识库创建成功', 'success')
+    await loadKnowledgeBases()
+    newKnowledgeBase.value = { name: '', description: '' }
+    showCreateKnowledgeForm.value = false
   } catch (error) {
     console.error('创建知识库失败:', error)
     showNotification(`创建知识库失败: ${(error as Error).message}`, 'error')
@@ -973,26 +957,13 @@ const deleteKnowledgeBase = async (kb: KnowledgeBase) => {
   if (!confirm(`确定要删除知识库"${kb.name}"吗？此操作不可撤销。`)) return
 
   try {
-    const res = await fetch(`${ragflowConfig.value.endpoint}/api/v1/datasets`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': ragflowConfig.value.apiKey,
-      },
-      body: JSON.stringify({ ids: [kb.id] }),
-    })
-
-    if (!res.ok) throw new Error(`删除数据集失败: ${res.status}`)
-    const result = await res.json()
-
-    if (result.code === 0) {
-      showNotification('知识库删除成功', 'success')
-      await loadKnowledgeBases()
-      if (currentKnowledgeBase.value?.id === kb.id) {
-        currentKnowledgeBase.value = null
-      }
-      selectedKnowledgeBases.value = selectedKnowledgeBases.value.filter(item => item.id !== kb.id)
+    await RagflowApi.deleteDataset([kb.id])
+    showNotification('知识库删除成功', 'success')
+    await loadKnowledgeBases()
+    if (currentKnowledgeBase.value?.id === kb.id) {
+      currentKnowledgeBase.value = null
     }
+    selectedKnowledgeBases.value = selectedKnowledgeBases.value.filter(item => item.id !== kb.id)
   } catch (error) {
     console.error('删除知识库失败:', error)
     showNotification(`删除知识库失败: ${(error as Error).message}`, 'error')
@@ -1001,36 +972,13 @@ const deleteKnowledgeBase = async (kb: KnowledgeBase) => {
 
 // 加载知识库下的文档列表
 const loadKnowledgeBaseFiles = async (knowledgeBaseId: string) => {
-  if (!knowledgeBaseId || !ragflowConfig.value.endpoint) {
+  if (!knowledgeBaseId) {
     currentFiles.value = []
     return
   }
 
   try {
-    const res = await fetch(
-      `${ragflowConfig.value.endpoint}/api/v1/datasets/${knowledgeBaseId}/documents?page=1&page_size=100`,
-      {
-        method: 'GET',
-        headers: { 'Authorization': ragflowConfig.value.apiKey },
-      }
-    )
-
-    if (!res.ok) throw new Error(`获取文档列表失败: ${res.status}`)
-    const result = await res.json()
-
-    if (result.code === 0 && result.data?.docs && Array.isArray(result.data.docs)) {
-      currentFiles.value = result.data.docs.map((doc: any) => ({
-        id: doc.id,
-        name: doc.name,
-        size: doc.size || 0,
-        type: doc.type || doc.name?.split('.').pop()?.toUpperCase() || 'Unknown',
-        run: doc.run,
-        chunkCount: doc.chunk_count || 0,
-        progress: doc.progress || 0,
-      }))
-    } else {
-      currentFiles.value = []
-    }
+    currentFiles.value = await RagflowApi.getDocuments(knowledgeBaseId)
   } catch (error) {
     console.error('获取文档列表失败:', error)
     currentFiles.value = []
@@ -1051,6 +999,15 @@ const triggerFileUpload = () => {
   input.click()
 }
 
+// 拖拽上传
+const handleDrop = (event: DragEvent) => {
+  dragActive.value = false
+  const files = Array.from(event.dataTransfer?.files || [])
+  if (files.length > 0) {
+    processFilesForFileManager(files)
+  }
+}
+
 // 批量处理上传文件
 const processFilesForFileManager = async (files: File[]) => {
   if (!files.length || !currentFileManagerKB.value) return
@@ -1069,26 +1026,9 @@ const processFilesForFileManager = async (files: File[]) => {
       }
 
       try {
-        const formData = new FormData()
-        formData.append('file', file)
-        const res = await fetch(
-          `${ragflowConfig.value.endpoint}/api/v1/datasets/${currentFileManagerKB.value.id}/documents`,
-          {
-            method: 'POST',
-            headers: { 'Authorization': ragflowConfig.value.apiKey },
-            body: formData,
-          }
-        )
-
-        if (!res.ok) throw new Error(`上传失败: ${res.status}`)
-        const result = await res.json()
-
-        if (result.code === 0) {
-          result.data.forEach((item: { id: string }) => uploadedDocs.push(item.id))
-          showNotification(`文件 ${file.name} 上传成功`, 'success')
-        } else {
-          throw new Error(result.message || '上传失败')
-        }
+        const docIds = await RagflowApi.uploadDocument(currentFileManagerKB.value.id, file)
+        uploadedDocs.push(...docIds)
+        showNotification(`文件 ${file.name} 上传成功`, 'success')
         uploadProgress.value = Math.round(((i + 1) / totalFiles) * 100)
       } catch (error) {
         console.error(`上传文件 ${file.name} 失败:`, error)
@@ -1100,7 +1040,7 @@ const processFilesForFileManager = async (files: File[]) => {
       showNotification(`成功上传 ${uploadedDocs.length} 个文件`, 'success')
       await loadKnowledgeBaseFiles(currentFileManagerKB.value.id)
       try {
-        await parseDocuments(currentFileManagerKB.value.id, uploadedDocs)
+        await RagflowApi.parseDocuments(currentFileManagerKB.value.id, uploadedDocs)
       } catch (parseError) {
         console.warn('文档解析失败，但文件已成功上传:', parseError)
         showNotification('文件上传成功，但自动解析失败，请手动解析', 'warning')
@@ -1120,21 +1060,11 @@ const parseDocuments = async (datasetId: string, documentIds: string[]) => {
   const validIds = documentIds.filter(id => id && typeof id === 'string')
   if (validIds.length === 0) return
 
-  const res = await fetch(`${ragflowConfig.value.endpoint}/api/v1/datasets/${datasetId}/chunks`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': ragflowConfig.value.apiKey,
-    },
-    body: JSON.stringify({ document_ids: validIds }),
-  })
-
-  if (!res.ok) throw new Error(`解析文档失败: ${res.status}`)
-  const result = await res.json()
-  if (result.code === 0) {
+  try {
+    await RagflowApi.parseDocuments(datasetId, validIds)
     showNotification('文档解析已开始，请稍后查看解析进度', 'success')
-  } else {
-    throw new Error(result.message || '解析文档失败')
+  } catch (error) {
+    throw error // 向上抛出，由调用方处理提示
   }
 }
 
@@ -1144,25 +1074,9 @@ const deleteFile = async (file: any) => {
   if (!confirm(`确定要删除文件"${file.name}"吗？此操作不可撤销。`)) return
 
   try {
-    const res = await fetch(
-      `${ragflowConfig.value.endpoint}/api/v1/datasets/${currentFileManagerKB.value.id}/documents`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': ragflowConfig.value.apiKey,
-        },
-        body: JSON.stringify({ ids: [file.id] }),
-      }
-    )
-
-    if (!res.ok) throw new Error(`删除文档失败: ${res.status}`)
-    const result = await res.json()
-
-    if (result.code === 0) {
-      showNotification('文件删除成功', 'success')
-      await loadKnowledgeBaseFiles(currentFileManagerKB.value.id)
-    }
+    await RagflowApi.deleteDocument(currentFileManagerKB.value.id, [file.id])
+    showNotification('文件删除成功', 'success')
+    await loadKnowledgeBaseFiles(currentFileManagerKB.value.id)
   } catch (error) {
     console.error('删除文件失败:', error)
     showNotification(`删除文件失败: ${(error as Error).message}`, 'error')
@@ -1202,20 +1116,8 @@ const restoreKnowledgeBaseSelection = () => {
 
 // 加载全量知识库列表
 const loadKnowledgeBases = async () => {
-  if (!ragflowConfig.value.endpoint || !ragflowConfig.value.apiKey) return
   try {
-    const res = await fetch(
-      `${ragflowConfig.value.endpoint}/api/v1/datasets?page=1&page_size=1000`,
-      {
-        method: 'GET',
-        headers: { Authorization: ragflowConfig.value.apiKey }
-      }
-    )
-    if (!res.ok) throw new Error('请求知识库列表失败')
-    const result = await res.json()
-    if (result.code === 0 && Array.isArray(result.data?.datasets)) {
-      knowledgeBases.value = result.data.datasets
-    }
+    knowledgeBases.value = await RagflowApi.getDatasets(1, 1000)
   } catch (err) {
     console.error('加载知识库列表失败：', err)
     showNotification('加载知识库列表失败', 'error')
@@ -1239,20 +1141,16 @@ const initPageData = async () => {
     personalityText.value = assistantRes.personality || ''
     originalPersonality.value = personalityText.value
 
-    // 2. 获取RAG配置
-    const ragConfig = await fetchKnowledgeConfig()
-    ragflowConfig.value = ragConfig
-
-    // 3. 加载知识库列表
+    // 2. 加载知识库列表（通过后端代理，无需前端持有 apiKey）
     await loadKnowledgeBases()
 
-    // 4. 恢复本地存储的知识库选择
+    // 3. 恢复本地存储的知识库选择
     restoreKnowledgeBaseSelection()
 
-    // 5. 建立聊天WebSocket连接
+    // 4. 建立聊天WebSocket连接
     connectWebSocket()
 
-    // 6. 初始化默认欢迎消息
+    // 5. 初始化默认欢迎消息
     const name = currentAssistant.value?.name || '智能助手'
     messages.value = [{ role: 'assistant', text: `您好，我是${name}，请问有什么可以帮您？` }]
   } catch (error) {
@@ -1264,10 +1162,12 @@ const initPageData = async () => {
 // ==================== 生命周期 ====================
 onMounted(() => {
   initPageData()
+  window.addEventListener('keydown', handleKeydown)
 })
 
 // 页面销毁/离开前 关闭所有连接、释放资源
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
   // 关闭文本聊天 WS
   if (ws) {
     ws.send({ type: 'close' })
@@ -1284,6 +1184,22 @@ onBeforeUnmount(() => {
   webrtc.hangup()
   voiceCallActive.value = false
 })
+
+// 全局快捷键：Esc 关闭最上层弹窗
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape') return
+  if (showCreateKnowledgeForm.value) {
+    showCreateKnowledgeForm.value = false
+    return
+  }
+  if (showFileManager.value) {
+    closeFileManager()
+    return
+  }
+  if (showKnowledgeModal.value) {
+    closeKnowledgeModal()
+  }
+}
 </script>
 
 <style scoped>
@@ -1527,5 +1443,12 @@ onBeforeUnmount(() => {
     opacity: 1;
     transform: translateX(0);
   }
+}
+
+/* 拖拽上传高亮 */
+.drag-active {
+  background: var(--morandi-input-bg);
+  outline: 2px dashed var(--morandi-primary);
+  outline-offset: -8px;
 }
 </style>

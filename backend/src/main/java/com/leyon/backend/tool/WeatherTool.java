@@ -11,7 +11,9 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Duration;
 import java.util.function.Function;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 /**
  * 天气查询工具
@@ -32,9 +34,13 @@ public class WeatherTool {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    public WeatherTool(RestTemplate restTemplate, ObjectMapper objectMapper) {
-        this.restTemplate = restTemplate;
+    public WeatherTool(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+        // 创建带超时配置的 RestTemplate，避免天气查询请求阻塞
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(10));
+        factory.setReadTimeout(Duration.ofSeconds(30));
+        this.restTemplate = new RestTemplate(factory);
     }
 
     /**
@@ -101,9 +107,9 @@ public class WeatherTool {
             return weatherResp == null ? "查询失败：天气接口无返回数据" : weatherResp;
 
         } catch (RestClientException e) {
-            return "请求异常：调用第三方天气接口失败，" + e.getMessage();
+            return "请求异常：调用第三方天气接口失败";
         } catch (Exception e) {
-            return "解析异常：" + e.getMessage();
+            return "解析异常：天气数据解析失败";
         }
     }
 

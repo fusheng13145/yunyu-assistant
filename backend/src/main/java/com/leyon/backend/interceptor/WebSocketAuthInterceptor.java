@@ -15,7 +15,8 @@ import java.util.Map;
 
 /**
  * WebSocket 握手鉴权拦截器
- * 握手阶段校验 JWT Token，支持三种传参方式：协议头、Authorization、URL查询参数
+ * 握手阶段校验 JWT Token，支持两种传参方式：Authorization 头、URL 查询参数
+ * （已移除 Sec-WebSocket-Protocol 子协议传递方式，改由首条消息认证）
  * 校验通过后将用户ID存入会话属性
  *
  * @author leyon
@@ -23,8 +24,6 @@ import java.util.Map;
 @Component
 public class WebSocketAuthInterceptor implements HandshakeInterceptor {
 
-    /** Sec-WebSocket-Protocol 协议头 */
-    private static final String HEADER_WS_PROTOCOL = "Sec-WebSocket-Protocol";
     /** 认证请求头 */
     private static final String HEADER_AUTHORIZATION = "Authorization";
     /** Bearer 前缀 */
@@ -47,21 +46,19 @@ public class WebSocketAuthInterceptor implements HandshakeInterceptor {
     public boolean beforeHandshake(@NonNull ServerHttpRequest request, @NonNull ServerHttpResponse response,
                                    @NonNull WebSocketHandler wsHandler, @NonNull Map<String, Object> attributes) {
         String token = extractToken(request);
-        // Token 为空或校验失败，拒绝握手
-        if (token == null || token.isBlank() || !jwtUtil.validateToken(token)) {
+        // Token 为空时允许握手（延迟到首条消息认证），Token 存在则立即校验
+        if (token != null && !token.isBlank() && !jwtUtil.validateToken(token)) {
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
         }
 
-        // 解析用户ID并存入会话属性
-        String userId = jwtUtil.getUserIdFromToken(token);
-        attributes.put("userId", userId);
-
-        // 回传协议头，保证浏览器正常完成WebSocket握手
-        String protocol = request.getHeaders().getFirst(HEADER_WS_PROTOCOL);
-        if (protocol != null && !protocol.isBlank()) {
-            response.getHeaders().set(HEADER_WS_PROTOCOL, protocol);
+        // 如果 Token 已在握手阶段提供，直接解析用户ID
+        if (token != null && !token.isBlank()) {
+            String userId = jwtUtil.getUserIdFromToken(token);
+            attributes.put("userId", userId);
         }
+        // 否则 userId 将在 ChatWebSocketHandler 收到 auth 消息后设置
+
         return true;
     }
 
@@ -75,22 +72,17 @@ public class WebSocketAuthInterceptor implements HandshakeInterceptor {
     }
 
     /**
-     * 多方式提取Token，优先级：协议头 -> Authorization头 -> URL查询参数
+     * 多方式提取Token，优先级：Authorization头 -> URL查询参数
+     * （已移除 Sec-WebSocket-Protocol 子协议方式）
      */
     private String extractToken(ServerHttpRequest request) {
-        // 1. 从 WebSocket 协议头获取
-        String protocol = request.getHeaders().getFirst(HEADER_WS_PROTOCOL);
-        if (protocol != null && !protocol.isBlank() && jwtUtil.validateToken(protocol)) {
-            return protocol;
-        }
-
-        // 2. 从标准 Authorization 请求头获取
+        // 1. 从标准 Authorization 请求头获取
         String authHeader = request.getHeaders().getFirst(HEADER_AUTHORIZATION);
         if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
             return authHeader.substring(BEARER_PREFIX_LEN);
         }
 
-        // 3. 从 URL 查询参数获取
+        // 2. 从 URL 查询参数获取
         URI uri = request.getURI();
         String query = uri.getQuery();
         if (query == null || query.isBlank()) {

@@ -12,6 +12,9 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+
 /**
  * 语音转文字服务(ASR)
  * 对接 OpenAI 系列语音识别接口，实现音频转文本
@@ -40,8 +43,12 @@ public class ASRService {
 
     private final RestTemplate restTemplate;
 
-    public ASRService(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
+    public ASRService() {
+        // 创建带超时配置的 RestTemplate，语音识别可能耗时较长
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(10));
+        factory.setReadTimeout(Duration.ofSeconds(60));
+        this.restTemplate = new RestTemplate(factory);
     }
 
     /**
@@ -86,9 +93,9 @@ public class ASRService {
             return result != null ? result : "语音识别失败：接口返回数据为空";
 
         } catch (RestClientException e) {
-            return "请求异常：调用语音识别接口失败，" + e.getMessage();
+            return "请求异常：调用语音识别接口失败";
         } catch (Exception e) {
-            return "处理异常：" + e.getMessage();
+            return "处理异常：音频转录失败";
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.leyon.backend.controller;
 
+import com.leyon.backend.annotation.Audit;
 import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.service.AssistantService;
@@ -27,6 +28,7 @@ public class AssistantController {
     /**
      * 创建助手
      */
+    @Audit(action = "ASSISTANT_CREATE", targetType = "assistant")
     @PostMapping
     public ApiResponse<Assistant> create(@RequestBody Assistant assistant, HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");
@@ -66,6 +68,7 @@ public class AssistantController {
     /**
      * 删除助手（鉴权）
      */
+    @Audit(action = "ASSISTANT_DELETE", targetType = "assistant")
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@PathVariable String id, HttpServletRequest request) {
         if (!StringUtils.hasText(id)) {
@@ -86,6 +89,7 @@ public class AssistantController {
     /**
      * 更新助手信息（鉴权）
      */
+    @Audit(action = "ASSISTANT_UPDATE", targetType = "assistant")
     @PutMapping
     public ApiResponse<Void> update(@RequestBody Assistant assistant, HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");

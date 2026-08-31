@@ -1,42 +1,34 @@
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import type { DisplayMessage } from '../types'
-
-interface SearchResult {
-  message: DisplayMessage
-  index: number
-  highlightedText: string
-}
 
 export function useMessageSearch() {
   const searchQuery = ref('')
   const isSearchActive = ref(false)
+  /** 搜索结果（命中的消息列表，供模板直接渲染） */
+  const searchResults = ref<DisplayMessage[]>([])
 
-  const searchResults = computed<SearchResult[]>(() => {
-    if (!searchQuery.value.trim()) return []
+  function searchMessages(messages: DisplayMessage[]): DisplayMessage[] {
+    const query = searchQuery.value.trim()
+    if (!query) {
+      searchResults.value = []
+      return []
+    }
 
-    const query = searchQuery.value.toLowerCase()
+    const lowerQuery = query.toLowerCase()
+    const results: DisplayMessage[] = []
 
-    // This would receive the full messages list as a parameter in practice
-    return []
-  })
-
-  function searchMessages(messages: DisplayMessage[]): SearchResult[] {
-    if (!searchQuery.value.trim()) return []
-
-    const query = searchQuery.value.toLowerCase()
-    const results: SearchResult[] = []
-
-    messages.forEach((message, index) => {
-      const lowerText = message.text.toLowerCase()
-      if (lowerText.includes(query)) {
+    messages.forEach((message) => {
+      const lowerText = (message.text || '').toLowerCase()
+      if (lowerText.includes(lowerQuery)) {
         results.push({
-          message,
-          index,
-          highlightedText: highlightKeyword(message.text, searchQuery.value),
+          ...message,
+          text: highlightKeyword(message.text, query),
+          isStreaming: false,
         })
       }
     })
 
+    searchResults.value = results
     return results
   }
 
@@ -55,6 +47,7 @@ export function useMessageSearch() {
   function clearSearch() {
     searchQuery.value = ''
     isSearchActive.value = false
+    searchResults.value = []
   }
 
   function openSearch() {
