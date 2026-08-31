@@ -1,0 +1,23 @@
+# 环境变量文件（可能包含密钥，禁止提交）
+.env
+.env.local
+.env.*.local
+
+# Node 前端
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# Java 后端
+backend/target/
+*.class
+
+# 编辑器 / 系统文件
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
