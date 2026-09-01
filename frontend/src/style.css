@@ -1,143 +1,143 @@
-/* Google Fonts 字体引入（优先级最高） */
-@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+/* Google Fonts 字体引入：Inter（现代无衬线）+ JetBrains Mono（等宽/科技感） */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* Tailwind 核心指令 */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ====================== 设计变量系统 ====================== */
-/* 莫兰迪 亮色主题 */
+/* ====================== 设计变量系统（纯白极客风格） ====================== */
+/* 亮色主题：纯白基调 + 中性灰阶 + 近黑主色 + 高饱和科技蓝点缀 */
 :root {
   /* 背景色系 */
-  --morandi-bg-base: #F2EDE6;
-  --morandi-bg-warm: #EBE4DB;
-  --morandi-bg-cool: #E5E0D8;
-  --morandi-bg-subtle: #F7F4F0;
+  --geek-bg-base: #FFFFFF;
+  --geek-bg-warm: #FAFAFA;
+  --geek-bg-cool: #F4F4F5;
+  --geek-bg-subtle: #FAFAFA;
 
-  /* 主色 */
-  --morandi-primary: #6B7C8A;
-  --morandi-primary-hover: #5A6B78;
-  --morandi-primary-active: #4A5A66;
-  --morandi-primary-light: rgba(107, 124, 138, 0.10);
-  --morandi-primary-ring: rgba(107, 124, 138, 0.25);
+  /* 主色：近黑墨色（极客风黑白高对比） */
+  --geek-primary: #18181B;
+  --geek-primary-hover: #27272A;
+  --geek-primary-active: #3F3F46;
+  --geek-primary-light: rgba(24, 24, 27, 0.06);
+  --geek-primary-ring: rgba(24, 24, 27, 0.18);
 
-  /* 点缀色 */
-  --morandi-accent: #9E8E85;
-  --morandi-accent-hover: #8E7E75;
-  --morandi-accent-light: rgba(158, 142, 133, 0.12);
+  /* 点缀色：高饱和科技蓝 */
+  --geek-accent: #2563EB;
+  --geek-accent-hover: #1D4ED8;
+  --geek-accent-light: rgba(37, 99, 235, 0.08);
 
-  /* 语义状态色 */
-  --morandi-success: #7A9E82;
-  --morandi-success-bg: rgba(122, 158, 130, 0.10);
-  --morandi-error: #B87A7A;
-  --morandi-error-bg: rgba(184, 122, 122, 0.10);
-  --morandi-warning: #BCA074;
-  --morandi-warning-bg: rgba(188, 160, 116, 0.12);
-  --morandi-info: #7A8E9E;
-  --morandi-info-bg: rgba(122, 142, 158, 0.08);
+  /* 语义状态色（高饱和、清晰可辨） */
+  --geek-success: #16A34A;
+  --geek-success-bg: rgba(22, 163, 74, 0.08);
+  --geek-error: #DC2626;
+  --geek-error-bg: rgba(220, 38, 38, 0.07);
+  --geek-warning: #D97706;
+  --geek-warning-bg: rgba(217, 119, 6, 0.08);
+  --geek-info: #2563EB;
+  --geek-info-bg: rgba(37, 99, 235, 0.07);
 
   /* 面板/边框 */
-  --morandi-surface: rgba(255, 255, 255, 0.72);
-  --morandi-surface-raised: rgba(255, 255, 255, 0.88);
-  --morandi-border: rgba(60, 55, 50, 0.10);
-  --morandi-border-strong: rgba(60, 55, 50, 0.18);
-  --morandi-divider: rgba(60, 55, 50, 0.06);
+  --geek-surface: #FFFFFF;
+  --geek-surface-raised: #FFFFFF;
+  --geek-border: #E4E4E7;
+  --geek-border-strong: #D4D4D8;
+  --geek-divider: #F1F1F3;
 
   /* 输入框 */
-  --morandi-input-bg: rgba(255, 255, 255, 0.50);
-  --morandi-input-border: rgba(60, 55, 50, 0.12);
-  --morandi-input-focus-border: var(--morandi-primary);
-  --morandi-input-focus-ring: rgba(107, 124, 138, 0.18);
+  --geek-input-bg: #FAFAFA;
+  --geek-input-border: #E4E4E7;
+  --geek-input-focus-border: var(--geek-accent);
+  --geek-input-focus-ring: rgba(37, 99, 235, 0.14);
 
-  /* 文字层级 */
-  --morandi-text: #3D3833;
-  --morandi-text-secondary: #6B6560;
-  --morandi-text-muted: #9E9890;
-  --morandi-text-faint: #C8C4BE;
-  --morandi-text-on-primary: #FAF8F5;
+  /* 文字层级（高对比度） */
+  --geek-text: #18181B;
+  --geek-text-secondary: #52525B;
+  --geek-text-muted: #71717A;
+  --geek-text-faint: #A1A1AA;
+  --geek-text-on-primary: #FFFFFF;
 
-  /* 遮罩 & 阴影 */
-  --morandi-overlay: rgba(45, 40, 35, 0.40);
-  --morandi-shadow-color: rgba(61, 56, 51, 0.06);
-  --morandi-shadow-md: rgba(61, 56, 51, 0.10);
-  --morandi-shadow-lg: rgba(61, 56, 51, 0.15);
+  /* 遮罩 & 阴影（克制、清脆） */
+  --geek-overlay: rgba(24, 24, 27, 0.40);
+  --geek-shadow-color: rgba(24, 24, 27, 0.05);
+  --geek-shadow-md: rgba(24, 24, 27, 0.08);
+  --geek-shadow-lg: rgba(24, 24, 27, 0.12);
 
-  /* 标签色 */
-  --morandi-tag-blue: #7B96AA;
-  --morandi-tag-purple: #9E8E9E;
-  --morandi-tag-gold: #B5A48A;
+  /* 标签色（高饱和强调色，少量使用） */
+  --geek-tag-blue: #2563EB;
+  --geek-tag-purple: #7C3AED;
+  --geek-tag-gold: #D97706;
 
   /* 滚动条 */
-  --morandi-scroll-thumb: rgba(107, 124, 138, 0.18);
-  --morandi-scroll-thumb-hover: rgba(107, 124, 138, 0.32);
+  --geek-scroll-thumb: rgba(24, 24, 27, 0.16);
+  --geek-scroll-thumb-hover: rgba(24, 24, 27, 0.30);
 
-  /* 纹理透明度 */
-  --noise-opacity: 0.03;
+  /* 网格背景线颜色 */
+  --geek-grid-line: rgba(24, 24, 27, 0.045);
 
-  /* 圆角统一体系 */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-xl: 22px;
+  /* 圆角统一体系（极客风：更硬朗的小圆角） */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 }
 
-/* 莫兰迪 暗色主题 */
+/* 暗色主题 */
 .dark {
-  --morandi-bg-base: #1A1917;
-  --morandi-bg-warm: #1F1D1B;
-  --morandi-bg-cool: #191B1D;
-  --morandi-bg-subtle: #222120;
+  --geek-bg-base: #09090B;
+  --geek-bg-warm: #0E0E11;
+  --geek-bg-cool: #121216;
+  --geek-bg-subtle: #131316;
 
-  --morandi-primary: #94A3AF;
-  --morandi-primary-hover: #A4B3BF;
-  --morandi-primary-active: #B4C3CF;
-  --morandi-primary-light: rgba(148, 163, 175, 0.10);
-  --morandi-primary-ring: rgba(148, 163, 175, 0.20);
+  --geek-primary: #FAFAFA;
+  --geek-primary-hover: #E4E4E7;
+  --geek-primary-active: #D4D4D8;
+  --geek-primary-light: rgba(250, 250, 250, 0.08);
+  --geek-primary-ring: rgba(250, 250, 250, 0.20);
 
-  --morandi-accent: #B0A39A;
-  --morandi-accent-hover: #C0B3AA;
-  --morandi-accent-light: rgba(176, 163, 154, 0.10);
+  --geek-accent: #3B82F6;
+  --geek-accent-hover: #60A5FA;
+  --geek-accent-light: rgba(59, 130, 246, 0.12);
 
-  --morandi-success: #8AB892;
-  --morandi-success-bg: rgba(138, 184, 146, 0.09);
-  --morandi-error: #C88A8A;
-  --morandi-error-bg: rgba(200, 138, 138, 0.09);
-  --morandi-warning: #CCB288;
-  --morandi-warning-bg: rgba(204, 178, 136, 0.10);
-  --morandi-info: #8EA0AE;
-  --morandi-info-bg: rgba(142, 160, 174, 0.07);
+  --geek-success: #22C55E;
+  --geek-success-bg: rgba(34, 197, 94, 0.10);
+  --geek-error: #EF4444;
+  --geek-error-bg: rgba(239, 68, 68, 0.10);
+  --geek-warning: #F59E0B;
+  --geek-warning-bg: rgba(245, 158, 11, 0.10);
+  --geek-info: #3B82F6;
+  --geek-info-bg: rgba(59, 130, 246, 0.10);
 
-  --morandi-surface: rgba(255, 255, 255, 0.048);
-  --morandi-surface-raised: rgba(255, 255, 255, 0.075);
-  --morandi-border: rgba(180, 175, 168, 0.08);
-  --morandi-border-strong: rgba(180, 175, 168, 0.14);
-  --morandi-divider: rgba(180, 175, 168, 0.05);
+  --geek-surface: #131316;
+  --geek-surface-raised: #1A1A1E;
+  --geek-border: #26262B;
+  --geek-border-strong: #34343A;
+  --geek-divider: #1E1E22;
 
-  --morandi-input-bg: rgba(255, 255, 255, 0.055);
-  --morandi-input-border: rgba(180, 175, 168, 0.10);
-  --morandi-input-focus-border: var(--morandi-primary);
-  --morandi-input-focus-ring: rgba(148, 163, 175, 0.14);
+  --geek-input-bg: #17171B;
+  --geek-input-border: #26262B;
+  --geek-input-focus-border: var(--geek-accent);
+  --geek-input-focus-ring: rgba(59, 130, 246, 0.18);
 
-  --morandi-text: #E5E0DA;
-  --morandi-text-secondary: #AAA49C;
-  --morandi-text-muted: #706A62;
-  --morandi-text-faint: #4A4640;
-  --morandi-text-on-primary: #1A1917;
+  --geek-text: #FAFAFA;
+  --geek-text-secondary: #A1A1AA;
+  --geek-text-muted: #71717A;
+  --geek-text-faint: #52525B;
+  --geek-text-on-primary: #18181B;
 
-  --morandi-overlay: rgba(0, 0, 0, 0.55);
-  --morandi-shadow-color: rgba(0, 0, 0, 0.12);
-  --morandi-shadow-md: rgba(0, 0, 0, 0.20);
-  --morandi-shadow-lg: rgba(0, 0, 0, 0.30);
+  --geek-overlay: rgba(0, 0, 0, 0.60);
+  --geek-shadow-color: rgba(0, 0, 0, 0.20);
+  --geek-shadow-md: rgba(0, 0, 0, 0.30);
+  --geek-shadow-lg: rgba(0, 0, 0, 0.40);
 
-  --morandi-tag-blue: #6B8CA4;
-  --morandi-tag-purple: #908090;
-  --morandi-tag-gold: #C4B298;
+  --geek-tag-blue: #3B82F6;
+  --geek-tag-purple: #8B5CF6;
+  --geek-tag-gold: #F59E0B;
 
-  --morandi-scroll-thumb: rgba(148, 163, 175, 0.14);
-  --morandi-scroll-thumb-hover: rgba(148, 163, 175, 0.26);
+  --geek-scroll-thumb: rgba(250, 250, 250, 0.14);
+  --geek-scroll-thumb-hover: rgba(250, 250, 250, 0.26);
 
-  --noise-opacity: 0.025;
+  --geek-grid-line: rgba(250, 250, 250, 0.05);
 }
 
 /* ====================== 全局基础样式 ====================== */
@@ -152,9 +152,9 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: var(--morandi-text);
-  background-color: var(--morandi-bg-base);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: var(--geek-text);
+  background-color: var(--geek-bg-base);
   overflow-x: hidden;
 }
 
@@ -169,196 +169,228 @@ body {
   min-height: 0;
 }
 
-/* 标题/衬线字体统一 */
-h1, h2, h3, h4, h5, h6,
-.serif {
-  font-family: 'Noto Serif SC', Georgia, 'Times New Roman', serif;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1.35;
+/* 标题：现代无衬线，紧字距、重字重，与正文形成清晰层次 */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
 }
 
-/* ====================== 页面背景 & 纸质噪点纹理 ====================== */
-.morandi-body {
+/* 展示型标题（品牌/大标题） */
+.font-display {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+/* 等宽字体（代码/数字/技术标签） */
+.font-mono,
+.mono {
+  font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+}
+
+/* ====================== 页面背景 & 科技感网格 ====================== */
+.geek-body {
   position: relative;
-  background-color: var(--morandi-bg-base);
+  background-color: var(--geek-bg-base);
   min-height: 100vh;
 }
 
-.morandi-body::before {
+/* 蓝图网格背景（用于登录/注册/404 等展示型页面） */
+.geek-grid-bg::before {
   content: '';
-  position: fixed;
+  position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  opacity: var(--noise-opacity);
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.80' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  background-repeat: repeat;
-  background-size: 256px 256px;
-  will-change: opacity;
+  background-image:
+    linear-gradient(var(--geek-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--geek-grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse 90% 80% at 50% 40%, black 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 40%, black 30%, transparent 100%);
 }
 
 /* ====================== 通用组件样式 ====================== */
-/* 基础卡片 */
-.morandi-card {
-  background: var(--morandi-surface);
-  border: 1px solid var(--morandi-border);
+/* 基础卡片：扁平 + 1px 硬边框（less is more） */
+.geek-card {
+  background: var(--geek-surface);
+  border: 1px solid var(--geek-border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 1px 3px var(--morandi-shadow-color), 0 4px 12px var(--morandi-shadow-color);
-  transition: box-shadow 250ms ease, border-color 250ms ease;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
 }
-.morandi-card:hover {
-  box-shadow: 0 2px 4px var(--morandi-shadow-color), 0 8px 24px var(--morandi-shadow-md);
+.geek-card:hover {
+  border-color: var(--geek-border-strong);
 }
 
-/* 高突出卡片 */
-.morandi-card-elevated {
-  background: var(--morandi-surface-raised);
-  border: 1px solid var(--morandi-border-strong);
+/* 高突出卡片（弹窗等） */
+.geek-card-elevated {
+  background: var(--geek-surface-raised);
+  border: 1px solid var(--geek-border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 4px 12px var(--morandi-shadow-md), 0 16px 40px var(--morandi-shadow-lg);
+  box-shadow: 0 4px 16px var(--geek-shadow-md), 0 16px 48px var(--geek-shadow-lg);
 }
 
 /* 输入框 */
-.morandi-input {
-  background: var(--morandi-input-bg);
-  border: 1px solid var(--morandi-input-border);
+.geek-input {
+  background: var(--geek-input-bg);
+  border: 1px solid var(--geek-input-border);
   border-radius: var(--radius-md);
-  color: var(--morandi-text);
+  color: var(--geek-text);
   padding: 10px 14px;
   font-size: 14px;
-  transition: border-color 200ms ease, box-shadow 200ms ease;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
 }
-.morandi-input::placeholder {
-  color: var(--morandi-text-muted);
+.geek-input::placeholder {
+  color: var(--geek-text-muted);
 }
-.morandi-input:focus {
+.geek-input:focus {
   outline: none;
-  border-color: var(--morandi-input-focus-border);
-  box-shadow: 0 0 0 3px var(--morandi-input-focus-ring);
+  background: var(--geek-surface);
+  border-color: var(--geek-input-focus-border);
+  box-shadow: 0 0 0 3px var(--geek-input-focus-ring);
 }
 
-textarea.morandi-input {
+textarea.geek-input {
   resize: vertical;
   min-height: 80px;
   line-height: 1.6;
 }
 
+select.geek-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 34px;
+}
+
 /* 按钮基础 */
-.morandi-btn {
+.geek-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 9px 18px;
+  padding: 8px 16px;
   border-radius: var(--radius-md);
-  font-size: 13.5px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   letter-spacing: 0.01em;
   cursor: pointer;
   border: none;
-  transition: all 200ms ease;
+  transition: all 180ms ease;
   white-space: nowrap;
 }
-.morandi-btn:focus-visible {
-  outline: 2px solid var(--morandi-primary);
+.geek-btn:focus-visible {
+  outline: 2px solid var(--geek-accent);
   outline-offset: 2px;
 }
 
-/* 主按钮 */
-.morandi-btn-primary {
-  background: var(--morandi-primary);
-  color: var(--morandi-text-on-primary);
-  box-shadow: 0 2px 8px rgba(107, 124, 138, 0.20);
+/* 主按钮：高对比黑底白字 */
+.geek-btn-primary {
+  background: var(--geek-primary);
+  color: var(--geek-text-on-primary);
 }
-.morandi-btn-primary:hover:not(:disabled) {
-  background: var(--morandi-primary-hover);
-  box-shadow: 0 4px 14px rgba(107, 124, 138, 0.28);
+.geek-btn-primary:hover:not(:disabled) {
+  background: var(--geek-primary-hover);
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--geek-shadow-md);
 }
-.morandi-btn-primary:active:not(:disabled) {
-  background: var(--morandi-primary-active);
+.geek-btn-primary:active:not(:disabled) {
+  background: var(--geek-primary-active);
   transform: translateY(0);
-  box-shadow: 0 1px 4px rgba(107, 124, 138, 0.20);
+  box-shadow: none;
 }
-.morandi-btn-primary:disabled {
+.geek-btn-primary:disabled {
   opacity: 0.4;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
 }
 
-/* 幽灵按钮 */
-.morandi-btn-ghost {
+/* 幽灵按钮：细边框 */
+.geek-btn-ghost {
   background: transparent;
-  color: var(--morandi-primary);
-  border: 1px solid var(--morandi-border-strong);
+  color: var(--geek-text-secondary);
+  border: 1px solid var(--geek-border-strong);
 }
-.morandi-btn-ghost:hover {
-  background: var(--morandi-primary-light);
-  border-color: var(--morandi-primary);
+.geek-btn-ghost:hover:not(:disabled) {
+  color: var(--geek-text);
+  border-color: var(--geek-primary);
+  background: var(--geek-primary-light);
+}
+.geek-btn-ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* 危险按钮 */
-.morandi-btn-danger {
-  background: var(--morandi-error);
+.geek-btn-danger {
+  background: var(--geek-error);
   color: #fff;
 }
-.morandi-btn-danger:hover:not(:disabled) {
-  filter: brightness(1.06);
+.geek-btn-danger:hover:not(:disabled) {
+  filter: brightness(1.08);
   transform: translateY(-1px);
+}
+.geek-btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* 小号按钮 */
-.morandi-btn-sm {
-  padding: 5px 12px;
-  font-size: 12.5px;
+.geek-btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
   border-radius: var(--radius-sm);
 }
 
 /* 分割线 */
-.morandi-divider {
+.geek-divider {
   height: 1px;
-  background: var(--morandi-divider);
+  background: var(--geek-divider);
   border: none;
 }
 
-/* 标签/徽章 */
-.morandi-badge {
+/* 标签/徽章：方正、等宽字体、技术感 */
+.geek-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  letter-spacing: 0.04em;
 }
 
 /* ====================== 滚动条美化 ====================== */
-.morandi-scroll {
+.geek-scroll {
   scrollbar-width: thin;
-  scrollbar-color: var(--morandi-scroll-thumb) transparent;
+  scrollbar-color: var(--geek-scroll-thumb) transparent;
 }
-.morandi-scroll::-webkit-scrollbar {
+.geek-scroll::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-.morandi-scroll::-webkit-scrollbar-track {
+.geek-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
-.morandi-scroll::-webkit-scrollbar-thumb {
-  background: var(--morandi-scroll-thumb);
-  border-radius: 3px;
+.geek-scroll::-webkit-scrollbar-thumb {
+  background: var(--geek-scroll-thumb);
+  border-radius: 0;
   transition: background 150ms ease;
 }
-.morandi-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--morandi-scroll-thumb-hover);
+.geek-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--geek-scroll-thumb-hover);
 }
 
 .transparent-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: var(--morandi-scroll-thumb) transparent;
+  scrollbar-color: var(--geek-scroll-thumb) transparent;
 }
 .transparent-scrollbar::-webkit-scrollbar {
   width: 5px;
@@ -367,14 +399,14 @@ textarea.morandi-input {
   background: transparent;
 }
 .transparent-scrollbar::-webkit-scrollbar-thumb {
-  background-color: var(--morandi-scroll-thumb);
-  border-radius: 3px;
+  background-color: var(--geek-scroll-thumb);
+  border-radius: 0;
 }
 .transparent-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: var(--morandi-scroll-thumb-hover);
+  background-color: var(--geek-scroll-thumb-hover);
 }
 
-/* ====================== 动画动画 ====================== */
+/* ====================== 动画 ====================== */
 /* 弹窗入场 */
 @keyframes modal-in {
   from {
@@ -387,7 +419,7 @@ textarea.morandi-input {
   }
 }
 .animate-modal-in {
-  animation: modal-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: modal-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 /* 淡入上移 */
@@ -417,13 +449,22 @@ textarea.morandi-input {
   }
 }
 
-/* 光标闪烁 */
+/* 光标闪烁（终端风格） */
 @keyframes blink-cursor {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
 .animate-blink {
   animation: blink-cursor 1s step-end infinite;
+}
+
+/* 状态点呼吸 */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.6s ease-in-out infinite;
 }
 
 /* 主题切换过渡 */
@@ -448,25 +489,59 @@ textarea.morandi-input {
 }
 
 /* ====================== 自定义工具类 ====================== */
-.text-morandi { color: var(--morandi-text); }
-.text-morandi-secondary { color: var(--morandi-text-secondary); }
-.text-morandi-muted { color: var(--morandi-text-muted); }
-.text-morandi-faint { color: var(--morandi-text-faint); }
-.text-morandi-primary { color: var(--morandi-primary); }
-.text-morandi-accent { color: var(--morandi-accent); }
-.text-morandi-success { color: var(--morandi-success); }
-.text-morandi-error { color: var(--morandi-error); }
-.text-morandi-warning { color: var(--morandi-warning); }
+.text-geek { color: var(--geek-text); }
+.text-geek-secondary { color: var(--geek-text-secondary); }
+.text-geek-muted { color: var(--geek-text-muted); }
+.text-geek-faint { color: var(--geek-text-faint); }
+.text-geek-primary { color: var(--geek-primary); }
+.text-geek-accent { color: var(--geek-accent); }
+.text-geek-success { color: var(--geek-success); }
+.text-geek-error { color: var(--geek-error); }
+.text-geek-warning { color: var(--geek-warning); }
 
-.bg-morandi-warm { background-color: var(--morandi-bg-warm); }
-.bg-morandi-cool { background-color: var(--morandi-bg-cool); }
-.bg-morandi-surface { background: var(--morandi-surface); }
-.bg-morandi-subtle { background-color: var(--morandi-bg-subtle); }
+.bg-geek-warm { background-color: var(--geek-bg-warm); }
+.bg-geek-cool { background-color: var(--geek-bg-cool); }
+.bg-geek-surface { background: var(--geek-surface); }
+.bg-geek-subtle { background-color: var(--geek-bg-subtle); }
 
-.border-morandi { border-color: var(--morandi-border); }
-.border-morandi-strong { border-color: var(--morandi-border-strong); }
+.border-geek { border-color: var(--geek-border); }
+.border-geek-strong { border-color: var(--geek-border-strong); }
 
-/* 渐变背景（专用页面） */
-.bg-morandi-gradient {
-  background: linear-gradient(135deg, var(--morandi-bg-warm) 0%, var(--morandi-bg-base) 40%, var(--morandi-bg-cool) 100%);
+/* 纯白基底背景（展示型页面） */
+.bg-geek-gradient {
+  background-color: var(--geek-bg-base);
 }
+
+/* ====================== 面板 / 边框 / 状态工具类 ====================== */
+/* 面板背景 */
+.geek-surface { background-color: var(--geek-surface); }
+.geek-surface-raised { background-color: var(--geek-surface-raised); }
+.geek-input-bg { background-color: var(--geek-input-bg); }
+.geek-overlay { background-color: var(--geek-overlay); }
+
+/* 语义状态背景（浅底） */
+.geek-error-bg { background-color: var(--geek-error-bg); }
+.geek-success-bg { background-color: var(--geek-success-bg); }
+.geek-warning-bg { background-color: var(--geek-warning-bg); }
+.geek-info-bg { background-color: var(--geek-info-bg); }
+
+/* 实色强调背景 */
+.geek-accent-bg { background-color: var(--geek-accent); }
+.geek-primary-bg { background-color: var(--geek-primary); }
+
+/* 边框颜色 */
+.geek-border { border-color: var(--geek-border); }
+.geek-border-l { border-left-color: var(--geek-border); }
+.geek-primary-border { border-color: var(--geek-primary); }
+
+/* ====================== 全局通知提示 ====================== */
+.geek-notification {
+  color: #fff;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px var(--geek-shadow-md);
+}
+.geek-notification--success { background: var(--geek-success); }
+.geek-notification--error { background: var(--geek-error); }
+.geek-notification--warning { background: var(--geek-warning); }
+.geek-notification--info { background: var(--geek-primary); }

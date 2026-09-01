@@ -1,14 +1,14 @@
 <template>
-  <div class="morandi-body theme-transition h-screen w-full flex flex-col overflow-hidden antialiased">
+  <div class="geek-body theme-transition h-screen w-full flex flex-col overflow-hidden antialiased">
     <!-- 顶部导航栏 -->
-    <header class="flex items-center justify-between px-6 py-4 border-b shrink-0 morandi-surface">
+    <header class="flex items-center justify-between px-6 py-4 border-b shrink-0 geek-surface">
       <div class="flex items-center gap-3">
-        <h1 class="serif text-xl font-semibold tracking-wide text-morandi">云谕助手</h1>
-        <span class="text-xs px-2 py-0.5 rounded-full morandi-badge bg-morandi-tag-blue text-white">通话记录</span>
+        <h1 class="font-display text-xl font-bold tracking-tight text-geek">云谕助手</h1>
+        <span class="text-xs px-2 py-0.5 rounded-sm geek-badge bg-geek-tag-blue text-white">CALL_RECORDS</span>
       </div>
       <div class="flex items-center gap-3">
         <ThemeToggle :modelValue="themeMode" @update:modelValue="setTheme" />
-        <button @click="goBack" class="morandi-btn morandi-btn-ghost text-sm">
+        <button @click="goBack" class="geek-btn geek-btn-ghost text-sm">
           <ArrowLeft class="w-4 h-4 inline mr-1" />
           返回
         </button>
@@ -16,18 +16,18 @@
     </header>
 
     <!-- 主内容区 -->
-    <div class="flex-1 min-h-0 overflow-y-auto morandi-scroll px-8 py-6">
+    <div class="flex-1 min-h-0 overflow-y-auto geek-scroll px-4 sm:px-8 py-6">
       <!-- 用量统计 -->
       <div class="max-w-4xl mx-auto mb-6">
         <div class="flex items-center justify-between mb-4">
-          <h2 class="serif text-base font-semibold" style="color: var(--morandi-text)">用量统计</h2>
-          <div class="flex items-center gap-1 rounded-lg p-0.5" style="background: var(--morandi-input-bg)">
+          <h2 class="text-base font-bold tracking-tight" style="color: var(--geek-text)">用量统计</h2>
+          <div class="flex items-center gap-1 rounded-md p-0.5 border" style="background: var(--geek-input-bg); border-color: var(--geek-border)">
             <button
               v-for="r in rangeOptions"
               :key="r"
-              class="px-3 py-1 text-xs rounded-md transition-colors"
+              class="px-3 py-1 text-xs rounded-sm transition-colors font-medium"
               :class="statsRange === r ? 'bg-white shadow-sm' : ''"
-              :style="statsRange === r ? 'color: var(--morandi-primary)' : 'color: var(--morandi-text-muted)'"
+              :style="statsRange === r ? 'color: var(--geek-text)' : 'color: var(--geek-text-muted)'"
               @click="changeRange(r)"
             >
               {{ r === 'day' ? '日' : r === 'week' ? '周' : '月' }}
@@ -35,23 +35,23 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-3 mb-4">
-          <div class="morandi-card rounded-xl p-4">
-            <p class="text-xs" style="color: var(--morandi-text-muted)">通话次数</p>
-            <p class="text-2xl font-semibold mt-1" style="color: var(--morandi-text)">{{ stats?.callCount || 0 }}</p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          <div class="geek-card rounded-lg p-4">
+            <p class="text-xs mono tracking-wide" style="color: var(--geek-text-muted)">CALL_COUNT / 通话次数</p>
+            <p class="text-2xl font-bold mt-1.5 mono" style="color: var(--geek-text)">{{ stats?.callCount || 0 }}</p>
           </div>
-          <div class="morandi-card rounded-xl p-4">
-            <p class="text-xs" style="color: var(--morandi-text-muted)">总时长</p>
-            <p class="text-2xl font-semibold mt-1" style="color: var(--morandi-text)">{{ formatDuration(stats?.totalDurationSec) }}</p>
+          <div class="geek-card rounded-lg p-4">
+            <p class="text-xs mono tracking-wide" style="color: var(--geek-text-muted)">DURATION / 总时长</p>
+            <p class="text-2xl font-bold mt-1.5 mono" style="color: var(--geek-text)">{{ formatDuration(stats?.totalDurationSec) }}</p>
           </div>
-          <div class="morandi-card rounded-xl p-4">
-            <p class="text-xs" style="color: var(--morandi-text-muted)">消息数</p>
-            <p class="text-2xl font-semibold mt-1" style="color: var(--morandi-text)">{{ stats?.messageCount || 0 }}</p>
+          <div class="geek-card rounded-lg p-4">
+            <p class="text-xs mono tracking-wide" style="color: var(--geek-text-muted)">MESSAGES / 消息数</p>
+            <p class="text-2xl font-bold mt-1.5 mono" style="color: var(--geek-text)">{{ stats?.messageCount || 0 }}</p>
           </div>
         </div>
 
         <!-- 柱状图 -->
-        <div class="morandi-card rounded-xl p-5">
+        <div class="geek-card rounded-lg p-5">
           <div class="flex items-end justify-between gap-2 h-28">
             <div
               v-for="(day, i) in stats?.days || []"
@@ -59,12 +59,12 @@
               class="flex-1 flex flex-col items-center justify-end h-full"
               :title="`${day.date}：${day.callCount} 次`"
             >
-              <span class="text-[10px] mb-1" style="color: var(--morandi-text-muted)">{{ day.callCount || '' }}</span>
+              <span class="text-[10px] mb-1 mono" style="color: var(--geek-text-muted)">{{ day.callCount || '' }}</span>
               <div
-                class="w-full max-w-[32px] rounded-t-md transition-all"
+                class="w-full max-w-[32px] rounded-t-sm transition-all"
                 :style="{
                   height: (day.callCount / maxCallCount * 100) + '%',
-                  background: 'var(--morandi-primary)',
+                  background: 'var(--geek-accent)',
                   opacity: day.callCount === 0 ? 0.15 : 0.9
                 }"
               ></div>
@@ -74,8 +74,8 @@
             <span
               v-for="(day, i) in stats?.days || []"
               :key="'lbl-' + i"
-              class="flex-1 text-center text-[10px] truncate"
-              style="color: var(--morandi-text-faint)"
+              class="flex-1 text-center text-[10px] truncate mono"
+              style="color: var(--geek-text-faint)"
             >{{ day.date.slice(5) }}</span>
           </div>
         </div>
@@ -83,9 +83,9 @@
 
       <!-- 空状态 -->
       <div v-if="records.length === 0 && !loading" class="flex flex-col items-center justify-center h-full text-center">
-        <PhoneOff class="w-16 h-16 mb-4" style="color: var(--morandi-text-faint)" />
-        <p class="serif text-lg font-medium mb-2" style="color: var(--morandi-text)">暂无通话记录</p>
-        <p class="text-sm" style="color: var(--morandi-text-muted)">在助手工作台发起语音通话后，记录将展示在这里</p>
+        <PhoneOff class="w-16 h-16 mb-4" style="color: var(--geek-text-faint)" />
+        <p class="text-lg font-bold mb-2 tracking-tight" style="color: var(--geek-text)">暂无通话记录</p>
+        <p class="text-sm" style="color: var(--geek-text-muted)">在助手工作台发起语音通话后，记录将展示在这里</p>
       </div>
 
       <!-- 记录列表 -->
@@ -93,28 +93,28 @@
         <div
           v-for="record in records"
           :key="record.id"
-          class="morandi-card rounded-xl p-5 cursor-pointer transition-all hover:shadow-md"
+          class="geek-card rounded-lg p-5 cursor-pointer transition-all hover:shadow-md"
           @click="openDetail(record)"
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
-              <Bot class="w-8 h-8" style="color: var(--morandi-primary)" />
+              <Bot class="w-8 h-8" style="color: var(--geek-accent)" />
               <div>
-                <p class="font-medium" style="color: var(--morandi-text)">{{ record.assistantName || '未知助手' }}</p>
-                <p class="text-xs mt-0.5" style="color: var(--morandi-text-muted)">
+                <p class="font-medium" style="color: var(--geek-text)">{{ record.assistantName || '未知助手' }}</p>
+                <p class="text-xs mt-0.5 mono" style="color: var(--geek-text-muted)">
                   {{ formatTime(record.startedAt) }}
                 </p>
               </div>
             </div>
             <div class="flex items-center gap-4">
               <div class="text-right">
-                <p class="text-sm font-medium" style="color: var(--morandi-text)">{{ formatDuration(record.durationSec) }}</p>
-                <p class="text-xs mt-0.5" style="color: var(--morandi-text-muted)">{{ record.messageCount }} 条消息</p>
+                <p class="text-sm font-medium mono" style="color: var(--geek-text)">{{ formatDuration(record.durationSec) }}</p>
+                <p class="text-xs mt-0.5" style="color: var(--geek-text-muted)">{{ record.messageCount }} 条消息</p>
               </div>
               <span class="status-badge" :class="statusClass(record.status)">
                 {{ statusLabel(record.status) }}
               </span>
-              <ChevronRight class="w-4 h-4" style="color: var(--morandi-text-faint)" />
+              <ChevronRight class="w-4 h-4" style="color: var(--geek-text-faint)" />
             </div>
           </div>
         </div>
@@ -122,15 +122,15 @@
         <!-- 分页 -->
         <div v-if="totalPages > 1" class="flex items-center justify-center gap-3 pt-4">
           <button
-            class="morandi-btn morandi-btn-ghost text-sm"
+            class="geek-btn geek-btn-ghost text-sm"
             :disabled="page <= 1"
             @click="changePage(page - 1)"
           >
             上一页
           </button>
-          <span class="text-sm" style="color: var(--morandi-text-muted)">{{ page }} / {{ totalPages }}</span>
+          <span class="text-sm" style="color: var(--geek-text-muted)">{{ page }} / {{ totalPages }}</span>
           <button
-            class="morandi-btn morandi-btn-ghost text-sm"
+            class="geek-btn geek-btn-ghost text-sm"
             :disabled="page >= totalPages"
             @click="changePage(page + 1)"
           >
@@ -141,21 +141,21 @@
     </div>
 
     <!-- 详情弹窗 -->
-    <div v-if="showDetail" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.4)">
-      <div class="morandi-card rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
-        <div class="flex items-center justify-between px-6 py-4 border-b" style="border-color: var(--morandi-divider)">
+    <div v-if="showDetail" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: var(--geek-overlay)">
+      <div class="geek-card-elevated rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b" style="border-color: var(--geek-divider)">
           <div>
-            <h3 class="serif font-semibold" style="color: var(--morandi-text)">{{ detail?.assistantName || '通话详情' }}</h3>
-            <p class="text-xs mt-0.5" style="color: var(--morandi-text-muted)">
+            <h3 class="font-bold tracking-tight" style="color: var(--geek-text)">{{ detail?.assistantName || '通话详情' }}</h3>
+            <p class="text-xs mt-0.5 mono" style="color: var(--geek-text-muted)">
               {{ formatTime(detail?.startedAt) }} · {{ formatDuration(detail?.durationSec || 0) }}
             </p>
           </div>
-          <button @click="showDetail = false" class="p-1" style="color: var(--morandi-text-muted)">
+          <button @click="showDetail = false" class="p-1 transition-colors hover:opacity-70" style="color: var(--geek-text-muted)">
             <X class="w-5 h-5" />
           </button>
         </div>
-        <div class="flex-1 min-h-0 overflow-y-auto morandi-scroll px-6 py-5 space-y-4">
-          <div v-if="detail && detail.messages.length === 0" class="text-center py-10 text-sm" style="color: var(--morandi-text-muted)">
+        <div class="flex-1 min-h-0 overflow-y-auto geek-scroll px-6 py-5 space-y-4">
+          <div v-if="detail && detail.messages.length === 0" class="text-center py-10 text-sm" style="color: var(--geek-text-muted)">
             本次通话无消息记录
           </div>
           <div
@@ -165,10 +165,10 @@
             :class="msg.role === 0 ? 'justify-end' : 'justify-start'"
           >
             <div
-              class="max-w-[75%] px-4 py-2.5 rounded-2xl text-sm break-words"
+              class="max-w-[75%] px-4 py-2.5 rounded-lg text-sm break-words"
               :style="msg.role === 0
-                ? 'background: var(--morandi-primary); color: var(--morandi-text-on-primary)'
-                : 'background: var(--morandi-input-bg); color: var(--morandi-text)'"
+                ? 'background: var(--geek-primary); color: var(--geek-text-on-primary)'
+                : 'background: var(--geek-input-bg); color: var(--geek-text); border: 1px solid var(--geek-border)'"
             >
               {{ msg.message }}
             </div>
@@ -269,12 +269,6 @@ const formatDuration = (sec?: number) => {
   return `${m} 分 ${s} 秒`
 }
 
-const formatDurationShort = (sec?: number) => {
-  if (!sec || sec <= 0) return '0m'
-  if (sec < 60) return `${sec}s`
-  return `${Math.floor(sec / 60)}m`
-}
-
 const statusLabel = (status: number) => {
   switch (status) {
     case 0: return '失败'
@@ -302,26 +296,29 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 状态徽章：方正、等宽字体 */
 .status-badge {
-  padding: 3px 10px;
-  border-radius: 9999px;
-  font-size: 12px;
-  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  letter-spacing: 0.03em;
 }
 .status-ended {
-  background: rgba(63, 185, 80, 0.12);
-  color: #3fb950;
+  background: var(--geek-success-bg);
+  color: var(--geek-success);
 }
 .status-failed {
-  background: rgba(248, 81, 73, 0.12);
-  color: #f85149;
+  background: var(--geek-error-bg);
+  color: var(--geek-error);
 }
 .status-in-progress {
-  background: rgba(0, 188, 212, 0.12);
-  color: #00bcd4;
+  background: var(--geek-info-bg);
+  color: var(--geek-accent);
 }
 .status-interrupted {
-  background: rgba(227, 160, 8, 0.12);
-  color: #e3a008;
+  background: var(--geek-warning-bg);
+  color: var(--geek-warning);
 }
 </style>

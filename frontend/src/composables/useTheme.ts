@@ -1,4 +1,4 @@
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch } from 'vue'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -28,26 +28,21 @@ function applyTheme(mode: ThemeMode): void {
   }
 }
 
-let mediaQueryListener: ((e: MediaQueryListEvent) => void) | null = null
+// 模块加载时立即应用主题并监听系统主题变化（无需组件实例）
+applyTheme(themeMode.value)
+
+const mediaQuery = window.matchMedia?.('(prefers-color-scheme: dark)')
+if (mediaQuery) {
+  mediaQuery.addEventListener('change', () => {
+    if (themeMode.value === 'system') {
+      applyTheme('system')
+    }
+  })
+}
 
 watch(themeMode, (newMode) => {
   localStorage.setItem(STORAGE_KEY, newMode)
   applyTheme(newMode)
-})
-
-onMounted(() => {
-  applyTheme(themeMode.value)
-
-  // Listen for system theme changes when in "system" mode
-  const mediaQuery = window.matchMedia?.('(prefers-color-scheme: dark)')
-  if (mediaQuery) {
-    mediaQueryListener = () => {
-      if (themeMode.value === 'system') {
-        applyTheme('system')
-      }
-    }
-    mediaQuery.addEventListener('change', mediaQueryListener)
-  }
 })
 
 export function useTheme() {

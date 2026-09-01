@@ -1,12 +1,6 @@
 import type { KnowledgeBase } from '../types'
 import { getAuthHeaders } from './auth'
 
-interface RAGFlowDatasetResponse {
-  code: number
-  message?: string
-  data: RAGFlowDataset[] | RAGFlowPaginatedData
-}
-
 interface RAGFlowPaginatedData {
   docs?: RAGFlowDocument[]
   datasets?: RAGFlowDataset[]
@@ -32,10 +26,15 @@ interface RAGFlowDocument {
   progress?: number
 }
 
-interface RAGFlowResponse {
-  code: number
-  message?: string
-  data: RAGFlowDocument[] | unknown
+/** 文档信息（getDocuments 返回的规范化结构） */
+export interface RAGFlowDocumentInfo {
+  id: string
+  name: string
+  size: number
+  type: string
+  run?: string
+  chunkCount: number
+  progress: number
 }
 
 export class RagflowApiError extends Error {
@@ -138,7 +137,7 @@ export class RagflowApi {
   }
 
   /** 获取指定数据集下的文档列表 */
-  static async getDocuments(datasetId: string): Promise<RAGFlowDocument[]> {
+  static async getDocuments(datasetId: string): Promise<RAGFlowDocumentInfo[]> {
     const result = await proxyFetch<RAGFlowPaginatedData>(
       `${PROXY_BASE}/datasets/${datasetId}/documents?page=1&page_size=100`
     )

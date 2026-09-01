@@ -40,7 +40,6 @@ export function renderMarkdown(markdown: string): string {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n')
   const output: string[] = []
   let inCodeBlock = false
-  let codeLang = ''
   let codeLines: string[] = []
   let listStack: 'ul' | 'ol' | null = null
 
@@ -66,7 +65,6 @@ export function renderMarkdown(markdown: string): string {
         inCodeBlock = false
       } else {
         closeList()
-        codeLang = line.trim().slice(3).trim()
         inCodeBlock = true
       }
       continue

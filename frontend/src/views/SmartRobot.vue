@@ -1,10 +1,10 @@
 <template>
   <!-- 首次加载骨架屏 -->
-  <div v-if="pageLoading" class="morandi-body theme-transition h-screen w-full flex overflow-hidden antialiased">
+  <div v-if="pageLoading" class="geek-body theme-transition h-screen w-full flex overflow-hidden antialiased">
     <SkeletonLoader />
   </div>
 
-  <div v-else class="morandi-body theme-transition h-screen w-full flex overflow-hidden antialiased">
+  <div v-else class="geek-body theme-transition h-screen w-full flex overflow-hidden antialiased">
     <!-- 通知提示 -->
     <transition name="notification">
       <div
@@ -22,25 +22,25 @@
     </transition>
 
     <!-- 左侧边栏 -->
-    <aside class="sidebar w-72 flex-shrink-0 flex flex-col bg-morandi-warm border-r border-morandi">
+    <aside class="sidebar w-72 flex-shrink-0 flex flex-col bg-geek-surface border-r border-geek">
       <!-- 品牌标题区 -->
-      <div class="brand-header px-6 py-5 border-b border-morandi">
-        <h1 class="serif text-xl font-semibold text-morandi-text">云谕助手</h1>
-        <p class="text-xs mt-0.5 text-morandi-text-muted">智能对话工作台</p>
+      <div class="brand-header px-6 py-5 border-b border-geek">
+        <h1 class="font-display text-xl font-bold tracking-tight text-geek-text">云谕助手</h1>
+        <p class="text-xs mt-1 mono tracking-widest text-geek-text-muted">WORKSPACE // 智能对话工作台</p>
       </div>
 
       <!-- 新建助手按钮 -->
       <div class="px-4 py-4">
         <button
           @click="openModal"
-          class="morandi-btn morandi-btn-primary w-full flex items-center justify-center gap-2 py-2.5"
+          class="geek-btn geek-btn-primary w-full flex items-center justify-center gap-2 py-2.5"
         >
           <Plus class="w-4 h-4" />
           <span>新建助手</span>
         </button>
         <button
           @click="router.push('/records')"
-          class="morandi-btn morandi-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
+          class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
         >
           <History class="w-4 h-4" />
           <span>通话记录</span>
@@ -48,11 +48,11 @@
       </div>
 
       <!-- 助手列表 -->
-      <div class="flex-1 min-h-0 overflow-y-auto morandi-scroll transparent-scrollbar px-3 pb-4">
+      <div class="flex-1 min-h-0 overflow-y-auto geek-scroll transparent-scrollbar px-3 pb-4">
         <div v-if="assistants.length === 0" class="empty-state text-center py-12 px-4">
-          <Bot class="w-10 h-10 mx-auto mb-3 text-morandi-text-faint" />
-          <p class="text-sm text-morandi-text-muted">暂无助手</p>
-          <p class="text-xs mt-1 text-morandi-text-faint">点击上方按钮创建</p>
+          <Bot class="w-10 h-10 mx-auto mb-3 text-geek-text-faint" />
+          <p class="text-sm text-geek-text-muted">暂无助手</p>
+          <p class="text-xs mt-1 text-geek-text-faint">点击上方按钮创建</p>
         </div>
 
         <div
@@ -60,23 +60,23 @@
           :key="bot.id"
           @click="selectAssistant(bot)"
           class="assistant-item group relative flex items-center gap-3 px-3 py-3 mb-1 rounded-md cursor-pointer transition-all duration-200"
-          :class="selectedAssistant?.id === bot.id ? 'bg-morandi-bg-subtle item-active' : 'hover:bg-morandi-surface'"
+          :class="selectedAssistant?.id === bot.id ? 'bg-geek-bg-subtle item-active' : 'hover:bg-geek-bg-subtle'"
         >
           <!-- 头像 -->
           <div
-            class="avatar w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-            :style="{ background: ['var(--morandi-tag-blue)', 'var(--morandi-tag-purple)', 'var(--morandi-tag-gold)'][index % 3] }"
+            class="avatar w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+            :style="{ background: ['var(--geek-tag-blue)', 'var(--geek-tag-purple)', 'var(--geek-tag-gold)'][index % 3] }"
           >
             <Bot class="w-4 h-4 text-white" />
           </div>
           <!-- 名称和类型 -->
           <div class="flex-1 min-w-0">
-            <div class="text-sm font-medium truncate text-morandi-text">{{ bot.name || '小助手' }}</div>
+            <div class="text-sm font-medium truncate text-geek-text">{{ bot.name || '小助手' }}</div>
             <div class="flex items-center gap-2 mt-0.5">
-              <span class="text-xs text-morandi-text-muted">{{ getAssistantType(bot) }}</span>
+              <span class="text-xs text-geek-text-muted">{{ getAssistantType(bot) }}</span>
               <span
                 v-if="getConversationCount(bot.id) > 0"
-                class="count-badge text-xs px-1.5 py-0.5 rounded-full bg-morandi-bg-subtle text-morandi-text-secondary"
+                class="count-badge text-xs px-1.5 py-0.5 rounded-sm bg-geek-bg-subtle text-geek-text-secondary"
               >
                 {{ getConversationCount(bot.id) }}
               </span>
@@ -85,13 +85,13 @@
           <!-- hover 操作按钮 -->
           <div class="item-actions flex items-center gap-1 flex-shrink-0">
             <button
-              class="action-btn p-1 rounded-sm transition-colors text-morandi-text-muted hover:text-morandi-text-secondary"
+              class="action-btn p-1 rounded-sm transition-colors text-geek-text-muted hover:text-geek-text-secondary"
               @click.stop="openSettingsModal(bot)"
             >
               <Settings class="w-3.5 h-3.5" />
             </button>
             <button
-              class="action-btn p-1 rounded-sm transition-colors text-morandi-text-muted hover:text-morandi-error"
+              class="action-btn p-1 rounded-sm transition-colors text-geek-text-muted hover:text-geek-error"
               @click.stop="confirmDelete(bot)"
             >
               <Trash2 class="w-3.5 h-3.5" />
@@ -101,17 +101,17 @@
       </div>
 
       <!-- 底部用户区 -->
-      <div class="user-bar px-4 py-3 border-t border-morandi">
+      <div class="user-bar px-4 py-3 border-t border-geek">
         <div class="flex items-center justify-between">
           <div class="user-info flex items-center gap-2">
-            <div class="user-avatar w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white bg-morandi-primary">
+            <div class="user-avatar w-7 h-7 rounded-md flex items-center justify-center text-xs font-medium text-white bg-geek-primary">
               {{ userInitial }}
             </div>
-            <span class="text-sm text-morandi-text">{{ userName }}</span>
+            <span class="text-sm text-geek-text">{{ userName }}</span>
           </div>
           <button
             @click="handleLogout"
-            class="morandi-btn morandi-btn-ghost text-xs px-2 py-1 flex items-center gap-1"
+            class="geek-btn geek-btn-ghost text-xs px-2 py-1 flex items-center gap-1"
           >
             <LogOut class="w-3.5 h-3.5" />
             <span>登出</span>
@@ -121,20 +121,20 @@
     </aside>
 
     <!-- 右侧主区域 -->
-    <main class="main-panel flex-1 flex flex-col min-w-0 bg-morandi-base">
+    <main class="main-panel flex-1 flex flex-col min-w-0 bg-geek-base">
       <!-- 顶部工具栏 -->
-      <header class="toolbar h-14 flex items-center justify-between px-6 border-b border-morandi bg-morandi-subtle flex-shrink-0">
+      <header class="toolbar h-14 flex items-center justify-between px-6 border-b border-geek bg-geek-subtle flex-shrink-0">
         <div class="toolbar-left flex items-center gap-3">
-          <h2 v-if="selectedAssistant" class="serif text-lg font-medium text-morandi-text">
+          <h2 v-if="selectedAssistant" class="text-lg font-bold tracking-tight text-geek-text">
             {{ selectedAssistant.name }}
           </h2>
-          <span v-else class="text-sm text-morandi-text-muted">请选择一个助手开始对话</span>
+          <span v-else class="text-sm text-geek-text-muted">请选择一个助手开始对话</span>
         </div>
         <div class="toolbar-right flex items-center gap-2 relative">
           <button
             v-if="selectedAssistant"
             @click="openSettingsModal(selectedAssistant)"
-            class="morandi-btn morandi-btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5"
+            class="geek-btn geek-btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5"
           >
             <Settings class="w-4 h-4" />
             <span>设置</span>
@@ -142,7 +142,7 @@
           <button
             v-if="selectedAssistant"
             @click="resetChat"
-            class="morandi-btn morandi-btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5"
+            class="geek-btn geek-btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5"
           >
             <RotateCcw class="w-4 h-4" />
             <span>刷新</span>
@@ -153,7 +153,7 @@
             <button
               v-if="messages.length > 0 && !isSearchActive"
               @click="openSearch()"
-              class="morandi-btn morandi-btn-ghost morandi-btn-sm"
+              class="geek-btn geek-btn-ghost geek-btn-sm"
               title="搜索消息"
             >
               <Search class="w-3.5 h-3.5" />
@@ -162,7 +162,7 @@
             <button
               v-if="messages.length > 0"
               @click="handleExport"
-              class="morandi-btn morandi-btn-ghost morandi-btn-sm"
+              class="geek-btn geek-btn-ghost geek-btn-sm"
               title="导出对话"
             >
               <Download class="w-3.5 h-3.5" />
@@ -170,7 +170,7 @@
             <!-- 快捷命令 -->
             <button
               @click="showQuickCommands = !showQuickCommands"
-              class="morandi-btn morandi-btn-ghost morandi-btn-sm"
+              class="geek-btn geek-btn-ghost geek-btn-sm"
               title="快捷命令"
             >
               <Zap class="w-3.5 h-3.5" />
@@ -178,13 +178,13 @@
           </div>
           <!-- 快捷命令面板 -->
           <div v-if="showQuickCommands" class="cmd-panel absolute top-full right-6 mt-1 animate-modal-in">
-            <div class="morandi-card-elevated p-2 rounded-xl shadow-lg z-50 min-w-[160px]">
-              <div class="text-xs font-medium px-2 py-1 text-morandi-muted">快捷命令</div>
+            <div class="geek-card-elevated p-2 rounded-xl shadow-lg z-50 min-w-[160px]">
+              <div class="text-xs font-medium px-2 py-1 text-geek-muted">快捷命令</div>
               <button
                 v-for="cmd in quickCommands"
                 :key="cmd.label"
                 @click="sendQuickCommand(cmd)"
-                class="cmd-item w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors text-morandi-text hover:bg-morandi-primary-light"
+                class="cmd-item w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors text-geek-text hover:bg-geek-primary-light"
               >
                 {{ cmd.label }}
               </button>
@@ -197,14 +197,14 @@
       <!-- 聊天消息区 -->
       <div class="chat-container flex-1 min-h-0 relative flex flex-col">
         <!-- 搜索框 -->
-        <div v-if="isSearchActive" class="search-bar px-4 py-2 border-b border-morandi bg-morandi-subtle flex items-center gap-2 flex-shrink-0">
+        <div v-if="isSearchActive" class="search-bar px-4 py-2 border-b border-geek bg-geek-subtle flex items-center gap-2 flex-shrink-0">
           <input
             v-model="searchQuery"
             placeholder="搜索消息..."
-            class="morandi-input flex-1 text-sm py-1.5"
+            class="geek-input flex-1 text-sm py-1.5"
             @input="searchMessages(messages)"
           />
-          <button @click="clearSearch()" class="morandi-btn morandi-btn-ghost morandi-btn-sm">
+          <button @click="clearSearch()" class="geek-btn geek-btn-ghost geek-btn-sm">
             <X class="w-3.5 h-3.5" />
           </button>
         </div>
@@ -212,11 +212,11 @@
         <!-- 空状态 -->
         <div v-if="!selectedAssistant" class="empty-home absolute inset-0 flex items-center justify-center">
           <div class="text-center animate-fade-up">
-            <div class="welcome-icon w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 morandi-card-elevated">
-              <MessageCircle class="w-10 h-10 text-morandi-text-muted" />
+            <div class="welcome-icon w-20 h-20 rounded-xl flex items-center justify-center mx-auto mb-5 geek-card">
+              <MessageCircle class="w-10 h-10 text-geek-text-muted" />
             </div>
-            <h3 class="serif text-xl mb-2 text-morandi-text-secondary">欢迎使用云谕助手</h3>
-            <p class="text-sm text-morandi-text-muted">请从左侧选择一个助手开始对话</p>
+            <h3 class="text-xl font-bold tracking-tight mb-2 text-geek-text-secondary">欢迎使用云谕助手</h3>
+            <p class="text-sm text-geek-text-muted">请从左侧选择一个助手开始对话</p>
           </div>
         </div>
 
@@ -224,7 +224,7 @@
           <!-- 语音识别提示 -->
           <div
             v-if="asrText && voiceCallActive"
-            class="asr-tip mx-6 mt-3 px-4 py-2 rounded-md border text-sm bg-morandi-bg-subtle border-morandi-primary text-morandi-primary"
+            class="asr-tip mx-6 mt-3 px-4 py-2 rounded-md border text-sm bg-geek-bg-subtle border-geek-primary text-geek-primary"
           >
             <span class="font-medium">语音识别：</span>{{ asrText }}
           </div>
@@ -240,19 +240,19 @@
       </div>
 
       <!-- 底部输入区 -->
-      <div v-if="selectedAssistant" class="input-area border-t border-morandi p-4 bg-morandi-base flex-shrink-0">
+      <div v-if="selectedAssistant" class="input-area border-t border-geek p-4 bg-geek-base flex-shrink-0">
         <div v-if="voiceCallActive" class="voice-panel flex flex-col items-center gap-4 py-2">
           <div class="voice-main flex items-center gap-4">
             <div class="mic-wrap relative">
-              <Mic class="w-8 h-8 animate-pulse text-morandi-error" />
-              <div class="mic-ring absolute -inset-2 rounded-full border-2 animate-ping border-morandi-error opacity-30"></div>
+              <Mic class="w-8 h-8 animate-pulse text-geek-error" />
+              <div class="mic-ring absolute -inset-2 rounded-full border-2 animate-ping border-geek-error opacity-30"></div>
             </div>
             <!-- 音量波形 -->
             <div class="audio-bars flex items-center gap-1">
               <div
                 v-for="i in 5"
                 :key="i"
-                class="bar-item w-1.5 rounded-full transition-all duration-150 bg-morandi-primary"
+                class="bar-item w-1.5 rounded-full transition-all duration-150 bg-geek-primary"
                 :style="{
                   height: `${Math.max(4, audioLevel * 40 * (0.5 + Math.random() * 0.5))}px`,
                   opacity: audioLevel > (i - 1) * 0.2 ? 1 : 0.3
@@ -262,7 +262,7 @@
           </div>
           <button
             @click="endVoiceCall"
-            class="morandi-btn morandi-btn-danger px-8 py-2.5 flex items-center gap-2"
+            class="geek-btn geek-btn-danger px-8 py-2.5 flex items-center gap-2"
           >
             <PhoneOff class="w-4 h-4" />
             <span>挂断</span>
@@ -273,14 +273,14 @@
           <input
             v-model="inputText"
             type="text"
-            class="flex-1 morandi-input h-12 px-4 rounded-lg"
+            class="flex-1 geek-input h-12 px-4 rounded-lg"
             placeholder="请输入您想问的问题..."
             @keyup.enter="sendMessage"
             :disabled="isTyping"
           />
           <button
             @click="startVoiceCall"
-            class="morandi-btn morandi-btn-ghost w-12 h-12 rounded-full flex items-center justify-center"
+            class="geek-btn geek-btn-ghost w-12 h-12 rounded-full flex items-center justify-center"
             :class="{ 'opacity-40 cursor-not-allowed': !selectedAssistant?.id }"
             :disabled="!selectedAssistant?.id"
           >
@@ -288,7 +288,7 @@
           </button>
           <button
             @click="sendMessage"
-            class="morandi-btn morandi-btn-primary w-12 h-12 rounded-full flex items-center justify-center"
+            class="geek-btn geek-btn-primary w-12 h-12 rounded-full flex items-center justify-center"
             :class="{ 'opacity-40 cursor-not-allowed': !inputText.trim() || isTyping }"
             :disabled="!inputText.trim() || isTyping"
           >
@@ -304,36 +304,36 @@
     <!-- 新增助手 / 删除确认 弹窗 -->
     <div
       v-if="showModal || showDeleteModal"
-      class="modal-mask fixed inset-0 z-50 flex items-center justify-center bg-morandi-overlay"
+      class="modal-mask fixed inset-0 z-50 flex items-center justify-center bg-geek-overlay"
       @click.self="showModal ? closeModal() : cancelDelete()"
     >
-      <div class="modal-card animate-modal-in morandi-card-elevated rounded-xl w-[420px] p-6">
+      <div class="modal-card animate-modal-in geek-card-elevated rounded-xl w-[420px] max-w-[95vw] p-6">
         <!-- 新增助手 -->
         <div v-if="showModal">
-          <h3 class="serif text-lg font-semibold mb-6 text-morandi-text">新增助手</h3>
+          <h3 class="text-lg font-bold tracking-tight mb-6 text-geek-text">新增助手</h3>
           <div class="form-groups space-y-4">
             <div>
-              <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">助手名称</label>
+              <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">助手名称</label>
               <input
                 v-model="formData.name"
                 type="text"
                 placeholder="请输入助手名称"
-                class="w-full morandi-input px-4 py-2.5 rounded-md"
+                class="w-full geek-input px-4 py-2.5 rounded-md"
               />
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">助手描述</label>
+              <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">助手描述</label>
               <textarea
                 v-model="formData.description"
                 placeholder="请输入助手描述（可选）"
-                class="w-full morandi-input px-4 py-2.5 rounded-md resize-none"
+                class="w-full geek-input px-4 py-2.5 rounded-md resize-none"
                 rows="3"
               ></textarea>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">人设模板</label>
+              <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">人设模板</label>
               <select
-                class="w-full morandi-input px-4 py-2.5 rounded-md"
+                class="w-full geek-input px-4 py-2.5 rounded-md"
                 @change="onTemplateChange($event, 'create')"
               >
                 <option value="">选择模板（可选）</option>
@@ -341,19 +341,19 @@
               </select>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">系统提示词</label>
+              <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">系统提示词</label>
               <textarea
                 v-model="formData.personality"
                 placeholder="定义助手的人设和性格..."
-                class="w-full morandi-input px-4 py-2.5 rounded-md resize-none"
+                class="w-full geek-input px-4 py-2.5 rounded-md resize-none"
                 rows="4"
               ></textarea>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">音色</label>
+              <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">音色</label>
               <select
                 v-model="formData.voice"
-                class="w-full morandi-input px-4 py-2.5 rounded-md"
+                class="w-full geek-input px-4 py-2.5 rounded-md"
               >
                 <option value="">默认音色</option>
                 <option v-for="v in voices" :key="v.id" :value="v.id">
@@ -362,10 +362,10 @@
               </select>
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">模型</label>
+              <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">模型</label>
               <select
                 v-model="formData.modelName"
-                class="w-full morandi-input px-4 py-2.5 rounded-md"
+                class="w-full geek-input px-4 py-2.5 rounded-md"
               >
                 <option value="">默认模型</option>
                 <option v-for="m in models" :key="m.id" :value="m.id">{{ m.name }}</option>
@@ -373,41 +373,41 @@
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">温度 (0-2)</label>
+                <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">温度 (0-2)</label>
                 <input
                   v-model.number="formData.temperature"
                   type="number"
                   min="0"
                   max="2"
                   step="0.1"
-                  class="w-full morandi-input px-4 py-2.5 rounded-md"
+                  class="w-full geek-input px-4 py-2.5 rounded-md"
                 />
               </div>
               <div>
-                <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">最大输出</label>
+                <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">最大输出</label>
                 <input
                   v-model.number="formData.maxTokens"
                   type="number"
                   min="1"
                   step="1"
-                  class="w-full morandi-input px-4 py-2.5 rounded-md"
+                  class="w-full geek-input px-4 py-2.5 rounded-md"
                 />
               </div>
             </div>
           </div>
           <div class="flex justify-end gap-3 mt-6">
-            <button @click="closeModal" class="morandi-btn morandi-btn-ghost">取消</button>
-            <button @click="addAssistant()" class="morandi-btn morandi-btn-primary">确定创建</button>
+            <button @click="closeModal" class="geek-btn geek-btn-ghost">取消</button>
+            <button @click="addAssistant()" class="geek-btn geek-btn-primary">确定创建</button>
           </div>
         </div>
 
         <!-- 删除确认 -->
         <div v-if="showDeleteModal">
-          <h3 class="serif text-lg font-semibold mb-2 text-morandi-error">确认删除</h3>
-          <p class="text-sm mb-6 text-morandi-text-secondary">你确定要删除这个助手吗？此操作无法撤销。</p>
+          <h3 class="text-lg font-bold tracking-tight mb-2 text-geek-error">确认删除</h3>
+          <p class="text-sm mb-6 text-geek-text-secondary">你确定要删除这个助手吗？此操作无法撤销。</p>
           <div class="flex justify-end gap-3">
-            <button @click="cancelDelete" class="morandi-btn morandi-btn-ghost">取消</button>
-            <button @click="doDelete" class="morandi-btn morandi-btn-danger">确认删除</button>
+            <button @click="cancelDelete" class="geek-btn geek-btn-ghost">取消</button>
+            <button @click="doDelete" class="geek-btn geek-btn-danger">确认删除</button>
           </div>
         </div>
       </div>
@@ -416,48 +416,48 @@
     <!-- 设置弹窗 -->
     <div
       v-if="showSettings"
-      class="modal-mask fixed inset-0 z-40 flex items-center justify-center bg-morandi-overlay"
+      class="modal-mask fixed inset-0 z-40 flex items-center justify-center bg-geek-overlay"
       @click.self="closeSettingsModal"
     >
-      <div class="modal-large animate-modal-in morandi-card-elevated rounded-xl w-[900px] max-h-[85vh] flex flex-col overflow-hidden">
+      <div class="modal-large animate-modal-in geek-card-elevated rounded-xl w-[900px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden">
         <!-- 设置头部 -->
-        <div class="modal-header flex items-center justify-between px-6 py-4 border-b border-morandi flex-shrink-0">
-          <h2 class="serif text-xl font-semibold text-morandi-text">助手设置</h2>
-          <button @click="closeSettingsModal" class="p-1.5 rounded-md transition-colors morandi-btn morandi-btn-ghost">
+        <div class="modal-header flex items-center justify-between px-6 py-4 border-b border-geek flex-shrink-0">
+          <h2 class="text-xl font-bold tracking-tight text-geek-text">助手设置</h2>
+          <button @click="closeSettingsModal" class="p-1.5 rounded-md transition-colors geek-btn geek-btn-ghost">
             <X class="w-5 h-5" />
           </button>
         </div>
 
         <!-- 设置内容 -->
-        <div class="modal-body flex-1 min-h-0 overflow-y-auto morandi-scroll transparent-scrollbar p-6 space-y-5">
+        <div class="modal-body flex-1 min-h-0 overflow-y-auto geek-scroll transparent-scrollbar p-6 space-y-5">
           <!-- 助手信息卡片 -->
-          <div class="info-card morandi-card rounded-lg p-5">
+          <div class="info-card geek-card rounded-lg p-5">
             <div class="flex items-center gap-3">
-              <div class="avatar w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-morandi-tag-blue">
+              <div class="avatar w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-geek-tag-blue">
                 <Bot class="w-5 h-5 text-white" />
               </div>
               <div>
-                <div class="font-semibold text-morandi-text">{{ settingsAssistant?.name }}</div>
-                <div class="text-sm mt-0.5 text-morandi-text-muted">{{ settingsAssistant?.description }}</div>
+                <div class="font-semibold text-geek-text">{{ settingsAssistant?.name }}</div>
+                <div class="text-sm mt-0.5 text-geek-text-muted">{{ settingsAssistant?.description }}</div>
               </div>
             </div>
           </div>
 
           <!-- 人设设置 -->
-          <div class="setting-card morandi-card rounded-lg p-5">
+          <div class="setting-card geek-card rounded-lg p-5">
             <div class="card-head flex items-center justify-between mb-4">
-              <h3 class="font-semibold text-morandi-text">人设设置</h3>
+              <h3 class="font-semibold text-geek-text">人设设置</h3>
               <button
                 @click="savePersonality"
                 :disabled="!personalityChanged"
-                class="morandi-btn morandi-btn-primary text-sm px-4 py-1.5"
+                class="geek-btn geek-btn-primary text-sm px-4 py-1.5"
                 :class="{ 'opacity-40 cursor-not-allowed': !personalityChanged }"
               >
                 {{ saving ? '保存中...' : '保存人设' }}
               </button>
             </div>
             <select
-              class="w-full morandi-input rounded-md px-4 py-2.5 mb-3"
+              class="w-full geek-input rounded-md px-4 py-2.5 mb-3"
               @change="onTemplateChange($event, 'settings')"
             >
               <option value="">选择人设模板（可选）</option>
@@ -466,26 +466,26 @@
             <textarea
               v-model="personalityText"
               @input="onPersonalityChange"
-              class="w-full h-40 resize-none morandi-input rounded-md p-4 text-sm leading-relaxed"
+              class="w-full h-40 resize-none geek-input rounded-md p-4 text-sm leading-relaxed"
               placeholder="请输入机器人的人设描述，例如：你是一个专业的客服助手，擅长解答用户问题..."
             ></textarea>
-            <div class="text-xs mt-2 text-right text-morandi-text-muted">
+            <div class="text-xs mt-2 text-right text-geek-text-muted">
               {{ personalityText.length }}/500 字符
             </div>
           </div>
 
           <!-- 音色设置 -->
-          <div class="setting-card morandi-card rounded-lg p-5">
+          <div class="setting-card geek-card rounded-lg p-5">
             <div class="card-head flex items-center justify-between mb-4">
-              <h3 class="font-semibold text-morandi-text">音色设置</h3>
+              <h3 class="font-semibold text-geek-text">音色设置</h3>
               <button
                 @click="saveVoice"
-                class="morandi-btn morandi-btn-primary text-sm px-4 py-1.5"
+                class="geek-btn geek-btn-primary text-sm px-4 py-1.5"
               >
                 保存音色
               </button>
             </div>
-            <select v-model="settingsVoice" class="w-full morandi-input rounded-md px-4 py-2.5">
+            <select v-model="settingsVoice" class="w-full geek-input rounded-md px-4 py-2.5">
               <option value="">默认音色</option>
               <option v-for="v in voices" :key="v.id" :value="v.id">
                 {{ v.name }}（{{ v.gender === 1 ? '女' : '男' }}） - {{ v.description }}
@@ -494,44 +494,44 @@
           </div>
 
           <!-- 模型参数设置 -->
-          <div class="setting-card morandi-card rounded-lg p-5">
+          <div class="setting-card geek-card rounded-lg p-5">
             <div class="card-head flex items-center justify-between mb-4">
-              <h3 class="font-semibold text-morandi-text">模型参数</h3>
+              <h3 class="font-semibold text-geek-text">模型参数</h3>
               <button
                 @click="saveModelParams"
-                class="morandi-btn morandi-btn-primary text-sm px-4 py-1.5"
+                class="geek-btn geek-btn-primary text-sm px-4 py-1.5"
               >
                 保存参数
               </button>
             </div>
             <div class="space-y-3">
               <div>
-                <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">模型</label>
-                <select v-model="settingsModelName" class="w-full morandi-input rounded-md px-4 py-2.5">
+                <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">模型</label>
+                <select v-model="settingsModelName" class="w-full geek-input rounded-md px-4 py-2.5">
                   <option value="">默认模型</option>
                   <option v-for="m in models" :key="m.id" :value="m.id">{{ m.name }}</option>
                 </select>
               </div>
               <div class="grid grid-cols-2 gap-3">
                 <div>
-                  <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">温度 (0-2)</label>
+                  <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">温度 (0-2)</label>
                   <input
                     v-model.number="settingsTemperature"
                     type="number"
                     min="0"
                     max="2"
                     step="0.1"
-                    class="w-full morandi-input rounded-md px-4 py-2.5"
+                    class="w-full geek-input rounded-md px-4 py-2.5"
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">最大输出</label>
+                  <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">最大输出</label>
                   <input
                     v-model.number="settingsMaxTokens"
                     type="number"
                     min="1"
                     step="1"
-                    class="w-full morandi-input rounded-md px-4 py-2.5"
+                    class="w-full geek-input rounded-md px-4 py-2.5"
                   />
                 </div>
               </div>
@@ -539,20 +539,20 @@
           </div>
 
           <!-- 知识库配置 -->
-          <div class="setting-card morandi-card rounded-lg p-5">
+          <div class="setting-card geek-card rounded-lg p-5">
             <div class="card-head flex items-center justify-between mb-4">
-              <h3 class="font-semibold text-morandi-text">知识库配置</h3>
+              <h3 class="font-semibold text-geek-text">知识库配置</h3>
               <div class="flex items-center gap-2">
                 <button
                   @click="showRetrievalTest = true"
-                  class="morandi-btn morandi-btn-ghost text-sm px-3 py-1.5 flex items-center gap-1.5"
+                  class="geek-btn geek-btn-ghost text-sm px-3 py-1.5 flex items-center gap-1.5"
                 >
                   <Search class="w-4 h-4" />
                   <span>检索测试</span>
                 </button>
                 <button
                   @click="openKnowledgeModal"
-                  class="morandi-btn morandi-btn-primary text-sm px-4 py-1.5 flex items-center gap-1.5"
+                  class="geek-btn geek-btn-primary text-sm px-4 py-1.5 flex items-center gap-1.5"
                 >
                   <Database class="w-4 h-4" />
                   <span>管理知识库</span>
@@ -561,32 +561,32 @@
             </div>
 
             <!-- 单知识库选中 -->
-            <div v-if="currentKnowledgeBase" class="kb-selected morandi-card px-4 py-3 rounded-md">
+            <div v-if="currentKnowledgeBase" class="kb-selected geek-card px-4 py-3 rounded-md">
               <div class="flex items-center justify-between">
                 <div class="flex items-center">
-                  <Database class="w-5 h-5 mr-3 text-morandi-primary" />
+                  <Database class="w-5 h-5 mr-3 text-geek-primary" />
                   <div>
-                    <div class="font-medium text-sm text-morandi-text">{{ currentKnowledgeBase.name }}</div>
-                    <div class="text-xs mt-0.5 text-morandi-text-muted">
+                    <div class="font-medium text-sm text-geek-text">{{ currentKnowledgeBase.name }}</div>
+                    <div class="text-xs mt-0.5 text-geek-text-muted">
                       {{ currentKnowledgeBase.documentCount || 0 }} 个文档 · {{ currentKnowledgeBase.chunkCount || 0 }} 切片
                     </div>
                   </div>
                 </div>
-                <span class="status-tag text-xs px-2 py-0.5 rounded-full bg-morandi-success-bg text-morandi-success">已选择</span>
+                <span class="status-tag text-xs px-2 py-0.5 rounded-sm bg-geek-success-bg text-geek-success">已选择</span>
               </div>
             </div>
 
             <!-- 多知识库选中 -->
-            <div v-else-if="selectedKnowledgeBases.length > 0" class="kb-multi morandi-card px-4 py-3 rounded-md">
+            <div v-else-if="selectedKnowledgeBases.length > 0" class="kb-multi geek-card px-4 py-3 rounded-md">
               <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center">
-                  <Database class="w-5 h-5 mr-3 text-morandi-accent" />
+                  <Database class="w-5 h-5 mr-3 text-geek-accent" />
                   <div>
-                    <div class="font-medium text-sm text-morandi-text">已选择 {{ selectedKnowledgeBases.length }} 个知识库</div>
-                    <div class="text-xs text-morandi-text-muted">多知识库联合检索模式</div>
+                    <div class="font-medium text-sm text-geek-text">已选择 {{ selectedKnowledgeBases.length }} 个知识库</div>
+                    <div class="text-xs text-geek-text-muted">多知识库联合检索模式</div>
                   </div>
                 </div>
-                <button @click="clearMultiSelection" class="clear-btn text-xs px-2 py-1 rounded-sm bg-morandi-error-bg text-morandi-error">
+                <button @click="clearMultiSelection" class="clear-btn text-xs px-2 py-1 rounded-sm bg-geek-error-bg text-geek-error">
                   清空
                 </button>
               </div>
@@ -594,13 +594,13 @@
                 <div
                   v-for="kb in selectedKnowledgeBases"
                   :key="kb.id"
-                  class="selected-item flex items-center justify-between px-3 py-1.5 rounded-sm bg-morandi-input-bg"
+                  class="selected-item flex items-center justify-between px-3 py-1.5 rounded-sm bg-geek-input-bg"
                 >
                   <div class="flex items-center">
-                    <Check class="w-3 h-3 mr-2 text-morandi-primary" />
-                    <span class="text-sm text-morandi-text-secondary">{{ kb.name }}</span>
+                    <Check class="w-3 h-3 mr-2 text-geek-primary" />
+                    <span class="text-sm text-geek-text-secondary">{{ kb.name }}</span>
                   </div>
-                  <button @click.stop="removeFromSelection(kb)" class="remove-btn p-0.5 text-morandi-text-muted hover:text-morandi-error">
+                  <button @click.stop="removeFromSelection(kb)" class="remove-btn p-0.5 text-geek-text-muted hover:text-geek-error">
                     <X class="w-3 h-3" />
                   </button>
                 </div>
@@ -608,17 +608,17 @@
             </div>
 
             <!-- 空状态 -->
-            <div v-else class="kb-empty px-4 py-8 rounded-md text-center bg-morandi-input-bg border border-dashed border-morandi-border">
-              <FolderOpen class="w-8 h-8 mx-auto mb-2 text-morandi-text-faint" />
-              <p class="text-sm text-morandi-text-muted">点击「管理知识库」选择或创建知识库</p>
+            <div v-else class="kb-empty px-4 py-8 rounded-md text-center bg-geek-input-bg border border-dashed border-geek-border">
+              <FolderOpen class="w-8 h-8 mx-auto mb-2 text-geek-text-faint" />
+              <p class="text-sm text-geek-text-muted">点击「管理知识库」选择或创建知识库</p>
             </div>
           </div>
         </div>
 
         <!-- 设置底部 -->
-        <div class="modal-footer px-6 py-4 border-t border-morandi flex-shrink-0">
+        <div class="modal-footer px-6 py-4 border-t border-geek flex-shrink-0">
           <div class="flex justify-end">
-            <button @click="closeSettingsModal" class="morandi-btn morandi-btn-ghost">关闭</button>
+            <button @click="closeSettingsModal" class="geek-btn geek-btn-ghost">关闭</button>
           </div>
         </div>
       </div>
@@ -627,11 +627,11 @@
     <!-- 知识库管理弹窗 -->
     <div
       v-if="showKnowledgeModal"
-      class="modal-mask fixed inset-0 z-50 flex items-center justify-center bg-morandi-overlay"
+      class="modal-mask fixed inset-0 z-50 flex items-center justify-center bg-geek-overlay"
       @click.self="closeKnowledgeModal"
     >
       <div
-        class="kb-modal animate-modal-in morandi-card-elevated rounded-xl flex overflow-hidden transition-all duration-500"
+        class="kb-modal animate-modal-in geek-card-elevated rounded-xl max-w-[95vw] flex overflow-hidden transition-all duration-500"
         :class="showFileManager ? 'w-[1400px]' : 'w-[900px]'"
       >
         <!-- 知识库列表面板 -->
@@ -640,27 +640,27 @@
           :class="showFileManager ? 'w-1/2' : 'w-full'"
         >
           <!-- 知识库头部 -->
-          <div class="kb-header px-6 py-5 border-b border-morandi flex-shrink-0">
+          <div class="kb-header px-6 py-5 border-b border-geek flex-shrink-0">
             <div class="flex items-center justify-between mb-5">
-              <h2 class="serif text-xl font-semibold text-morandi-text">知识库管理</h2>
+              <h2 class="text-xl font-bold tracking-tight text-geek-text">知识库管理</h2>
               <div class="header-actions flex items-center gap-3">
-                <div class="layout-switch p-0.5 flex rounded-sm bg-morandi-input-bg">
+                <div class="layout-switch p-0.5 flex rounded-sm bg-geek-input-bg">
                   <button
                     @click="knowledgeBaseLayout = 'list'"
                     class="layout-btn px-2.5 py-1 rounded-sm text-sm transition-all duration-200"
-                    :class="knowledgeBaseLayout === 'list' ? 'morandi-btn morandi-btn-primary' : 'text-morandi-text-muted'"
+                    :class="knowledgeBaseLayout === 'list' ? 'geek-btn geek-btn-primary' : 'text-geek-text-muted'"
                   >
                     <List class="w-4 h-4" />
                   </button>
                   <button
                     @click="knowledgeBaseLayout = 'grid'"
                     class="layout-btn px-2.5 py-1 rounded-sm text-sm transition-all duration-200"
-                    :class="knowledgeBaseLayout === 'grid' ? 'morandi-btn morandi-btn-primary' : 'text-morandi-text-muted'"
+                    :class="knowledgeBaseLayout === 'grid' ? 'geek-btn geek-btn-primary' : 'text-geek-text-muted'"
                   >
                     <LayoutGrid class="w-4 h-4" />
                   </button>
                 </div>
-                <button @click="closeKnowledgeModal" class="p-1.5 rounded-sm morandi-btn morandi-btn-ghost">
+                <button @click="closeKnowledgeModal" class="p-1.5 rounded-sm geek-btn geek-btn-ghost">
                   <X class="w-5 h-5" />
                 </button>
               </div>
@@ -668,7 +668,7 @@
 
             <button
               @click="openCreateKnowledgeForm"
-              class="morandi-btn morandi-btn-primary text-sm px-4 py-2 inline-flex items-center gap-1.5"
+              class="geek-btn geek-btn-primary text-sm px-4 py-2 inline-flex items-center gap-1.5"
             >
               <Plus class="w-4 h-4" />
               <span>新建知识库</span>
@@ -676,7 +676,7 @@
           </div>
 
           <!-- 知识库列表 -->
-          <div class="kb-list flex-1 min-h-0 overflow-y-auto morandi-scroll transparent-scrollbar p-6">
+          <div class="kb-list flex-1 min-h-0 overflow-y-auto geek-scroll transparent-scrollbar p-6">
             <div
               class="list-wrap transition-all duration-300"
               :class="knowledgeBaseLayout === 'grid' ? 'grid grid-cols-2 gap-4' : 'grid grid-cols-1 gap-3'"
@@ -685,10 +685,10 @@
                 v-for="kb in knowledgeBases"
                 :key="kb.id"
                 @click="selectKnowledgeBase(kb)"
-                class="kb-item morandi-card rounded-lg p-4 cursor-pointer transition-all duration-200"
+                class="kb-item geek-card rounded-lg p-4 cursor-pointer transition-all duration-200"
                 :class="[
                   knowledgeBaseLayout === 'list' ? 'flex items-center' : 'block',
-                  { 'ring-2 ring-[var(--morandi-primary)] bg-morandi-bg-subtle': selectedKnowledgeBases.some(s => s.id === kb.id) }
+                  { 'ring-2 ring-[var(--geek-primary)] bg-geek-bg-subtle': selectedKnowledgeBases.some(s => s.id === kb.id) }
                 ]"
               >
                 <template v-if="knowledgeBaseLayout === 'list'">
@@ -696,29 +696,29 @@
                     <div class="check-wrap mr-3 flex-shrink-0">
                       <div
                         class="check-box w-5 h-5 rounded border-2 flex items-center justify-center transition-all duration-200"
-                        :class="selectedKnowledgeBases.some(s => s.id === kb.id) ? 'bg-morandi-primary border-morandi-primary' : 'border-morandi-border'"
+                        :class="selectedKnowledgeBases.some(s => s.id === kb.id) ? 'bg-geek-primary border-geek-primary' : 'border-geek-border'"
                       >
                         <Check v-if="selectedKnowledgeBases.some(s => s.id === kb.id)" class="w-3 h-3 text-white" />
                       </div>
                     </div>
                     <div class="item-main flex items-center flex-1 min-w-0">
-                      <Database class="w-5 h-5 mr-3 flex-shrink-0 text-morandi-tag-gold" />
+                      <Database class="w-5 h-5 mr-3 flex-shrink-0 text-geek-tag-gold" />
                       <div class="item-text flex-1 min-w-0">
-                        <h3 class="font-semibold text-sm truncate text-morandi-text">{{ kb.name }}</h3>
-                        <p class="text-xs truncate mt-0.5 text-morandi-text-muted">{{ kb.description || '暂无描述' }}</p>
+                        <h3 class="font-semibold text-sm truncate text-geek-text">{{ kb.name }}</h3>
+                        <p class="text-xs truncate mt-0.5 text-geek-text-muted">{{ kb.description || '暂无描述' }}</p>
                       </div>
                     </div>
                     <div class="item-stat flex items-center gap-3 mx-3 flex-shrink-0">
                       <div class="stat text-center">
-                        <div class="font-bold text-sm text-morandi-primary">{{ kb.documentCount || 0 }}</div>
-                        <div class="text-xs text-morandi-text-faint">文档</div>
+                        <div class="font-bold text-sm text-geek-primary">{{ kb.documentCount || 0 }}</div>
+                        <div class="text-xs text-geek-text-faint">文档</div>
                       </div>
                     </div>
                     <div class="item-op flex gap-1 flex-shrink-0">
-                      <button @click.stop="selectKnowledgeBaseForFileManager(kb)" class="op-btn p-1.5 rounded-sm text-morandi-text-muted hover:bg-morandi-surface">
+                      <button @click.stop="selectKnowledgeBaseForFileManager(kb)" class="op-btn p-1.5 rounded-sm text-geek-text-muted hover:bg-geek-surface">
                         <FolderOpen class="w-4 h-4" />
                       </button>
-                      <button @click.stop="deleteKnowledgeBase(kb)" class="op-btn p-1.5 rounded-sm text-morandi-text-muted hover:text-morandi-error">
+                      <button @click.stop="deleteKnowledgeBase(kb)" class="op-btn p-1.5 rounded-sm text-geek-text-muted hover:text-geek-error">
                         <Trash2 class="w-4 h-4" />
                       </button>
                     </div>
@@ -731,34 +731,34 @@
                       <div class="check-wrap mr-3 flex-shrink-0">
                         <div
                           class="check-box w-5 h-5 rounded border-2 flex items-center justify-center transition-all duration-200"
-                          :class="selectedKnowledgeBases.some(s => s.id === kb.id) ? 'bg-morandi-primary border-morandi-primary' : 'border-morandi-border'"
+                          :class="selectedKnowledgeBases.some(s => s.id === kb.id) ? 'bg-geek-primary border-geek-primary' : 'border-geek-border'"
                         >
                           <Check v-if="selectedKnowledgeBases.some(s => s.id === kb.id)" class="w-3 h-3 text-white" />
                         </div>
                       </div>
-                      <Database class="w-7 h-7 mr-3 text-morandi-tag-gold" />
+                      <Database class="w-7 h-7 mr-3 text-geek-tag-gold" />
                       <div class="grid-text">
-                        <h3 class="font-semibold text-morandi-text">{{ kb.name }}</h3>
-                        <p class="text-sm mt-0.5 text-morandi-text-secondary">{{ kb.description || '暂无描述' }}</p>
+                        <h3 class="font-semibold text-geek-text">{{ kb.name }}</h3>
+                        <p class="text-sm mt-0.5 text-geek-text-secondary">{{ kb.description || '暂无描述' }}</p>
                       </div>
                     </div>
                     <div class="grid-op flex gap-1.5">
-                      <button @click.stop="selectKnowledgeBaseForFileManager(kb)" class="op-btn p-1.5 rounded-sm text-morandi-text-muted hover:bg-morandi-surface">
+                      <button @click.stop="selectKnowledgeBaseForFileManager(kb)" class="op-btn p-1.5 rounded-sm text-geek-text-muted hover:bg-geek-surface">
                         <FolderOpen class="w-4 h-4" />
                       </button>
-                      <button @click.stop="deleteKnowledgeBase(kb)" class="op-btn p-1.5 rounded-sm text-morandi-text-muted hover:text-morandi-error">
+                      <button @click.stop="deleteKnowledgeBase(kb)" class="op-btn p-1.5 rounded-sm text-geek-text-muted hover:text-geek-error">
                         <Trash2 class="w-4 h-4" />
                       </button>
                     </div>
                   </div>
-                  <div class="grid-bottom flex justify-between text-sm pt-3 border-t border-morandi-divider">
+                  <div class="grid-bottom flex justify-between text-sm pt-3 border-t border-geek-divider">
                     <div class="stat text-center">
-                      <div class="font-bold text-morandi-primary">{{ kb.documentCount || 0 }}</div>
-                      <div class="text-xs text-morandi-text-faint">文档数</div>
+                      <div class="font-bold text-geek-primary">{{ kb.documentCount || 0 }}</div>
+                      <div class="text-xs text-geek-text-faint">文档数</div>
                     </div>
                     <div class="stat text-center">
-                      <div class="font-bold text-morandi-accent">{{ kb.chunkCount || 0 }}</div>
-                      <div class="text-xs text-morandi-text-faint">切片数</div>
+                      <div class="font-bold text-geek-accent">{{ kb.chunkCount || 0 }}</div>
+                      <div class="text-xs text-geek-text-faint">切片数</div>
                     </div>
                   </div>
                 </template>
@@ -767,16 +767,16 @@
           </div>
 
           <!-- 知识库底部操作 -->
-          <div class="kb-footer px-6 py-4 border-t border-morandi flex-shrink-0">
+          <div class="kb-footer px-6 py-4 border-t border-geek flex-shrink-0">
             <div class="selection-info mb-4">
               <div class="flex items-center justify-between mb-2">
-                <span class="text-sm text-morandi-text-secondary">
+                <span class="text-sm text-geek-text-secondary">
                   已选择 {{ selectedKnowledgeBases.length }} 个知识库
                 </span>
                 <button
                   v-if="selectedKnowledgeBases.length > 0"
                   @click="clearAllSelections"
-                  class="text-xs morandi-btn morandi-btn-ghost px-2 py-0.5 text-morandi-error"
+                  class="text-xs geek-btn geek-btn-ghost px-2 py-0.5 text-geek-error"
                 >
                   清空选择
                 </button>
@@ -785,7 +785,7 @@
                 <div
                   v-for="kb in selectedKnowledgeBases"
                   :key="kb.id"
-                  class="tag-item px-3 py-1 rounded-full text-sm flex items-center gap-1.5 bg-morandi-bg-subtle text-morandi-primary"
+                  class="tag-item px-3 py-1 rounded-md text-sm flex items-center gap-1.5 bg-geek-bg-subtle text-geek-primary border border-geek"
                 >
                   <span>{{ kb.name }}</span>
                   <button @click="removeFromSelection(kb)" class="tag-close p-0.5 hover:opacity-60">
@@ -793,30 +793,30 @@
                   </button>
                 </div>
               </div>
-              <div v-else class="text-sm text-morandi-text-faint">未选择任何知识库</div>
+              <div v-else class="text-sm text-geek-text-faint">未选择任何知识库</div>
             </div>
             <div class="btn-group flex justify-end gap-3">
-              <button @click="closeKnowledgeModal" class="morandi-btn morandi-btn-ghost">取消</button>
-              <button @click="confirmSelection" class="morandi-btn morandi-btn-primary">确认选择</button>
+              <button @click="closeKnowledgeModal" class="geek-btn geek-btn-ghost">取消</button>
+              <button @click="confirmSelection" class="geek-btn geek-btn-primary">确认选择</button>
             </div>
           </div>
         </div>
 
         <!-- 文件管理面板 -->
-        <div v-if="showFileManager" class="file-panel w-1/2 flex flex-col animate-slide-in-right border-l border-morandi bg-morandi-surface">
-          <div class="file-header px-6 py-4 border-b border-morandi flex-shrink-0">
+        <div v-if="showFileManager" class="file-panel w-1/2 flex flex-col animate-slide-in-right border-l border-geek bg-geek-surface">
+          <div class="file-header px-6 py-4 border-b border-geek flex-shrink-0">
             <div class="flex items-center justify-between mb-4">
               <div class="file-title flex items-center">
-                <button @click="closeFileManager" class="p-1.5 rounded-sm mr-3 morandi-btn morandi-btn-ghost">
+                <button @click="closeFileManager" class="p-1.5 rounded-sm mr-3 geek-btn geek-btn-ghost">
                   <ChevronLeft class="w-5 h-5" />
                 </button>
-                <h3 class="serif text-lg font-semibold text-morandi-text">文件管理</h3>
+                <h3 class="text-lg font-bold tracking-tight text-geek-text">文件管理</h3>
               </div>
               <div class="file-op flex gap-2">
                 <button
                   @click="triggerFileUpload"
                   :disabled="isUploading"
-                  class="morandi-btn morandi-btn-primary text-sm px-3 py-1.5 flex items-center gap-1.5"
+                  class="geek-btn geek-btn-primary text-sm px-3 py-1.5 flex items-center gap-1.5"
                   :class="{ 'opacity-60': isUploading }"
                 >
                   <Upload class="w-4 h-4" />
@@ -826,50 +826,50 @@
             </div>
 
             <div v-if="isUploading && uploadProgress > 0" class="progress-wrap mb-4">
-              <div class="flex justify-between text-sm mb-2 text-morandi-text-secondary">
+              <div class="flex justify-between text-sm mb-2 text-geek-text-secondary">
                 <span>上传进度</span>
                 <span>{{ Math.round(uploadProgress) }}%</span>
               </div>
-              <div class="progress-bar w-full rounded-full h-1.5 bg-morandi-input-bg">
+              <div class="progress-bar w-full rounded-full h-1.5 bg-geek-input-bg">
                 <div
-                  class="progress-inner h-1.5 rounded-full transition-all duration-300 bg-morandi-primary"
+                  class="progress-inner h-1.5 rounded-full transition-all duration-300 bg-geek-primary"
                   :style="{ width: uploadProgress + '%' }"
                 ></div>
               </div>
             </div>
 
-            <div v-if="currentFileManagerKB" class="kb-info rounded-md px-3 py-2.5 bg-morandi-input-bg">
+            <div v-if="currentFileManagerKB" class="kb-info rounded-md px-3 py-2.5 bg-geek-input-bg">
               <div class="flex items-center">
-                <Database class="w-4 h-4 mr-2 text-morandi-tag-gold" />
-                <span class="font-medium text-sm text-morandi-text">{{ currentFileManagerKB.name }}</span>
+                <Database class="w-4 h-4 mr-2 text-geek-tag-gold" />
+                <span class="font-medium text-sm text-geek-text">{{ currentFileManagerKB.name }}</span>
               </div>
             </div>
           </div>
 
           <div
-            class="file-list flex-1 overflow-y-auto morandi-scroll transparent-scrollbar p-6"
+            class="file-list flex-1 overflow-y-auto geek-scroll transparent-scrollbar p-6"
             :class="{ 'drag-active': dragActive }"
             @dragover.prevent="dragActive = true"
             @dragleave.prevent="dragActive = false"
             @drop.prevent="handleDrop"
           >
             <div v-if="currentFiles.length === 0" class="empty-state text-center py-12">
-              <FileText class="w-14 h-14 mx-auto mb-3 text-morandi-text-faint" />
-              <p class="text-sm font-medium text-morandi-text-muted">暂无文件</p>
-              <p class="text-xs mt-1 text-morandi-text-faint">点击上传按钮或拖拽文件到此区域</p>
+              <FileText class="w-14 h-14 mx-auto mb-3 text-geek-text-faint" />
+              <p class="text-sm font-medium text-geek-text-muted">暂无文件</p>
+              <p class="text-xs mt-1 text-geek-text-faint">点击上传按钮或拖拽文件到此区域</p>
             </div>
             <div v-else class="file-items space-y-2.5">
               <div
                 v-for="file in currentFiles"
                 :key="file.id"
-                class="file-item morandi-card rounded-md p-4 transition-all duration-200 hover:bg-morandi-surface-raised"
+                class="file-item geek-card rounded-md p-4 transition-all duration-200 hover:bg-geek-surface-raised"
               >
                 <div class="flex items-center justify-between">
                   <div class="file-main flex items-center flex-1 min-w-0">
-                    <FileText class="w-7 h-7 mr-3 flex-shrink-0 text-morandi-primary" />
+                    <FileText class="w-7 h-7 mr-3 flex-shrink-0 text-geek-primary" />
                     <div class="file-info flex-1 min-w-0">
-                      <h4 class="font-medium text-sm truncate text-morandi-text">{{ file.name }}</h4>
-                      <div class="file-meta flex items-center text-xs mt-1 text-morandi-text-faint">
+                      <h4 class="font-medium text-sm truncate text-geek-text">{{ file.name }}</h4>
+                      <div class="file-meta flex items-center text-xs mt-1 text-geek-text-faint">
                         <span>{{ formatFileSize(file.size) }}</span>
                         <span class="mx-1.5">&middot;</span>
                         <span>{{ file.run || '未知' }}</span>
@@ -877,7 +877,7 @@
                     </div>
                   </div>
                   <div class="file-op ml-3 flex-shrink-0">
-                    <button @click="deleteFile(file)" class="op-btn p-1.5 rounded-sm text-morandi-text-muted hover:text-morandi-error">
+                    <button @click="deleteFile(file)" class="op-btn p-1.5 rounded-sm text-geek-text-muted hover:text-geek-error">
                       <Trash2 class="w-4 h-4" />
                     </button>
                   </div>
@@ -892,43 +892,43 @@
     <!-- 创建知识库弹窗 -->
     <div
       v-if="showCreateKnowledgeForm"
-      class="modal-mask fixed inset-0 z-[60] flex items-center justify-center bg-morandi-overlay"
+      class="modal-mask fixed inset-0 z-[60] flex items-center justify-center bg-geek-overlay"
       @click.self="showCreateKnowledgeForm = false"
     >
-      <div class="modal-small animate-modal-in morandi-card-elevated rounded-xl w-[440px] p-6">
-        <h3 class="serif text-lg font-semibold mb-5 text-morandi-text">创建知识库</h3>
+      <div class="modal-small animate-modal-in geek-card-elevated rounded-xl w-[440px] max-w-[95vw] p-6">
+        <h3 class="text-lg font-bold tracking-tight mb-5 text-geek-text">创建知识库</h3>
         <div class="form-groups space-y-4">
           <div>
-            <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">
-              <span class="text-morandi-error">*</span> 知识库名称
+            <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">
+              <span class="text-geek-error">*</span> 知识库名称
             </label>
             <input
               v-model="newKnowledgeBase.name"
               type="text"
               placeholder="请输入知识库名称"
               maxlength="20"
-              class="w-full morandi-input px-4 py-2.5 rounded-md"
+              class="w-full geek-input px-4 py-2.5 rounded-md"
             />
-            <div class="text-xs mt-1 text-right text-morandi-text-faint">{{ newKnowledgeBase.name.length }}/20</div>
+            <div class="text-xs mt-1 text-right text-geek-text-faint">{{ newKnowledgeBase.name.length }}/20</div>
           </div>
           <div>
-            <label class="block text-sm font-medium mb-1.5 text-morandi-text-secondary">知识库描述</label>
+            <label class="block text-sm font-medium mb-1.5 text-geek-text-secondary">知识库描述</label>
             <textarea
               v-model="newKnowledgeBase.description"
               placeholder="请输入知识库描述"
               maxlength="200"
               rows="3"
-              class="w-full morandi-input px-4 py-2.5 rounded-md resize-none"
+              class="w-full geek-input px-4 py-2.5 rounded-md resize-none"
             ></textarea>
-            <div class="text-xs mt-1 text-right text-morandi-text-faint">{{ newKnowledgeBase.description.length }}/200</div>
+            <div class="text-xs mt-1 text-right text-geek-text-faint">{{ newKnowledgeBase.description.length }}/200</div>
           </div>
         </div>
         <div class="flex justify-end gap-3 mt-6">
-          <button @click="showCreateKnowledgeForm = false" class="morandi-btn morandi-btn-ghost">取消</button>
+          <button @click="showCreateKnowledgeForm = false" class="geek-btn geek-btn-ghost">取消</button>
           <button
             @click="createKnowledgeBase"
             :disabled="!newKnowledgeBase.name.trim()"
-            class="morandi-btn morandi-btn-primary"
+            class="geek-btn geek-btn-primary"
             :class="{ 'opacity-40 cursor-not-allowed': !newKnowledgeBase.name.trim() }"
           >
             创建
@@ -940,35 +940,35 @@
     <!-- 检索效果测试弹窗（F5.5） -->
     <div
       v-if="showRetrievalTest"
-      class="modal-mask fixed inset-0 z-50 flex items-center justify-center bg-morandi-overlay"
+      class="modal-mask fixed inset-0 z-50 flex items-center justify-center bg-geek-overlay"
       @click.self="showRetrievalTest = false"
     >
-      <div class="modal-card animate-modal-in morandi-card-elevated rounded-xl w-[560px] max-h-[80vh] flex flex-col overflow-hidden">
-        <div class="flex items-center justify-between px-6 py-4 border-b" style="border-color: var(--morandi-divider)">
-          <h3 class="serif font-semibold text-morandi-text">检索效果测试</h3>
-          <button @click="showRetrievalTest = false" class="p-1" style="color: var(--morandi-text-muted)">
+      <div class="modal-card animate-modal-in geek-card-elevated rounded-xl w-[560px] max-w-[95vw] max-h-[80vh] flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b" style="border-color: var(--geek-divider)">
+          <h3 class="font-bold tracking-tight text-geek-text">检索效果测试</h3>
+          <button @click="showRetrievalTest = false" class="p-1" style="color: var(--geek-text-muted)">
             <X class="w-5 h-5" />
           </button>
         </div>
-        <div class="flex-1 min-h-0 overflow-y-auto morandi-scroll p-6">
+        <div class="flex-1 min-h-0 overflow-y-auto geek-scroll p-6">
           <div class="flex gap-2 mb-4">
             <input
               v-model="testQuestion"
               type="text"
               placeholder="输入测试问题，验证检索命中效果..."
-              class="flex-1 morandi-input rounded-md px-4 py-2.5"
+              class="flex-1 geek-input rounded-md px-4 py-2.5"
               @keyup.enter="runRetrievalTest"
             />
             <button
               @click="runRetrievalTest"
               :disabled="testLoading"
-              class="morandi-btn morandi-btn-primary px-4 py-2.5 whitespace-nowrap"
+              class="geek-btn geek-btn-primary px-4 py-2.5 whitespace-nowrap"
             >
               {{ testLoading ? '测试中...' : '测试' }}
             </button>
           </div>
 
-          <div v-if="testResults.length === 0 && !testLoading" class="text-center py-10 text-sm" style="color: var(--morandi-text-muted)">
+          <div v-if="testResults.length === 0 && !testLoading" class="text-center py-10 text-sm" style="color: var(--geek-text-muted)">
             暂无检索结果，请输入问题并点击测试
           </div>
 
@@ -976,17 +976,17 @@
             <div
               v-for="(chunk, i) in testResults"
               :key="i"
-              class="morandi-card rounded-lg p-4"
+              class="geek-card rounded-lg p-4"
             >
               <div class="flex items-center justify-between mb-2">
-                <span class="text-xs" style="color: var(--morandi-text-secondary)">
+                <span class="text-xs" style="color: var(--geek-text-secondary)">
                   {{ chunk.document || '未知文档' }}
                 </span>
-                <span class="text-xs px-2 py-0.5 rounded" style="background: var(--morandi-input-bg); color: var(--morandi-primary)">
+                <span class="text-xs px-2 py-0.5 rounded" style="background: var(--geek-input-bg); color: var(--geek-primary)">
                   相似度 {{ (chunk.similarity * 100).toFixed(1) }}%
                 </span>
               </div>
-              <p class="text-sm leading-relaxed whitespace-pre-wrap" style="color: var(--morandi-text)">{{ chunk.content }}</p>
+              <p class="text-sm leading-relaxed whitespace-pre-wrap" style="color: var(--geek-text)">{{ chunk.content }}</p>
             </div>
           </div>
         </div>
@@ -1130,7 +1130,7 @@ const savePersonality = async () => {
         description: bot.description,
         personality: personalityText.value,
         voice: bot.voice,
-        knowledgeIds: bot.knowledgeIds,
+        knowledgeIds: normalizeKnowledgeIds(bot.knowledgeIds),
       })
       bot.personality = personalityText.value
       if (selectedAssistant.value?.id === bot.id) {
@@ -1164,6 +1164,18 @@ const isUploading = ref(false)
 const uploadProgress = ref(0)
 const dragActive = ref(false)
 const newKnowledgeBase = ref({ name: '', description: '' })
+
+// 规范化 knowledgeIds（后端可能返回 JSON 字符串或数组）
+const normalizeKnowledgeIds = (ids?: string[] | string): string[] | undefined => {
+  if (!ids) return undefined
+  if (Array.isArray(ids)) return ids
+  try {
+    const parsed = JSON.parse(ids)
+    return Array.isArray(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
 
 // 获取助手类型
 const getAssistantType = (bot: Assistant): string => {
@@ -1311,7 +1323,7 @@ const saveVoice = async () => {
       description: bot.description,
       personality: bot.personality,
       voice: settingsVoice.value,
-      knowledgeIds: bot.knowledgeIds,
+      knowledgeIds: normalizeKnowledgeIds(bot.knowledgeIds),
     })
     bot.voice = settingsVoice.value
     // 同步选中助手
@@ -1338,7 +1350,7 @@ const saveModelParams = async () => {
       modelName: settingsModelName.value || undefined,
       temperature: settingsTemperature.value,
       maxTokens: settingsMaxTokens.value,
-      knowledgeIds: bot.knowledgeIds,
+      knowledgeIds: normalizeKnowledgeIds(bot.knowledgeIds),
     })
     bot.modelName = settingsModelName.value
     bot.temperature = settingsTemperature.value
@@ -1920,19 +1932,18 @@ const handleKeydown = (event: KeyboardEvent) => {
   z-index: 50;
   padding: 0.75rem 1.5rem;
   border-radius: var(--radius-md);
-  box-shadow: 0 4px 16px var(--morandi-shadow-color), 0 1px 3px var(--morandi-shadow-color);
-  border: 1px solid var(--morandi-border-strong);
-  color: var(--morandi-text-on-primary);
+  box-shadow: 0 4px 16px var(--geek-shadow-md);
+  color: #fff;
   font-weight: 500;
 }
-.toast-success { background: var(--morandi-success); }
-.toast-error { background: var(--morandi-error); }
-.toast-warning { background: var(--morandi-warning); }
-.toast-info { background: var(--morandi-primary); }
+.toast-success { background: var(--geek-success); }
+.toast-error { background: var(--geek-error); }
+.toast-warning { background: var(--geek-warning); }
+.toast-info { background: var(--geek-primary); }
 
-/* 侧边栏选中项左侧边框 */
+/* 侧边栏选中项左侧强调条 */
 .assistant-item.item-active {
-  border-left: 3px solid var(--morandi-primary);
+  border-left: 3px solid var(--geek-accent);
   padding-left: calc(0.75rem - 3px);
 }
 
@@ -1958,8 +1969,8 @@ const handleKeydown = (event: KeyboardEvent) => {
 
 /* 拖拽上传高亮 */
 .file-list.drag-active {
-  background: var(--morandi-bg-subtle);
-  outline: 2px dashed var(--morandi-primary);
+  background: var(--geek-bg-subtle);
+  outline: 2px dashed var(--geek-accent);
   outline-offset: -8px;
 }
 </style>

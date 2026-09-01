@@ -1,4 +1,3 @@
-import { ref } from 'vue'
 import { useWebSocket } from '../utils/websocket'
 import { useChatStore } from '../stores/chat'
 

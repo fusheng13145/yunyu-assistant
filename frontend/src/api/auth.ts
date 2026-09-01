@@ -1,4 +1,4 @@
-import type { LoginData, RegisterData, AuthResponse, User } from '../types'
+import type { LoginData, RegisterData, AuthResponse } from '../types'
 
 const API_BASE = '/api'
 
@@ -20,9 +20,9 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return result.data
 }
 
-export function getAuthHeaders(): HeadersInit {
+export function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem('token')
-  const headers: HeadersInit = { 'Content-Type': 'application/json' }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }

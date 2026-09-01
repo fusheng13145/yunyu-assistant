@@ -48,8 +48,8 @@ const options = [
   gap: 2px;
   padding: 3px;
   border-radius: var(--radius-md);
-  background: var(--morandi-input-bg);
-  border: 1px solid var(--morandi-border);
+  background: var(--geek-input-bg);
+  border: 1px solid var(--geek-border);
 }
 .theme-opt {
   display: inline-flex;
@@ -58,7 +58,7 @@ const options = [
   padding: 5px 10px;
   border-radius: var(--radius-sm);
   font-size: 12px;
-  color: var(--morandi-text-muted);
+  color: var(--geek-text-muted);
   cursor: pointer;
   border: none;
   background: transparent;
@@ -66,13 +66,13 @@ const options = [
   white-space: nowrap;
 }
 .theme-opt:hover:not(.active) {
-  color: var(--morandi-text-secondary);
-  background: var(--morandi-primary-light);
+  color: var(--geek-text-secondary);
+  background: var(--geek-primary-light);
 }
 .theme-opt.active {
-  background: var(--morandi-surface-raised);
-  color: var(--morandi-primary);
-  box-shadow: 0 1px 3px var(--morandi-shadow-color);
+  background: var(--geek-surface-raised);
+  color: var(--geek-primary);
+  box-shadow: 0 1px 3px var(--geek-shadow-color);
   font-weight: 500;
 }
 .theme-icon {

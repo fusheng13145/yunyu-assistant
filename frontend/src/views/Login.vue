@@ -1,5 +1,5 @@
 <template>
-  <div class="login-page morandi-body">
+  <div class="login-page geek-body geek-grid-bg">
     <!-- 主题切换按钮 -->
     <div class="theme-toggle-wrap">
       <ThemeToggle v-model="themeMode" />
@@ -8,12 +8,13 @@
     <div class="login-container">
       <!-- 品牌头部 -->
       <header class="brand-header">
-        <h1 class="brand-title serif">云谕助手</h1>
+        <p class="brand-kicker mono">YUNYU ASSISTANT // LOGIN</p>
+        <h1 class="brand-title font-display">云谕助手</h1>
         <p class="brand-subtitle">智能协作，静谧致远</p>
       </header>
 
       <!-- 登录表单卡片 -->
-      <main class="morandi-card form-card animate-fade-up">
+      <main class="geek-card form-card animate-fade-up">
         <h2 class="form-title">欢迎回来</h2>
 
         <form @submit.prevent="handleLogin" class="login-form">
@@ -23,7 +24,7 @@
               v-model="form.username"
               type="text"
               placeholder="请输入用户名"
-              class="morandi-input"
+              class="geek-input"
               @keyup.enter="handleLogin"
             />
           </div>
@@ -35,7 +36,7 @@
                 v-model="form.password"
                 :type="showPassword ? 'text' : 'password'"
                 placeholder="请输入密码"
-                class="morandi-input"
+                class="geek-input"
                 @keyup.enter="handleLogin"
               />
               <button
@@ -60,7 +61,7 @@
             type="button"
             @click="handleLogin"
             :disabled="loading || !canSubmit"
-            class="morandi-btn morandi-btn-primary submit-btn"
+            class="geek-btn geek-btn-primary submit-btn"
           >
             <span v-if="loading" class="btn-loading">
               <svg class="spin-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -81,7 +82,7 @@
       </main>
 
       <!-- 体验账号提示卡片 -->
-      <aside class="morandi-card info-tip animate-fade-up">
+      <aside class="geek-card info-tip animate-fade-up">
         <div class="tip-inner">
           <svg class="tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"></circle>
@@ -157,31 +158,16 @@ const handleLogin = async () => {
 </script>
 
 <style scoped>
-/* 页面根容器 */
+/* 页面根容器：纯白基底 */
 .login-page {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--morandi-bg-base);
+  background: var(--geek-bg-base);
   position: relative;
   overflow: hidden;
   transition: background-color 0.3s ease;
-}
-
-/* 背景渐变装饰层 */
-.login-page::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    145deg,
-    var(--morandi-bg-warm) 0%,
-    var(--morandi-bg-base) 40%,
-    var(--morandi-bg-cool) 100%
-  );
-  opacity: 0.6;
-  z-index: 0;
 }
 
 /* 主题切换定位 */
@@ -197,7 +183,7 @@ const handleLogin = async () => {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 420px;
+  max-width: 400px;
   padding: 24px 20px;
   display: flex;
   flex-direction: column;
@@ -211,38 +197,47 @@ const handleLogin = async () => {
   margin-bottom: 4px;
 }
 
+/* 等宽技术标签 */
+.brand-kicker {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--geek-accent);
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
 .brand-title {
-  font-size: 30px;
-  font-weight: 600;
-  color: var(--morandi-text);
-  letter-spacing: 0.04em;
-  line-height: 1.3;
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--geek-text);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
   margin: 0;
 }
 
 .brand-subtitle {
   margin-top: 8px;
   font-size: 14px;
-  color: var(--morandi-text-muted);
-  letter-spacing: 0.06em;
+  color: var(--geek-text-muted);
+  letter-spacing: 0.04em;
   margin: 0;
 }
 
 /* 登录表单卡片 */
 .form-card {
   width: 100%;
-  padding: 36px 32px 28px;
+  padding: 32px 28px 24px;
   border-radius: var(--radius-lg);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
 }
 
 .form-title {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--morandi-text);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--geek-text);
   text-align: center;
-  margin: 0 0 28px;
-  letter-spacing: 0.02em;
+  margin: 0 0 24px;
+  letter-spacing: -0.01em;
 }
 
 /* 表单布局 */
@@ -252,37 +247,32 @@ const handleLogin = async () => {
 }
 
 .form-group {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .form-label {
   display: block;
   font-size: 12px;
-  font-weight: 500;
-  color: var(--morandi-text-secondary);
+  font-weight: 600;
+  color: var(--geek-text-secondary);
   margin-bottom: 6px;
   letter-spacing: 0.02em;
 }
 
-.form-group .morandi-input {
+.form-group .geek-input {
   width: 100%;
   height: 42px;
   padding: 0 14px;
   font-size: 14px;
   border-radius: var(--radius-md);
   box-sizing: border-box;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
-}
-
-.form-group .morandi-input:focus {
-  box-shadow: 0 0 0 2px rgba(140, 129, 120, 0.15);
 }
 
 /* 密码可见性切换 */
 .password-input-wrap {
   position: relative;
 }
-.password-input-wrap .morandi-input {
+.password-input-wrap .geek-input {
   width: 100%;
   padding-right: 40px;
 }
@@ -294,26 +284,26 @@ const handleLogin = async () => {
   border: none;
   background: transparent;
   cursor: pointer;
-  color: var(--morandi-text-muted);
+  color: var(--geek-text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 2px;
+  transition: color 0.15s ease;
 }
 .password-toggle:hover {
-  color: var(--morandi-text-secondary);
+  color: var(--geek-text);
 }
 
-/* 错误提示 */
+/* 错误提示：左侧色条 */
 .error-msg {
   margin: 4px 0 8px;
   padding: 10px 14px;
   font-size: 13px;
-  text-align: center;
   border-radius: var(--radius-sm);
-  background: rgba(211, 84, 84, 0.08);
-  color: var(--morandi-error);
-  border: 1px solid rgba(211, 84, 84, 0.15);
+  background: var(--geek-error-bg);
+  color: var(--geek-error);
+  border-left: 3px solid var(--geek-error);
   line-height: 1.5;
 }
 
@@ -324,26 +314,9 @@ const handleLogin = async () => {
   margin-top: 8px;
   font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.submit-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  transform: none !important;
-  box-shadow: none !important;
-}
-
-.submit-btn:not(:disabled):hover {
-  transform: translateY(-1px);
-  box-shadow: var(--morandi-shadow-md);
-}
-
-.submit-btn:not(:disabled):active {
-  transform: translateY(0);
 }
 
 .btn-loading {
@@ -356,7 +329,7 @@ const handleLogin = async () => {
   width: 16px;
   height: 16px;
   animation: spin 0.8s linear infinite;
-  color: var(--morandi-text-on-primary);
+  color: var(--geek-text-on-primary);
 }
 
 @keyframes spin {
@@ -371,18 +344,18 @@ const handleLogin = async () => {
 }
 
 .footer-hint {
-  color: var(--morandi-text-muted);
+  color: var(--geek-text-muted);
 }
 
 .footer-link {
-  color: var(--morandi-primary);
-  font-weight: 500;
+  color: var(--geek-accent);
+  font-weight: 600;
   margin-left: 4px;
-  transition: color 0.2s ease;
+  transition: color 0.15s ease;
 }
 
 .footer-link:hover {
-  color: var(--morandi-primary-hover);
+  color: var(--geek-accent-hover);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -390,7 +363,7 @@ const handleLogin = async () => {
 /* 体验账号提示卡片 */
 .info-tip {
   width: 100%;
-  padding: 16px 18px;
+  padding: 14px 16px;
   border-radius: var(--radius-md);
 }
 
@@ -404,9 +377,8 @@ const handleLogin = async () => {
   width: 18px;
   height: 18px;
   min-width: 18px;
-  color: var(--morandi-accent);
+  color: var(--geek-accent);
   margin-top: 1px;
-  opacity: 0.75;
 }
 
 .tip-content {
@@ -416,13 +388,13 @@ const handleLogin = async () => {
 .tip-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--morandi-text-secondary);
+  color: var(--geek-text-secondary);
   margin: 0 0 3px;
 }
 
 .tip-desc {
   font-size: 12px;
-  color: var(--morandi-text-muted);
+  color: var(--geek-text-muted);
   line-height: 1.6;
   margin: 0;
 }

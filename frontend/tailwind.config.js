@@ -1,11 +1,57 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{vue,js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        // 纯白极客调色板：全部映射到 CSS 变量，随亮/暗主题切换
+        geek: {
+          base: 'var(--geek-bg-base)',
+          subtle: 'var(--geek-bg-subtle)',
+          'bg-subtle': 'var(--geek-bg-subtle)',
+          warm: 'var(--geek-bg-warm)',
+          cool: 'var(--geek-bg-cool)',
+          surface: 'var(--geek-surface)',
+          'surface-raised': 'var(--geek-surface-raised)',
+          'input-bg': 'var(--geek-input-bg)',
+          overlay: 'var(--geek-overlay)',
+          border: 'var(--geek-border)',
+          'border-strong': 'var(--geek-border-strong)',
+          divider: 'var(--geek-divider)',
+          primary: 'var(--geek-primary)',
+          'primary-light': 'var(--geek-primary-light)',
+          accent: 'var(--geek-accent)',
+          'accent-light': 'var(--geek-accent-light)',
+          success: 'var(--geek-success)',
+          'success-bg': 'var(--geek-success-bg)',
+          error: 'var(--geek-error)',
+          'error-bg': 'var(--geek-error-bg)',
+          warning: 'var(--geek-warning)',
+          'warning-bg': 'var(--geek-warning-bg)',
+          info: 'var(--geek-info)',
+          'info-bg': 'var(--geek-info-bg)',
+          text: 'var(--geek-text)',
+          'text-secondary': 'var(--geek-text-secondary)',
+          'text-muted': 'var(--geek-text-muted)',
+          'text-faint': 'var(--geek-text-faint)',
+          secondary: 'var(--geek-text-secondary)',
+          muted: 'var(--geek-text-muted)',
+          faint: 'var(--geek-text-faint)',
+          'tag-blue': 'var(--geek-tag-blue)',
+          'tag-purple': 'var(--geek-tag-purple)',
+          'tag-gold': 'var(--geek-tag-gold)',
+        },
+      },
+      fontFamily: {
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Consolas', 'Courier New', 'monospace'],
+        display: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
+      },
+    },
   },
   plugins: [],
 }
