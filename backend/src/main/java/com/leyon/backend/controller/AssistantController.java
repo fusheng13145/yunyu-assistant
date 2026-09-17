@@ -9,6 +9,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 助手相关接口
@@ -44,6 +45,32 @@ public class AssistantController {
     public ApiResponse<List<Assistant>> list(HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");
         return ApiResponse.success(assistantService.listByUserId(userId));
+    }
+
+    /**
+     * 分页查询当前用户名下助手（支持关键词模糊搜索名称/描述）
+     * 返回结构：{ list, total, page, pageSize }
+     */
+    @GetMapping("/page")
+    public ApiResponse<Map<String, Object>> page(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "pageSize", defaultValue = "10") int pageSize,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            HttpServletRequest request) {
+        String userId = (String) request.getAttribute("userId");
+        int safePage = Math.max(page, 1);
+        int safeSize = Math.min(Math.max(pageSize, 1), 50);
+        long offset = (long) (safePage - 1) * safeSize;
+
+        List<Assistant> list = assistantService.pageByUser(userId, keyword, offset, safeSize);
+        long total = assistantService.countByUser(userId, keyword);
+
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("list", list);
+        result.put("total", total);
+        result.put("page", safePage);
+        result.put("pageSize", safeSize);
+        return ApiResponse.success(result);
     }
 
     /**

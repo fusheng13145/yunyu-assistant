@@ -50,6 +50,52 @@ public class AssistantService {
     }
 
     /**
+     * 分页查询所属助手（按创建时间倒序），支持关键词模糊匹配名称/描述
+     *
+     * @param userId   用户ID
+     * @param keyword  关键词（可为空，空则查询全部）
+     * @param offset   偏移量
+     * @param limit    每页条数
+     * @return 当前页助手列表
+     */
+    public List<Assistant> pageByUser(String userId, String keyword, long offset, int limit) {
+        if (!StringUtils.hasText(userId)) {
+            return List.of();
+        }
+        LambdaQueryWrapper<Assistant> queryWrapper = new LambdaQueryWrapper<Assistant>()
+                .eq(Assistant::getUserId, userId)
+                .orderByDesc(Assistant::getCreatedAt);
+        if (StringUtils.hasText(keyword)) {
+            String kw = keyword.trim();
+            queryWrapper.and(w -> w.like(Assistant::getName, kw)
+                    .or().like(Assistant::getDescription, kw));
+        }
+        queryWrapper.last("LIMIT " + limit + " OFFSET " + offset);
+        return assistantMapper.selectList(queryWrapper);
+    }
+
+    /**
+     * 统计所属助手数量（支持关键词过滤），用于分页总数
+     *
+     * @param userId  用户ID
+     * @param keyword 关键词（可为空）
+     * @return 助手总数
+     */
+    public long countByUser(String userId, String keyword) {
+        if (!StringUtils.hasText(userId)) {
+            return 0L;
+        }
+        LambdaQueryWrapper<Assistant> queryWrapper = new LambdaQueryWrapper<Assistant>()
+                .eq(Assistant::getUserId, userId);
+        if (StringUtils.hasText(keyword)) {
+            String kw = keyword.trim();
+            queryWrapper.and(w -> w.like(Assistant::getName, kw)
+                    .or().like(Assistant::getDescription, kw));
+        }
+        return assistantMapper.selectCount(queryWrapper);
+    }
+
+    /**
      * 根据主键ID查询单条助手
      * @param id 助手ID
      * @return 助手实体，不存在返回 null

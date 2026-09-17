@@ -49,10 +49,21 @@
 
       <!-- 助手列表 -->
       <div class="flex-1 min-h-0 overflow-y-auto geek-scroll transparent-scrollbar px-3 pb-4">
+        <!-- 搜索助手 -->
+        <div class="pt-3 pb-2">
+          <input
+            v-model="searchKeyword"
+            type="text"
+            placeholder="搜索助手"
+            class="geek-input w-full px-3 py-1.5 rounded-md text-sm"
+            @keyup.enter="onSearchAssistant"
+          />
+        </div>
+
         <div v-if="assistants.length === 0" class="empty-state text-center py-12 px-4">
           <Bot class="w-10 h-10 mx-auto mb-3 text-geek-text-faint" />
-          <p class="text-sm text-geek-text-muted">暂无助手</p>
-          <p class="text-xs mt-1 text-geek-text-faint">点击上方按钮创建</p>
+          <p class="text-sm text-geek-text-muted">{{ searchKeyword ? '未找到匹配的助手' : '暂无助手' }}</p>
+          <p class="text-xs mt-1 text-geek-text-faint">{{ searchKeyword ? '请尝试更换关键词' : '点击上方按钮创建' }}</p>
         </div>
 
         <div
@@ -97,6 +108,27 @@
               <Trash2 class="w-3.5 h-3.5" />
             </button>
           </div>
+        </div>
+
+        <!-- 分页控件 -->
+        <div v-if="assistantTotal > ASSISTANT_PAGE_SIZE" class="flex items-center justify-between px-1 pt-3">
+          <button
+            @click="prevAssistantPage"
+            :disabled="assistantPage <= 1"
+            class="geek-btn geek-btn-ghost geek-btn-sm"
+            :class="{ 'opacity-40 cursor-not-allowed': assistantPage <= 1 }"
+          >
+            上一页
+          </button>
+          <span class="text-xs text-geek-text-muted">{{ assistantPage }} / {{ assistantTotalPages }}</span>
+          <button
+            @click="nextAssistantPage"
+            :disabled="assistantPage >= assistantTotalPages"
+            class="geek-btn geek-btn-ghost geek-btn-sm"
+            :class="{ 'opacity-40 cursor-not-allowed': assistantPage >= assistantTotalPages }"
+          >
+            下一页
+          </button>
         </div>
       </div>
 
@@ -1014,7 +1046,7 @@ import { useQuickCommands } from '../composables/useQuickCommands'
 import { exportChatToMarkdown, exportChatToJson } from '../utils/exportChat'
 import { useWebSocket } from '../utils/websocket'
 import { useWebRTC } from '../composables/useWebRTC'
-import { fetchAssistants, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels } from '../api/assistant'
+import { fetchAssistantsPage, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels } from '../api/assistant'
 import { logout } from '../api/auth'
 import { RagflowApi } from '../api/ragflow'
 import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, VoiceInfo, ModelInfo } from '../types'
@@ -1027,6 +1059,13 @@ const router = useRouter()
 const assistants = ref<Assistant[]>([])
 const selectedAssistant = ref<Assistant | null>(null)
 const pageLoading = ref(true)
+
+// 助手列表分页与搜索
+const searchKeyword = ref('')
+const assistantPage = ref(1)
+const ASSISTANT_PAGE_SIZE = 10
+const assistantTotal = ref(0)
+const assistantTotalPages = computed(() => Math.max(1, Math.ceil(assistantTotal.value / ASSISTANT_PAGE_SIZE)))
 
 // 用户信息
 const userName = typeof localStorage !== 'undefined'
@@ -1194,13 +1233,40 @@ const getAssistantType = (bot: Assistant): string => {
 
 const getConversationCount = (_id: string): number => 0
 
-// 加载助手列表
+// 加载助手列表（分页 + 关键词搜索）
 const loadAssistants = async () => {
   try {
-    assistants.value = await fetchAssistants()
+    const result = await fetchAssistantsPage(assistantPage.value, ASSISTANT_PAGE_SIZE, searchKeyword.value)
+    assistants.value = result.list
+    assistantTotal.value = result.total
+    // 当前页超出总页数时回退到最后一页
+    if (assistants.value.length === 0 && assistantPage.value > 1) {
+      assistantPage.value = Math.max(1, assistantTotalPages.value)
+      await loadAssistants()
+    }
   } catch (error) {
     console.error('获取助手列表失败:', error)
   }
+}
+
+/** 搜索触发：回到第一页并重新加载 */
+const onSearchAssistant = () => {
+  assistantPage.value = 1
+  loadAssistants()
+}
+
+/** 上一页 */
+const prevAssistantPage = () => {
+  if (assistantPage.value <= 1) return
+  assistantPage.value -= 1
+  loadAssistants()
+}
+
+/** 下一页 */
+const nextAssistantPage = () => {
+  if (assistantPage.value >= assistantTotalPages.value) return
+  assistantPage.value += 1
+  loadAssistants()
 }
 
 // 加载音色字典
@@ -1270,6 +1336,9 @@ const addAssistant = async () => {
       ...formData.value,
       modelName: formData.value.modelName || undefined,
     })
+    // 新助手排在列表最前，跳回第一页刷新
+    assistantPage.value = 1
+    searchKeyword.value = ''
     await loadAssistants()
     closeModal()
   } catch (error) {

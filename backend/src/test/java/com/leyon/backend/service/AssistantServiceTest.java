@@ -107,4 +107,37 @@ class AssistantServiceTest {
         assertThat(assistantService.listByIds(null)).isEmpty();
         assertThat(assistantService.listByIds(List.of())).isEmpty();
     }
+
+    @Test
+    void pageByUser_emptyIdReturnsEmpty() {
+        assertThat(assistantService.pageByUser("", null, 0, 10)).isEmpty();
+        assertThat(assistantService.pageByUser(null, "kw", 0, 10)).isEmpty();
+    }
+
+    @Test
+    void pageByUser_offsetsAndFiltersByOwner() {
+        when(assistantMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        assertThat(assistantService.pageByUser("u1", null, 10, 5)).isEmpty();
+        verify(assistantMapper).selectList(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void pageByUser_keywordPassedIntoWrapper() {
+        when(assistantMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        assertThat(assistantService.pageByUser("u1", " 编程 ", 0, 10)).isEmpty();
+        verify(assistantMapper).selectList(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void countByUser_delegatesWithUserFilter() {
+        when(assistantMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(3L);
+        assertThat(assistantService.countByUser("u1", null)).isEqualTo(3L);
+        verify(assistantMapper).selectCount(any(LambdaQueryWrapper.class));
+    }
+
+    @Test
+    void countByUser_emptyIdReturnsZero() {
+        assertThat(assistantService.countByUser("", "kw")).isZero();
+        assertThat(assistantService.countByUser(null, null)).isZero();
+    }
 }

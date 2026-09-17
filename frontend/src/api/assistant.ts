@@ -28,6 +28,25 @@ export async function fetchAssistants(): Promise<Assistant[]> {
   return parseResponse<Assistant[]>(response)
 }
 
+/** 分页查询助手列表（支持关键词搜索名称/描述） */
+export interface AssistantPage {
+  list: Assistant[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export async function fetchAssistantsPage(page: number, pageSize: number, keyword?: string): Promise<AssistantPage> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+  if (keyword && keyword.trim()) {
+    params.set('keyword', keyword.trim())
+  }
+  const response = await fetch(`${API_BASE}/assistants/page?${params.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  return parseResponse<AssistantPage>(response)
+}
+
 export async function fetchAssistant(id: string): Promise<Assistant> {
   const response = await fetch(`${API_BASE}/assistants/${id}`, {
     headers: getAuthHeaders(),
