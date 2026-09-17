@@ -75,12 +75,12 @@ public class AuthController {
         User user = userService.register(username, password);
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
         String refreshToken = jwtUtil.generateRefreshToken(user.getId(), user.getUsername());
-        Map<String, String> result = Map.of(
-                "token", token,
-                "refreshToken", refreshToken,
-                "userId", user.getId(),
-                "username", user.getUsername()
-        );
+        Map<String, String> result = new java.util.HashMap<>();
+        result.put("token", token);
+        result.put("refreshToken", refreshToken);
+        result.put("userId", user.getId());
+        result.put("username", user.getUsername());
+        result.put("role", user.getRole() == null ? User.ROLE_USER : user.getRole());
         return ApiResponse.success(result);
     }
 

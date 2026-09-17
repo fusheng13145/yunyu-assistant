@@ -22,6 +22,11 @@ public class User {
     /** 逻辑删除 - 已删除 */
     public static final int DELETED = 1;
 
+    /** 角色 - 普通用户 */
+    public static final String ROLE_USER = "user";
+    /** 角色 - 管理员 */
+    public static final String ROLE_ADMIN = "admin";
+
     /**
      * 主键ID（UUID）
      */
@@ -57,6 +62,11 @@ public class User {
      * 手机号码
      */
     private String phone;
+
+    /**
+     * 角色（user / admin），默认 user
+     */
+    private String role;
 
     /**
      * 创建时间，插入自动填充
@@ -149,6 +159,14 @@ public class User {
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
     }
 
     public LocalDateTime getCreatedAt() {

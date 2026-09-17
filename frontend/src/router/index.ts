@@ -36,6 +36,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/admin',
+      name: 'Admin',
+      component: () => import('../views/Admin.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'NotFound',
       component: () => import('../views/NotFound.vue'),
@@ -45,9 +51,13 @@ const router = createRouter({
 
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('token')
+  const role = localStorage.getItem('role') || 'user'
 
   if (to.meta.requiresAuth && !token) {
     next({ name: 'Login' })
+  } else if (to.meta.requiresAdmin && role !== 'admin') {
+    // 非管理员访问管理后台 → 回到助手主页
+    next({ name: 'SmartRobot' })
   } else if ((to.name === 'Login' || to.name === 'Register') && token) {
     next({ name: 'SmartRobot' })
   } else {

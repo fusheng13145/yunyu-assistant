@@ -8,6 +8,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import com.leyon.backend.interceptor.AdminAuthInterceptor;
 import com.leyon.backend.interceptor.AuthInterceptor;
 import com.leyon.backend.interceptor.RateLimitInterceptor;
 
@@ -28,16 +29,23 @@ public class AppConfig implements WebMvcConfigurer {
      * 速率限制拦截器（防暴力破解）
      */
     private final RateLimitInterceptor rateLimitInterceptor;
+    /**
+     * 管理员接口鉴权拦截器
+     */
+    private final AdminAuthInterceptor adminAuthInterceptor;
 
     /**
      * 构造器注入拦截器
      *
-     * @param authInterceptor      自定义认证拦截器
-     * @param rateLimitInterceptor 速率限制拦截器
+     * @param authInterceptor       自定义认证拦截器
+     * @param rateLimitInterceptor  速率限制拦截器
+     * @param adminAuthInterceptor  管理员鉴权拦截器
      */
-    public AppConfig(AuthInterceptor authInterceptor, RateLimitInterceptor rateLimitInterceptor) {
+    public AppConfig(AuthInterceptor authInterceptor, RateLimitInterceptor rateLimitInterceptor,
+                     AdminAuthInterceptor adminAuthInterceptor) {
         this.authInterceptor = authInterceptor;
         this.rateLimitInterceptor = rateLimitInterceptor;
+        this.adminAuthInterceptor = adminAuthInterceptor;
     }
 
     /**
@@ -60,6 +68,10 @@ public class AppConfig implements WebMvcConfigurer {
         // 速率限制拦截器（仅限制登录和注册接口）
         registry.addInterceptor(rateLimitInterceptor)
                 .addPathPatterns("/api/auth/login", "/api/auth/register");
+
+        // 管理员接口鉴权拦截器（依赖 AuthInterceptor 解析的 userId，须在其之后）
+        registry.addInterceptor(adminAuthInterceptor)
+                .addPathPatterns("/api/admin/**");
     }
 
     /**

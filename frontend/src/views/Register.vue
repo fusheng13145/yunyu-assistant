@@ -188,11 +188,12 @@ const handleRegister = async () => {
       username: form.value.username.trim(),
       password: form.value.password,
     })
-    // 存储登录信息（含刷新令牌，用于令牌续期）
+    // 存储登录信息（含刷新令牌与角色）
     localStorage.setItem('token', res.token)
     localStorage.setItem('refreshToken', res.refreshToken)
     localStorage.setItem('userId', res.userId)
     localStorage.setItem('username', res.username)
+    localStorage.setItem('role', res.role || 'user')
     // 注册成功跳转首页
     router.push('/smartrobot')
   } catch (err) {

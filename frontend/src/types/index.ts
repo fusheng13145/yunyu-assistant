@@ -160,6 +160,7 @@ export interface AuthResponse {
   refreshToken: string
   userId: string
   username: string
+  role?: string
 }
 
 export interface User {
@@ -169,6 +170,7 @@ export interface User {
   avatar: string
   email: string
   phone: string
+  role?: string
   createdAt: string
   updatedAt: string
 }

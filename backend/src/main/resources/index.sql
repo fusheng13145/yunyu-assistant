@@ -17,6 +17,7 @@ CREATE TABLE `users` (
     `avatar` VARCHAR(255) DEFAULT NULL COMMENT '头像URL',
     `email` VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
     `phone` VARCHAR(20) DEFAULT NULL COMMENT '手机号',
+    `role` VARCHAR(20) NOT NULL DEFAULT 'user' COMMENT '角色 user:普通用户 admin:管理员',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
@@ -151,11 +152,12 @@ CREATE TABLE `audit_logs` (
 -- ----------------------------
 -- 插入用户数据
 -- ----------------------------
-INSERT INTO `users` (`id`, `username`, `nickname`, `password`, `avatar`, `email`, `phone`)
+INSERT INTO `users` (`id`, `username`, `nickname`, `password`, `avatar`, `email`, `phone`, `role`)
 VALUES
-('user_001', 'zhangsan', '张三', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOsWWIrbu2gXT9OmdE6OmgNFj/bq', 'https://avatar.test.com/001.png', 'zhangsan@test.com', '13800138000'),
-('user_002', 'lisi', '李四', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOsWWIrbu2gXT9OmdE6OmgNFj/bq', 'https://avatar.test.com/002.png', 'lisi@test.com', '13800138001'),
-('user_003', 'wangwu', '王五', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOsWWIrbu2gXT9OmdE6OmgNFj/bq', NULL, 'wangwu@test.com', NULL);
+('user_001', 'zhangsan', '张三', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOsWWIrbu2gXT9OmdE6OmgNFj/bq', 'https://avatar.test.com/001.png', 'zhangsan@test.com', '13800138000', 'user'),
+('user_002', 'lisi', '李四', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOsWWIrbu2gXT9OmdE6OmgNFj/bq', 'https://avatar.test.com/002.png', 'lisi@test.com', '13800138001', 'user'),
+('user_003', 'wangwu', '王五', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOsWWIrbu2gXT9OmdE6OmgNFj/bq', NULL, 'wangwu@test.com', NULL, 'user'),
+('user_admin', 'admin', '管理员', '$2a$10$LCqDIIEwadZOzoHvV5N2cuKcmuH6QSA0ug3obZRFn8iDGPpXstN.S', NULL, 'admin@test.com', NULL, 'admin');
 
 -- ----------------------------
 -- 插入助手数据

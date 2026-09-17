@@ -58,6 +58,8 @@ public class UserService {
         user.setUsername(username);
         // 密码加密存储
         user.setPassword(passwordEncoder.encode(password));
+        // 新注册用户默认为普通用户
+        user.setRole(User.ROLE_USER);
         userMapper.insert(user);
 
         // 响应脱敏，清空密码
@@ -107,6 +109,7 @@ public class UserService {
         result.put("refreshToken", refreshToken);
         result.put("userId", user.getId());
         result.put("username", user.getUsername());
+        result.put("role", user.getRole() == null ? User.ROLE_USER : user.getRole());
 
         if (StringUtils.hasText(user.getNickname())) {
             result.put("nickname", user.getNickname());

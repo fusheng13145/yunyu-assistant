@@ -143,11 +143,12 @@ const handleLogin = async () => {
       username: form.value.username.trim(),
       password: form.value.password,
     })
-    // 本地存储登录信息（含刷新令牌，用于令牌续期）
+    // 本地存储登录信息（含刷新令牌与角色，用于令牌续期与权限控制）
     localStorage.setItem('token', res.token)
     localStorage.setItem('refreshToken', res.refreshToken)
     localStorage.setItem('userId', res.userId)
     localStorage.setItem('username', res.username)
+    localStorage.setItem('role', res.role || 'user')
     // 跳转至助手主页
     router.push('/smartrobot')
   } catch (err) {

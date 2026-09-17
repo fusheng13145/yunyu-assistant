@@ -45,6 +45,14 @@
           <History class="w-4 h-4" />
           <span>通话记录</span>
         </button>
+        <button
+          v-if="userRole === 'admin'"
+          @click="router.push('/admin')"
+          class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
+        >
+          <Shield class="w-4 h-4" />
+          <span>管理后台</span>
+        </button>
       </div>
 
       <!-- 助手列表 -->
@@ -1034,7 +1042,7 @@ import {
   Bot, LogOut, Settings, RotateCcw, MessageCircle,
   Database, FolderOpen, Check, X, Plus, List, LayoutGrid,
   Trash2, ChevronLeft, Upload, FileText, Mic, PhoneOff,
-  Search, Download, Zap, History
+  Search, Download, Zap, History, Shield
 } from 'lucide-vue-next'
 import ChatMessages from '../components/ChatMessages.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
@@ -1072,6 +1080,9 @@ const userName = typeof localStorage !== 'undefined'
   ? (localStorage.getItem('username') || '用户')
   : '用户'
 const userInitial = userName.charAt(0).toUpperCase()
+const userRole = typeof localStorage !== 'undefined'
+  ? (localStorage.getItem('role') || 'user')
+  : 'user'
 
 // 弹窗状态
 const showModal = ref(false)
