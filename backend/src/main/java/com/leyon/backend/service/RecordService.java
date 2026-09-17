@@ -34,6 +34,28 @@ public class RecordService {
     }
 
     /**
+     * 根据会话ID分页加载聊天记录，只返回最近 N 条记录，避免全量加载导致内存溢出
+     * 按创建时间倒序取 limit 条后再正序排列，保证返回的是最近的连续对话
+     *
+     * @param sessionId 会话ID
+     * @param limit     最大加载数量
+     * @return 聊天记录列表（按创建时间正序）
+     */
+    public List<Record> listBySessionIdLimit(String sessionId, int limit) {
+        if (!StringUtils.hasText(sessionId)) {
+            return List.of();
+        }
+        int actualLimit = Math.max(limit, 1);
+        LambdaQueryWrapper<Record> queryWrapper = new LambdaQueryWrapper<Record>()
+                .eq(Record::getSessionId, sessionId)
+                .orderByDesc(Record::getCreatedAt)
+                .last("LIMIT " + actualLimit);
+        List<Record> records = recordMapper.selectList(queryWrapper);
+        Collections.reverse(records);
+        return records;
+    }
+
+    /**
      * 根据助手ID查询聊天记录，按创建时间正序
      * @param assistantId 助手ID
      * @return 聊天记录列表

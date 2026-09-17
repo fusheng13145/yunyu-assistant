@@ -69,6 +69,8 @@ app:
   jwt:
     secret: ${JWT_SECRET}
     expiration: ${JWT_EXPIRATION:86400000}
+    # 刷新令牌有效期（毫秒），默认 7 天
+    refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
   # RAG 知识库服务（未配置时允许启动，检索功能降级）
   ragflow:
     api-key: ${RAGFLOW_API_KEY:}

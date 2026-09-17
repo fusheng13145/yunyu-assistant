@@ -26,6 +26,17 @@ export interface Assistant {
   updatedAt: string
 }
 
+/** 文本对话会话（会话维度持久化容器） */
+export interface ChatSession {
+  id: string
+  userId: string
+  assistantId: string
+  title: string
+  isPinned: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface WebSocketMessage {
   type: string
   data?: unknown
@@ -146,6 +157,7 @@ export interface RegisterData {
 
 export interface AuthResponse {
   token: string
+  refreshToken: string
   userId: string
   username: string
 }

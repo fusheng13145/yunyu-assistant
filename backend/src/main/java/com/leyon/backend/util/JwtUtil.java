@@ -1,5 +1,6 @@
 package com.leyon.backend.util;
 
+import com.leyon.backend.service.TokenBlacklistService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.UUID;
 
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -16,12 +18,25 @@ import org.slf4j.LoggerFactory;
 
 /**
  * JWT 工具类
- * 负责令牌生成、解析、校验
+ * 负责令牌生成、解析、校验，支持访问令牌与刷新令牌双令牌体系
+ * 登出令牌经 jti 黑名单失效（TokenBlacklistService）
  *
  * @author leyon
  */
 @Component
 public class JwtUtil {
+
+    /** 访问令牌类型标识 */
+    public static final String TOKEN_TYPE_ACCESS = "access";
+    /** 刷新令牌类型标识 */
+    public static final String TOKEN_TYPE_REFRESH = "refresh";
+
+    /** 令牌类型 claim 名称 */
+    private static final String CLAIM_TOKEN_TYPE = "type";
+    /** 用户名 claim 名称 */
+    private static final String CLAIM_USERNAME = "username";
+    /** jti claim 名称（JWK 标准字段） */
+    private static final String CLAIM_JTI = "jti";
 
     /**
      * JWT 加密密钥
@@ -30,14 +45,26 @@ public class JwtUtil {
     private String secret;
 
     /**
-     * JWT 过期时长(毫秒)
+     * JWT 过期时长(毫秒) - 访问令牌
      */
     @Value("${app.jwt.expiration}")
     private long expiration;
 
+    /**
+     * 刷新令牌过期时长(毫秒) - 默认 7 天
+     */
+    @Value("${app.jwt.refresh-expiration:604800000}")
+    private long refreshExpiration;
+
+    private final TokenBlacklistService tokenBlacklistService;
+
     private static final Logger logger = LoggerFactory.getLogger(JwtUtil.class);
     /** HMAC-SHA 密钥最小长度（字节） */
     private static final int MIN_SECRET_LENGTH = 32;
+
+    public JwtUtil(TokenBlacklistService tokenBlacklistService) {
+        this.tokenBlacklistService = tokenBlacklistService;
+    }
 
     /**
      * 启动时校验 JWT Secret 强度，防止使用弱密钥
@@ -73,19 +100,45 @@ public class JwtUtil {
     }
 
     /**
-     * 生成 JWT 令牌
+     * 生成访问令牌（携带 jti 与 type=access）
      *
      * @param userId   用户ID
      * @param username 用户名
      * @return JWT 字符串
      */
     public String generateToken(String userId, String username) {
+        return generateToken(userId, username, TOKEN_TYPE_ACCESS, expiration);
+    }
+
+    /**
+     * 生成刷新令牌（携带 jti 与 type=refresh，有效期独立配置）
+     *
+     * @param userId   用户ID
+     * @param username 用户名
+     * @return JWT 字符串
+     */
+    public String generateRefreshToken(String userId, String username) {
+        return generateToken(userId, username, TOKEN_TYPE_REFRESH, refreshExpiration);
+    }
+
+    /**
+     * 生成指定类型与有效期的令牌
+     *
+     * @param userId   用户ID
+     * @param username 用户名
+     * @param type     令牌类型（access / refresh）
+     * @param ttlMs    有效期（毫秒）
+     * @return JWT 字符串
+     */
+    private String generateToken(String userId, String username, String type, long ttlMs) {
         Date now = new Date();
-        Date expireDate = new Date(now.getTime() + expiration);
+        Date expireDate = new Date(now.getTime() + ttlMs);
 
         return Jwts.builder()
                 .subject(userId)
-                .claim("username", username)
+                .claim(CLAIM_USERNAME, username)
+                .claim(CLAIM_TOKEN_TYPE, type)
+                .id(UUID.randomUUID().toString())
                 .issuedAt(now)
                 .expiration(expireDate)
                 .signWith(getSigningKey())
@@ -125,19 +178,54 @@ public class JwtUtil {
      */
     public String getUsernameFromToken(String token) {
         Claims claims = getClaimsByToken(token);
-        return claims.get("username", String.class);
+        return claims.get(CLAIM_USERNAME, String.class);
+    }
+
+    /**
+     * 从令牌中获取 jti（令牌唯一标识，用于登出黑名单）
+     *
+     * @param token JWT令牌
+     * @return jti，异常时返回 null
+     */
+    public String getJtiFromToken(String token) {
+        try {
+            Claims claims = getClaimsByToken(token);
+            return claims.getId();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 判断令牌类型（access / refresh）
+     *
+     * @param token JWT令牌
+     * @param type  期望类型
+     * @return true-类型匹配
+     */
+    public boolean isTokenType(String token, String type) {
+        try {
+            Claims claims = getClaimsByToken(token);
+            return type.equals(claims.get(CLAIM_TOKEN_TYPE, String.class));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
      * 校验令牌有效性
-     * 捕获格式错误、签名错误、过期等异常
+     * 捕获格式错误、签名错误、过期、黑名单命中等异常
      *
      * @param token JWT令牌
      * @return true-有效 false-无效
      */
     public boolean validateToken(String token) {
         try {
-            getClaimsByToken(token);
+            Claims claims = getClaimsByToken(token);
+            // 登出黑名单校验：jti 命中即视为无效
+            if (tokenBlacklistService.isBlacklisted(claims.getId())) {
+                return false;
+            }
             return true;
         } catch (Exception e) {
             return false;

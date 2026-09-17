@@ -45,6 +45,11 @@ public class Record {
     private String assistantId;
 
     /**
+     * 关联会话ID（文本会话维度，语音消息可为空）
+     */
+    private String sessionId;
+
+    /**
      * 关联通话记录ID（语音消息时）
      */
     private String callId;
@@ -127,6 +132,14 @@ public class Record {
 
     public void setAssistantId(String assistantId) {
         this.assistantId = assistantId;
+    }
+
+    public String getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
     }
 
     public String getCallId() {

@@ -1015,6 +1015,7 @@ import { exportChatToMarkdown, exportChatToJson } from '../utils/exportChat'
 import { useWebSocket } from '../utils/websocket'
 import { useWebRTC } from '../composables/useWebRTC'
 import { fetchAssistants, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels } from '../api/assistant'
+import { logout } from '../api/auth'
 import { RagflowApi } from '../api/ragflow'
 import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, VoiceInfo, ModelInfo } from '../types'
 
@@ -1083,9 +1084,11 @@ const sendQuickCommand = (cmd: { label: string; text: string }) => {
 const handleExport = () => {
   const isMarkdown = confirm('导出为 Markdown 格式？\n\n取消则导出为 JSON 格式')
   const name = selectedAssistant.value?.name || '对话'
-  isMarkdown
-    ? exportChatToMarkdown(messages.value, name)
-    : exportChatToJson(messages.value, name)
+  if (isMarkdown) {
+    exportChatToMarkdown(messages.value, name)
+  } else {
+    exportChatToJson(messages.value, name)
+  }
 }
 
 // 语音通话
@@ -1408,7 +1411,7 @@ const startVoiceCall = async () => {
         showNotification('语音连接失败', 'error')
       },
     })
-  } catch (error) {
+  } catch {
     showNotification('启动语音通话失败，请检查麦克风权限', 'error')
     webrtc.hangup()
   }
@@ -1531,7 +1534,13 @@ const handleLogout = () => {
   ws?.close()
   voiceWs?.close()
   webrtc.hangup()
+  // 通知服务端将当前令牌加入黑名单（登出失效）
+  const refreshToken = localStorage.getItem('refreshToken') || undefined
+  logout(refreshToken).catch(() => {
+    // 网络异常不阻塞本地登出
+  })
   localStorage.removeItem('token')
+  localStorage.removeItem('refreshToken')
   localStorage.removeItem('userId')
   localStorage.removeItem('username')
   router.push('/login')
@@ -1627,9 +1636,11 @@ const closeKnowledgeModal = () => {
 // 选择知识库
 const selectKnowledgeBase = (kb: KnowledgeBase) => {
   const idx = selectedKnowledgeBases.value.findIndex(s => s.id === kb.id)
-  idx > -1
-    ? selectedKnowledgeBases.value.splice(idx, 1)
-    : selectedKnowledgeBases.value.push(kb)
+  if (idx > -1) {
+    selectedKnowledgeBases.value.splice(idx, 1)
+  } else {
+    selectedKnowledgeBases.value.push(kb)
+  }
 }
 
 // 打开文件管理

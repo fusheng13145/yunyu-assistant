@@ -65,12 +65,31 @@ CREATE TABLE `knowledgebases` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库表';
 
 -- ----------------------------
+-- 会话表: sessions（会话维度持久化，替代按助手拉历史的临时方案）
+-- --------------------------
+DROP TABLE IF EXISTS `sessions`;
+CREATE TABLE `sessions` (
+    `id` VARCHAR(36) NOT NULL COMMENT '会话UUID',
+    `user_id` VARCHAR(36) NOT NULL COMMENT '归属用户ID',
+    `assistant_id` VARCHAR(36) NOT NULL COMMENT '关联助手ID',
+    `title` VARCHAR(100) NOT NULL DEFAULT '新对话' COMMENT '会话标题',
+    `is_pinned` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否置顶 0:否 1:是',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_session_user_assistant` (`user_id`, `assistant_id`),
+    KEY `idx_session_user_updated` (`user_id`, `updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会话表';
+
+-- ----------------------------
 -- 聊天记录表: records
 -- --------------------------
 DROP TABLE IF EXISTS `records`;
 CREATE TABLE `records` (
     `id` VARCHAR(36) NOT NULL COMMENT '聊天记录UUID',
     `assistant_id` VARCHAR(36) NOT NULL COMMENT '所属助手ID',
+    `session_id` VARCHAR(36) DEFAULT NULL COMMENT '关联会话ID（文本会话维度）',
     `call_id` VARCHAR(36) DEFAULT NULL COMMENT '关联通话记录ID（语音消息时）',
     `role` TINYINT(1) NOT NULL COMMENT '角色 0:user, 1:assistant, 2:tool_call, 3:tool_result',
     `message` TEXT NOT NULL COMMENT '消息内容',
@@ -83,6 +102,7 @@ CREATE TABLE `records` (
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
     PRIMARY KEY (`id`),
     KEY `idx_cm_assistant_id` (`assistant_id`),
+    KEY `idx_cm_session_id` (`session_id`),
     KEY `idx_cm_created_at` (`created_at`),
     KEY `idx_cm_assistant_created` (`assistant_id`, `created_at`),
     KEY `idx_cm_call_id` (`call_id`)

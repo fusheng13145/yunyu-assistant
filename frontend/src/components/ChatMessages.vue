@@ -15,7 +15,8 @@
       <div v-if="msg.role === 'tool_call'" class="flex items-start">
         <div
           class="w-9 h-9 rounded-lg flex items-center justify-center mr-3 shrink-0"
-          style="background: var(--geek-warning-bg)">
+          style="background: var(--geek-warning-bg)"
+        >
           <Wrench class="w-4.5 h-4.5" style="color: var(--geek-warning)" />
         </div>
         <div class="geek-card rounded-lg px-4 py-3 max-w-[72%] border-l-2" style="border-left-color: var(--geek-warning)">
@@ -25,8 +26,10 @@
             <span class="text-xs px-1.5 py-0.5 rounded-sm mono" style="color: var(--geek-warning); background: var(--geek-warning-bg)">{{ msg.toolName || msg.text }}</span>
           </div>
           <div v-if="msg.isStreaming" class="flex items-center gap-1">
-            <div v-for="n in 3" :key="n" class="w-1 h-1 rounded-full animate-bounce"
-              :style="{ animationDelay: `${n * 0.15}s`, background: 'var(--geek-warning)' }"></div>
+            <div
+              v-for="n in 3" :key="n" class="w-1 h-1 rounded-full animate-bounce"
+              :style="{ animationDelay: `${n * 0.15}s`, background: 'var(--geek-warning)' }"
+            ></div>
           </div>
         </div>
       </div>
@@ -35,22 +38,27 @@
       <div v-else-if="msg.role === 'tool_result'" class="flex items-start">
         <div
           class="w-9 h-9 rounded-lg flex items-center justify-center mr-3 shrink-0"
-          style="background: var(--geek-success-bg)">
+          style="background: var(--geek-success-bg)"
+        >
           <CheckCircle class="w-4.5 h-4.5" style="color: var(--geek-success)" />
         </div>
         <div class="geek-card rounded-lg px-4 py-3 max-w-[72%] border-l-2" style="border-left-color: var(--geek-success)">
-          <button @click="toggleToolResult(i)"
+          <button
+            @click="toggleToolResult(i)"
             class="w-full flex items-center justify-between gap-2 transition-colors rounded-md px-1 -mt-0.5 -mx-1 py-1 hover:bg-geek-input-bg"
-            style="color: var(--geek-text-secondary)">
+            style="color: var(--geek-text-secondary)"
+          >
             <div class="flex items-center gap-2">
               <CheckCircle class="w-3.5 h-3.5" style="color: var(--geek-success)" />
               <span class="text-xs font-medium" style="color: var(--geek-text)">工具执行结果</span>
               <span v-if="msg.toolName" class="text-xs px-1.5 py-0.5 rounded-sm mono" style="color: var(--geek-text-secondary); background: var(--geek-input-bg)">{{ msg.toolName }}</span>
             </div>
-            <ChevronDown :class="[
-              'w-3.5 h-3.5 transition-transform duration-200',
-              expandedToolResults[i] ? 'rotate-180' : ''
-            ]" style="color: var(--geek-text-muted)" />
+            <ChevronDown
+              :class="[
+                'w-3.5 h-3.5 transition-transform duration-200',
+                expandedToolResults[i] ? 'rotate-180' : ''
+              ]" style="color: var(--geek-text-muted)"
+            />
           </button>
           <div v-if="expandedToolResults[i]" class="mt-2.5 overflow-hidden">
             <pre class="text-xs rounded-md p-3 overflow-x-auto whitespace-pre-wrap leading-relaxed geek-input border" style="border-color: var(--geek-border); color: var(--geek-text)">{{ formatJson(msg.toolResult || msg.text) }}</pre>
@@ -64,7 +72,8 @@
         <template v-if="msg.role === 'assistant'">
           <div
             class="w-9 h-9 rounded-lg flex items-center justify-center mr-3 shrink-0"
-            style="background: var(--geek-primary)">
+            style="background: var(--geek-primary)"
+          >
             <Bot class="w-4.5 h-4.5" style="color: var(--geek-text-on-primary)" />
           </div>
           <div class="geek-card rounded-lg px-5 py-3.5 max-w-[72%] break-words">
@@ -73,20 +82,26 @@
 
             <!-- 工具调用折叠区域 -->
             <div v-if="msg.toolCalls && msg.toolCalls.length > 0" class="mt-3 space-y-2">
-              <div v-for="(toolCall, ti) in msg.toolCalls" :key="ti"
+              <div
+                v-for="(toolCall, ti) in msg.toolCalls" :key="ti"
                 class="geek-card rounded-lg overflow-hidden border-l-2"
-                style="border-left-color: var(--geek-accent)">
-                <button @click="toggleToolCall(i, ti)"
-                  class="w-full flex items-center justify-between px-3.5 py-2.5 text-left transition-colors hover:bg-geek-input-bg">
+                style="border-left-color: var(--geek-accent)"
+              >
+                <button
+                  @click="toggleToolCall(i, ti)"
+                  class="w-full flex items-center justify-between px-3.5 py-2.5 text-left transition-colors hover:bg-geek-input-bg"
+                >
                   <div class="flex items-center gap-2">
                     <Wrench class="w-3.5 h-3.5" style="color: var(--geek-accent)" />
                     <span class="text-xs font-medium" style="color: var(--geek-text-secondary)">工具调用</span>
                     <span class="text-xs px-1.5 py-0.5 rounded" style="color: var(--geek-accent); background: var(--geek-input-bg)">{{ toolCall.name }}</span>
                   </div>
-                  <ChevronDown :class="[
-                    'w-3.5 h-3.5 transition-transform duration-200',
-                    expandedToolCalls[`${i}-${ti}`] ? 'rotate-180' : ''
-                  ]" style="color: var(--geek-text-muted)" />
+                  <ChevronDown
+                    :class="[
+                      'w-3.5 h-3.5 transition-transform duration-200',
+                      expandedToolCalls[`${i}-${ti}`] ? 'rotate-180' : ''
+                    ]" style="color: var(--geek-text-muted)"
+                  />
                 </button>
                 <div v-if="expandedToolCalls[`${i}-${ti}`]" class="px-3.5 pb-3 space-y-2 border-t" style="border-color: var(--geek-divider)">
                   <div>
@@ -102,15 +117,18 @@
             </div>
 
             <!-- 消息元信息 -->
-            <div v-if="!msg.isStreaming && (msg.costTime || (msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))) || (msg.tokenUsage && (msg.tokenUsage.promptTokens || msg.tokenUsage.completionTokens)))"
-              class="flex items-center gap-3 pt-2 mt-2 border-t flex-wrap" style="border-color: var(--geek-divider)">
+            <div
+              v-if="!msg.isStreaming && (msg.costTime || (msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))) || (msg.tokenUsage && (msg.tokenUsage.promptTokens || msg.tokenUsage.completionTokens)))"
+              class="flex items-center gap-3 pt-2 mt-2 border-t flex-wrap" style="border-color: var(--geek-divider)"
+            >
               <span v-if="msg.costTime" class="text-xs flex items-center" style="color: var(--geek-text-faint)">
                 <Clock class="w-3 h-3 mr-1" />
                 {{ (msg.costTime / 1000).toFixed(2) }}s
               </span>
               <span
                 v-if="msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))"
-                class="text-xs flex items-center gap-1.5 flex-wrap" style="color: var(--geek-text-faint)">
+                class="text-xs flex items-center gap-1.5 flex-wrap" style="color: var(--geek-text-faint)"
+              >
                 <BookOpen class="w-3 h-3" />
                 引用文档 {{ msg.knowledgebase.docCount || (msg.knowledgebase.docName?.length || 0) }} 个
                 <span v-if="msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0" class="flex flex-wrap gap-1">
@@ -124,7 +142,8 @@
               </span>
               <span
                 v-if="msg.tokenUsage && (msg.tokenUsage.promptTokens || msg.tokenUsage.completionTokens)"
-                class="text-xs flex items-center gap-1" style="color: var(--geek-text-faint)">
+                class="text-xs flex items-center gap-1" style="color: var(--geek-text-faint)"
+              >
                 <Cpu class="w-3 h-3" />
                 {{ msg.tokenUsage.promptTokens || 0 }} prompt · {{ msg.tokenUsage.completionTokens || 0 }} completion
               </span>
@@ -136,7 +155,8 @@
         <template v-else>
           <div
             class="rounded-lg px-5 py-3 max-w-[68%] break-words text-sm"
-            style="background: var(--geek-primary); color: var(--geek-text-on-primary)">
+            style="background: var(--geek-primary); color: var(--geek-text-on-primary)"
+          >
             {{ msg.text }}
             <span v-if="msg.isStreaming" class="inline-block w-1.5 h-4 ml-0.5 align-middle animate-blink" style="background: rgba(255,255,255,0.7)"></span>
           </div>

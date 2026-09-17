@@ -47,4 +47,24 @@ export async function register(data: RegisterData): Promise<AuthResponse> {
   return parseResponse<AuthResponse>(response)
 }
 
+/** 用 refresh token 换取新的访问令牌与刷新令牌（轮换） */
+export async function refreshToken(refreshToken: string): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE}/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  })
+  return parseResponse<AuthResponse>(response)
+}
+
+/** 登出：服务端将当前令牌加入黑名单（携带 refreshToken 一并作废） */
+export async function logout(refreshToken?: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/auth/logout`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: refreshToken ? JSON.stringify({ refreshToken }) : undefined,
+  })
+  await parseResponse<void>(response)
+}
+
 

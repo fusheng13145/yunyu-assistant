@@ -6,10 +6,12 @@
     </div>
     <div class="h-12 w-full rounded-full animate-pulse mb-4" style="background: var(--geek-input-bg)"></div>
     <div class="flex-1 min-h-0 space-y-3 px-1 pt-1 pb-4">
-      <div v-for="n in 4" :key="n"
+      <div
+        v-for="n in 4" :key="n"
         class="p-4 rounded-lg animate-pulse"
         style="background: var(--geek-surface); border: 1px solid var(--geek-border);"
-        :style="{ animationDelay: `${n * 0.15}s` }">
+        :style="{ animationDelay: `${n * 0.15}s` }"
+      >
         <div class="flex items-center mb-3">
           <div class="w-10 h-10 rounded-full animate-pulse mr-3" style="background: var(--geek-input-bg)"></div>
           <div class="flex-1">

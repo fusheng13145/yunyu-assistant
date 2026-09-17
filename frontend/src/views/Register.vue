@@ -188,8 +188,9 @@ const handleRegister = async () => {
       username: form.value.username.trim(),
       password: form.value.password,
     })
-    // 存储登录信息
+    // 存储登录信息（含刷新令牌，用于令牌续期）
     localStorage.setItem('token', res.token)
+    localStorage.setItem('refreshToken', res.refreshToken)
     localStorage.setItem('userId', res.userId)
     localStorage.setItem('username', res.username)
     // 注册成功跳转首页

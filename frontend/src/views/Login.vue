@@ -143,8 +143,9 @@ const handleLogin = async () => {
       username: form.value.username.trim(),
       password: form.value.password,
     })
-    // 本地存储登录信息
+    // 本地存储登录信息（含刷新令牌，用于令牌续期）
     localStorage.setItem('token', res.token)
+    localStorage.setItem('refreshToken', res.refreshToken)
     localStorage.setItem('userId', res.userId)
     localStorage.setItem('username', res.username)
     // 跳转至助手主页

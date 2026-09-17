@@ -202,7 +202,8 @@ public class Assistant {
             return List.of();
         }
         try {
-            return JSON_MAPPER.readValue(knowledgeIds, new TypeReference<List<String>>() {});
+            return JSON_MAPPER.readValue(knowledgeIds, new TypeReference<>() {
+            });
         } catch (Exception e) {
             return List.of();
         }

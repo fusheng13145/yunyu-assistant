@@ -18,7 +18,7 @@
         <span class="text-xs px-2 py-0.5 rounded-sm geek-badge bg-geek-tag-blue text-white">CHAT_TEST</span>
       </div>
       <div class="flex items-center gap-3">
-        <ThemeToggle :modelValue="themeMode" @update:modelValue="setTheme" />
+        <ThemeToggle :model-value="themeMode" @update:model-value="setTheme" />
         <button @click="goBack" class="geek-btn geek-btn-ghost text-sm">
           <ArrowLeft class="w-4 h-4 inline mr-1" />
           返回
@@ -42,6 +42,48 @@
             <p class="text-xs leading-relaxed text-geek-secondary">
               {{ currentAssistant?.description || '这是一个可以用于简单测试对话的智能助手' }}
             </p>
+          </div>
+        </div>
+
+        <!-- 会话列表（会话维度持久化） -->
+        <div class="border-b geek-divider px-3 py-3">
+          <div class="flex items-center justify-between px-2 mb-2">
+            <h3 class="text-sm font-medium text-geek-secondary">会话</h3>
+            <button @click="createNewSession" class="geek-btn geek-btn-sm geek-btn-ghost" title="新建会话">
+              <Plus class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="space-y-0.5 max-h-56 overflow-y-auto transparent-scrollbar">
+            <div
+              v-for="s in sessions"
+              :key="s.id"
+              @click="selectSession(s)"
+              class="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer"
+              :class="currentSession?.id === s.id ? 'geek-input-bg geek-primary-border' : ''"
+            >
+              <MessageSquare class="w-3.5 h-3.5 shrink-0 text-geek-muted" />
+              <span class="flex-1 min-w-0 truncate text-xs text-geek">{{ s.title }}</span>
+              <button
+                v-if="currentSession?.id === s.id"
+                @click.stop="togglePinSession(s)"
+                class="shrink-0"
+                :title="s.isPinned === 1 ? '取消置顶' : '置顶'"
+              >
+                <Pin v-if="s.isPinned === 1" class="w-3.5 h-3.5 text-geek-accent" />
+                <PinOff v-else class="w-3.5 h-3.5 text-geek-muted" />
+              </button>
+              <button
+                v-if="currentSession?.id === s.id"
+                @click.stop="removeSession(s)"
+                class="shrink-0 text-geek-error"
+                title="删除会话"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div v-if="sessions.length === 0" class="px-2 py-3 text-center">
+              <p class="text-xs text-geek-faint">暂无会话</p>
+            </div>
           </div>
         </div>
 
@@ -545,7 +587,8 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   Database, FolderOpen, Check, X, Plus, List, LayoutGrid,
-  Trash2, ChevronLeft, Upload, FileText, Mic, PhoneOff, ArrowLeft
+  Trash2, ChevronLeft, Upload, FileText, Mic, PhoneOff, ArrowLeft,
+  MessageSquare, Pin, PinOff
 } from 'lucide-vue-next'
 import ChatMessages from '../components/ChatMessages.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
@@ -554,7 +597,8 @@ import { useWebSocket } from '../utils/websocket'
 import { useWebRTC } from '../composables/useWebRTC'
 import { fetchAssistant } from '../api/assistant'
 import { RagflowApi } from '../api/ragflow'
-import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData } from '../types'
+import { createSession, fetchSessions, updateSession, deleteSession, fetchSessionMessages } from '../api/session'
+import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, ChatSession } from '../types'
 
 // ==================== 全局依赖 & 公共状态 ====================
 const { themeMode, setTheme } = useTheme()
@@ -568,6 +612,10 @@ let voiceWs: ReturnType<typeof useWebSocket> | null = null
 
 // 助手信息
 const currentAssistant = ref<Assistant | null>(null)
+
+// 会话列表（会话维度持久化）
+const sessions = ref<ChatSession[]>([])
+const currentSession = ref<ChatSession | null>(null)
 
 // 流式输出标记
 const isFirstOfStream = ref(true)
@@ -702,7 +750,10 @@ const connectWebSocket = () => {
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
-  const wsUrl = `${protocol}//${host}/ws/${assistantId}`
+  const bizSessionId = currentSession.value?.id
+  const wsUrl = bizSessionId
+    ? `${protocol}//${host}/ws/${assistantId}?sessionId=${encodeURIComponent(bizSessionId)}`
+    : `${protocol}//${host}/ws/${assistantId}`
 
   ws = useWebSocket(wsUrl, {
     onOpen: () => {
@@ -746,14 +797,20 @@ const connectWebSocket = () => {
             lastMsg.knowledgebase = queryData.knowledgebase
             if (queryData.tokenUsage) lastMsg.tokenUsage = queryData.tokenUsage
           }
+          // 会话标题/排序可能已更新（首轮自动生成标题），静默刷新列表
+          loadSessions()
         }
       } catch (e) {
         console.error('消息解析失败', e)
         isTyping.value = false
       }
     },
-    onClose: () => console.log('WebSocket已关闭'),
-    onError: (err) => console.error('WebSocket错误', err),
+    onClose: () => {
+      // 连接关闭（指数退避重连由 websocket 封装处理）
+    },
+    onError: (err) => {
+      console.error('WebSocket错误', err)
+    },
   })
 }
 
@@ -1134,15 +1191,142 @@ const initPageData = async () => {
     // 3. 恢复本地存储的知识库选择
     restoreKnowledgeBaseSelection()
 
-    // 4. 建立聊天WebSocket连接
+    // 4. 初始化会话（加载列表；无指定会话时自动创建新会话）
+    await initSessions()
+
+    // 5. 建立聊天WebSocket连接
     connectWebSocket()
 
-    // 5. 初始化默认欢迎消息
-    const name = currentAssistant.value?.name || '智能助手'
-    messages.value = [{ role: 'assistant', text: `您好，我是${name}，请问有什么可以帮您？` }]
+    // 6. 渲染会话历史 / 默认欢迎消息
+    if (currentSession.value) {
+      await renderSessionHistory(currentSession.value.id)
+    } else {
+      const name = currentAssistant.value?.name || '智能助手'
+      messages.value = [{ role: 'assistant', text: `您好，我是${name}，请问有什么可以帮您？` }]
+    }
   } catch (error) {
     console.error('页面初始化失败：', error)
     showNotification('页面数据加载失败', 'error')
+  }
+}
+
+// ==================== 会话（Session）管理 ====================
+/** 加载当前助手的会话列表 */
+const loadSessions = async () => {
+  const assistantId = currentAssistant.value?.id
+  if (!assistantId) return
+  try {
+    sessions.value = await fetchSessions(assistantId)
+  } catch (error) {
+    console.error('加载会话列表失败：', error)
+  }
+}
+
+/** 初始化会话：优先选中 URL 指定会话，否则自动创建新会话 */
+const initSessions = async () => {
+  const assistantId = currentAssistant.value?.id
+  if (!assistantId) return
+  await loadSessions()
+  const targetSessionId = route.query.sessionId as string
+  const matched = targetSessionId
+    ? sessions.value.find(s => s.id === targetSessionId)
+    : null
+  if (matched) {
+    currentSession.value = matched
+  } else {
+    const created = await createSession(assistantId)
+    currentSession.value = created
+    sessions.value.unshift(created)
+  }
+}
+
+/** 关闭文本聊天连接 */
+const closeTextSocket = () => {
+  if (ws) {
+    ws.send({ type: 'close' })
+    ws.close()
+    ws = null
+  }
+  isTyping.value = false
+  isFirstOfStream.value = true
+}
+
+/** 渲染会话历史消息 */
+const renderSessionHistory = async (sessionId: string) => {
+  try {
+    const history = await fetchSessionMessages(sessionId)
+    const list: DisplayMessage[] = history
+      .filter(r => r.role === 0 || r.role === 1)
+      .map(r => ({
+        role: r.role === 0 ? 'user' : 'assistant' as const,
+        text: r.message,
+        costTime: r.costTime,
+      }))
+    if (list.length === 0) {
+      const name = currentAssistant.value?.name || '智能助手'
+      list.push({ role: 'assistant', text: `您好，我是${name}，请问有什么可以帮您？` })
+    }
+    messages.value = list
+  } catch (error) {
+    console.error('加载会话历史失败：', error)
+  }
+}
+
+/** 新建会话 */
+const createNewSession = async () => {
+  const assistantId = currentAssistant.value?.id
+  if (!assistantId) return
+  closeTextSocket()
+  try {
+    const created = await createSession(assistantId)
+    currentSession.value = created
+    sessions.value.unshift(created)
+    renderSessionHistory(created.id)
+    connectWebSocket()
+  } catch (error) {
+    console.error('创建会话失败：', error)
+    showNotification(`创建会话失败: ${(error as Error).message}`, 'error')
+  }
+}
+
+/** 切换会话（关闭旧连接 → 回显历史 → 重新连接） */
+const selectSession = async (session: ChatSession) => {
+  if (currentSession.value?.id === session.id) return
+  closeTextSocket()
+  currentSession.value = session
+  showNotification(`已切换到会话：${session.title}`, 'info')
+  await renderSessionHistory(session.id)
+  connectWebSocket()
+}
+
+/** 置顶 / 取消置顶会话 */
+const togglePinSession = async (session: ChatSession) => {
+  try {
+    await updateSession(session.id, { isPinned: session.isPinned !== 1 })
+    await loadSessions()
+  } catch (error) {
+    console.error('更新会话置顶失败：', error)
+    showNotification('更新置顶失败', 'error')
+  }
+}
+
+/** 删除会话（删除当前会话后自动新建） */
+const removeSession = async (session: ChatSession) => {
+  if (!window.confirm(`确定要删除会话"${session.title}"吗？`)) return
+  try {
+    const isCurrent = currentSession.value?.id === session.id
+    await deleteSession(session.id)
+    if (isCurrent) {
+      closeTextSocket()
+      currentSession.value = null
+      sessions.value = sessions.value.filter(s => s.id !== session.id)
+      await createNewSession()
+    } else {
+      sessions.value = sessions.value.filter(s => s.id !== session.id)
+    }
+  } catch (error) {
+    console.error('删除会话失败：', error)
+    showNotification(`删除会话失败: ${(error as Error).message}`, 'error')
   }
 }
 

@@ -22,11 +22,13 @@ public class UserService {
 
     private final UserMapper userMapper;
     private final JwtUtil jwtUtil;
+    private final LoginAttemptService loginAttemptService;
     private final BCryptPasswordEncoder passwordEncoder;
 
-    public UserService(UserMapper userMapper, JwtUtil jwtUtil) {
+    public UserService(UserMapper userMapper, JwtUtil jwtUtil, LoginAttemptService loginAttemptService) {
         this.userMapper = userMapper;
         this.jwtUtil = jwtUtil;
+        this.loginAttemptService = loginAttemptService;
         this.passwordEncoder = new BCryptPasswordEncoder();
     }
 
@@ -68,30 +70,41 @@ public class UserService {
      *
      * @param username 用户名
      * @param password 明文密码
-     * @return 登录结果：token、用户ID、用户名、昵称、头像
-     * @throws RuntimeException 用户名或密码错误时抛出异常
+     * @return 登录结果：token、refreshToken、用户ID、用户名、昵称、头像
+     * @throws RuntimeException 用户名或密码错误 / 账号临时锁定
      */
     public Map<String, String> login(String username, String password) {
         if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
             throw new RuntimeException("用户名和密码不能为空");
         }
 
+        // 登录失败锁定检查：锁定期间直接拒绝
+        long remainingLockMs = loginAttemptService.getRemainingLockMs(username);
+        if (remainingLockMs > 0) {
+            throw new RuntimeException("登录失败次数过多，账号已临时锁定，请 "
+                    + (remainingLockMs / 1000 / 60 + 1) + " 分钟后再试");
+        }
+
         LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<User>()
                 .eq(User::getUsername, username);
         User user = userMapper.selectOne(queryWrapper);
-        if (user == null) {
+
+        // 密码比对（用户不存在与密码错误返回同一文案，避免用户名枚举）
+        boolean passwordOk = user != null && passwordEncoder.matches(password, user.getPassword());
+        if (!passwordOk) {
+            loginAttemptService.recordFailure(username);
             throw new RuntimeException("用户名或密码错误");
         }
 
-        // 密码比对
-        if (!passwordEncoder.matches(password, user.getPassword())) {
-            throw new RuntimeException("用户名或密码错误");
-        }
+        // 登录成功：清除失败计数
+        loginAttemptService.recordSuccess(username);
 
-        // 生成JWT令牌
+        // 生成访问令牌 + 刷新令牌
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
+        String refreshToken = jwtUtil.generateRefreshToken(user.getId(), user.getUsername());
         Map<String, String> result = new HashMap<>();
         result.put("token", token);
+        result.put("refreshToken", refreshToken);
         result.put("userId", user.getId());
         result.put("username", user.getUsername());
 

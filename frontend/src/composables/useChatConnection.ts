@@ -3,6 +3,7 @@ import { useChatStore } from '../stores/chat'
 
 export interface UseChatConnectionOptions {
   assistantId: () => string | undefined | null
+  sessionId?: () => string | undefined | null
   onConnected?: (ws: ReturnType<typeof useWebSocket>) => void
   onNotification?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void
 }
@@ -19,7 +20,10 @@ export function useChatConnection(options: UseChatConnectionOptions) {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
-    const wsUrl = `${protocol}//${host}/ws/${id}`
+    const bizSessionId = options.sessionId?.()
+    const wsUrl = bizSessionId
+      ? `${protocol}//${host}/ws/${id}?sessionId=${encodeURIComponent(bizSessionId)}`
+      : `${protocol}//${host}/ws/${id}`
 
     ws = useWebSocket(wsUrl, {
       onOpen: () => {
@@ -39,11 +43,9 @@ export function useChatConnection(options: UseChatConnectionOptions) {
               chatStore.appendAssistantSegment(answer.segment)
             }
           } else if (data.type === 'tool_call') {
-            // 工具调用消息处理
-            console.log('工具调用:', data.data)
+            // 工具调用消息处理（由调试面板消费，此处不记录日志）
           } else if (data.type === 'tool_result') {
-            // 工具调用结果处理
-            console.log('工具调用结果:', data.data)
+            // 工具调用结果处理（由调试面板消费，此处不记录日志）
           } else if (data.type === 'error') {
             console.error('服务端错误:', data.data)
             notify('服务端暂时不可用，请稍后重试', 'error')
@@ -58,7 +60,7 @@ export function useChatConnection(options: UseChatConnectionOptions) {
         }
       },
       onClose: () => {
-        console.log('WebSocket已关闭')
+        // 连接关闭（指数退避重连由 websocket 封装处理）
       },
       onError: (err) => {
         console.error('WebSocket错误', err)

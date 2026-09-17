@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.Record;
+import com.leyon.backend.entity.Session;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
 import com.leyon.backend.service.RecordService;
+import com.leyon.backend.service.SessionService;
 import com.leyon.backend.tool.ToolRegistry;
 import com.leyon.backend.util.JwtUtil;
 import org.slf4j.Logger;
@@ -25,6 +27,7 @@ import reactor.core.Disposable;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -71,6 +74,12 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     /** 会话属性Key */
     private static final String SESSION_ATTR_USER_ID = "userId";
 
+    /** WebSocket URL 查询参数：业务会话ID（session model） */
+    private static final String QUERY_PARAM_SESSION_ID = "sessionId";
+
+    /** 加载历史聊天的默认条数 */
+    private static final int DEFAULT_HISTORY_LIMIT = 50;
+
     // 日志
     private final Logger logger = LoggerFactory.getLogger(ChatWebSocketHandler.class);
 
@@ -79,6 +88,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final KnowledgeProvider knowledgeProvider;
     private final AssistantService assistantService;
     private final RecordService recordService;
+    private final SessionService sessionService;
     private final ObjectMapper objectMapper;
     private final JwtUtil jwtUtil;
     private final ToolRegistry toolRegistry;
@@ -90,6 +100,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ConcurrentHashMap<String, Disposable> activeSubscriptions = new ConcurrentHashMap<>();
     /** 会话ID -> 助手ID */
     private final ConcurrentHashMap<String, String> sessionAssistantMap = new ConcurrentHashMap<>();
+    /** 会话ID -> 业务会话ID（session model，可能为空） */
+    private final ConcurrentHashMap<String, String> businessSessionMap = new ConcurrentHashMap<>();
     /** 已认证的会话ID集合 */
     private final ConcurrentHashMap<String, Boolean> authenticatedSessions = new ConcurrentHashMap<>();
 
@@ -97,6 +109,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 KnowledgeProvider knowledgeProvider,
                                 AssistantService assistantService,
                                 RecordService recordService,
+                                SessionService sessionService,
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
                                 ToolRegistry toolRegistry) {
@@ -104,6 +117,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.knowledgeProvider = knowledgeProvider;
         this.assistantService = assistantService;
         this.recordService = recordService;
+        this.sessionService = sessionService;
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
         this.toolRegistry = toolRegistry;
@@ -161,6 +175,23 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         // 绑定会话与助手
         sessionAssistantMap.put(sessionId, assistantId);
 
+        // 解析可选业务会话ID（session model），并校验归属
+        String businessSessionId = resolveQueryParam(session, QUERY_PARAM_SESSION_ID);
+        if (StringUtils.hasText(businessSessionId)) {
+            Session bizSession = sessionService.getOwned(businessSessionId, userId);
+            if (bizSession == null) {
+                sendMessage(session, MSG_TYPE_ERROR, "会话不存在或无访问权限");
+                closeSession(session);
+                return;
+            }
+            if (!assistantId.equals(bizSession.getAssistantId())) {
+                sendMessage(session, MSG_TYPE_ERROR, "会话与助手不匹配");
+                closeSession(session);
+                return;
+            }
+            businessSessionMap.put(sessionId, businessSessionId);
+        }
+
         // 从服务端持久化的 knowledge_ids 加载知识库关联
         List<String> knowledgeIds = parseKnowledgeIds(assistant.getKnowledgeIds());
 
@@ -172,8 +203,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         // 应用助手级模型参数（覆盖全局默认）
         chatService.setModelParams(assistant.getModelName(), assistant.getTemperature(), assistant.getMaxTokens());
 
-        // 加载历史聊天记录（限制最近50条，避免全量加载导致内存溢出）
-        List<Record> chatHistory = recordService.listByAssistantIdLimit(assistantId, 50);
+        // 加载历史聊天记录（优先按会话维度，未指定会话时按助手维度，限制最近50条避免内存溢出）
+        List<Record> chatHistory;
+        if (StringUtils.hasText(businessSessionId)) {
+            chatHistory = recordService.listBySessionIdLimit(businessSessionId, DEFAULT_HISTORY_LIMIT);
+        } else {
+            chatHistory = recordService.listByAssistantIdLimit(assistantId, DEFAULT_HISTORY_LIMIT);
+        }
         if (chatHistory != null && !chatHistory.isEmpty()) {
             chatService.loadChatHistory(chatHistory);
         }
@@ -181,7 +217,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         chatServices.put(sessionId, chatService);
         // 返回助手基础信息
         sendMessage(session, MSG_TYPE_ASSISTANT_INFO, assistant);
-        logger.info("WebSocket 连接建立成功（已认证），会话ID:{}，助手ID:{}", sessionId, assistantId);
+        logger.info("WebSocket 连接建立成功（已认证），会话ID:{}，助手ID:{}，业务会话ID:{}",
+                sessionId, assistantId, businessSessionId);
     }
 
     // 接收客户端消息
@@ -345,6 +382,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             saveChatState(session, chatService);
         }
         sessionAssistantMap.remove(sessionId);
+        businessSessionMap.remove(sessionId);
+        authenticatedSessions.remove(sessionId);
     }
 
     // 状态持久化
@@ -372,27 +411,35 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
 
         // 持久化本次会话新增的对话记录（修复对话历史无法落库的问题）
-        persistNewRecords(assistantId, chatService);
+        persistNewRecords(assistantId, businessSessionMap.get(sessionId), chatService);
     }
 
     /**
      * 批量落库本次会话新增的对话记录
      *
-     * @param assistantId 助手ID
-     * @param chatService 聊天服务实例
+     * @param assistantId       助手ID
+     * @param businessSessionId 业务会话ID（可能为空，空则不关联会话）
+     * @param chatService       聊天服务实例
      */
-    private void persistNewRecords(String assistantId, ChatService chatService) {
+    private void persistNewRecords(String assistantId, String businessSessionId, ChatService chatService) {
         List<Record> newRecords = chatService.getNewRecords();
         if (newRecords == null || newRecords.isEmpty()) {
             return;
         }
         int saved = 0;
+        String firstUserMessage = null;
         for (Record record : newRecords) {
             if (!StringUtils.hasText(record.getMessage())) {
                 continue;
             }
+            if (firstUserMessage == null && Record.ROLE_USER == record.getRole()) {
+                firstUserMessage = record.getMessage();
+            }
             record.setId(null); // 由 MyBatis-Plus 自动生成 UUID
             record.setAssistantId(assistantId);
+            if (businessSessionId != null) {
+                record.setSessionId(businessSessionId);
+            }
             record.setIsDeleted(Record.NOT_DELETED);
             try {
                 recordService.add(record);
@@ -402,7 +449,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             }
         }
         if (saved > 0) {
-            logger.info("已持久化 {} 条对话记录，助手ID:{}", saved, assistantId);
+            logger.info("已持久化 {} 条对话记录，助手ID:{}，业务会话ID:{}", saved, assistantId, businessSessionId);
+            // 会话首轮对话后自动生成标题（取首条用户消息前缀）
+            if (businessSessionId != null) {
+                sessionService.autoTitleIfNeeded(businessSessionId, firstUserMessage);
+            }
         }
     }
 
@@ -436,6 +487,35 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return null;
         }
         return path.substring(lastSlashIndex + 1);
+    }
+
+    /**
+     * 从 WebSocket URL 查询参数中解析指定参数值
+     *
+     * @param session WebSocket 会话
+     * @param name    参数名
+     * @return 参数值，不存在返回 null
+     */
+    private String resolveQueryParam(@NonNull WebSocketSession session, String name) {
+        URI uri = session.getUri();
+        if (uri == null || uri.getQuery() == null) {
+            return null;
+        }
+        for (String pair : uri.getQuery().split("&")) {
+            int eqIndex = pair.indexOf('=');
+            if (eqIndex < 0) {
+                continue;
+            }
+            String key = pair.substring(0, eqIndex);
+            if (name.equals(key)) {
+                try {
+                    return java.net.URLDecoder.decode(pair.substring(eqIndex + 1), StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    return pair.substring(eqIndex + 1);
+                }
+            }
+        }
+        return null;
     }
 
     /**

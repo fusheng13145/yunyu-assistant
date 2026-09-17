@@ -7,7 +7,7 @@
         <span class="text-xs px-2 py-0.5 rounded-sm geek-badge bg-geek-tag-blue text-white">CALL_RECORDS</span>
       </div>
       <div class="flex items-center gap-3">
-        <ThemeToggle :modelValue="themeMode" @update:modelValue="setTheme" />
+        <ThemeToggle :model-value="themeMode" @update:model-value="setTheme" />
         <button @click="goBack" class="geek-btn geek-btn-ghost text-sm">
           <ArrowLeft class="w-4 h-4 inline mr-1" />
           返回
