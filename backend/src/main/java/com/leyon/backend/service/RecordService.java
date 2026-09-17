@@ -56,6 +56,39 @@ public class RecordService {
     }
 
     /**
+     * 根据会话ID分页加载聊天记录，按创建时间倒序（最新在前），用于长会话惰性分页加载
+     *
+     * @param sessionId 会话ID
+     * @param offset    偏移量
+     * @param limit     每页条数
+     * @return 聊天记录列表（倒序，最新在前）
+     */
+    public List<Record> pageBySessionIdDesc(String sessionId, long offset, int limit) {
+        if (!StringUtils.hasText(sessionId)) {
+            return List.of();
+        }
+        LambdaQueryWrapper<Record> queryWrapper = new LambdaQueryWrapper<Record>()
+                .eq(Record::getSessionId, sessionId)
+                .orderByDesc(Record::getCreatedAt)
+                .last("LIMIT " + limit + " OFFSET " + offset);
+        return recordMapper.selectList(queryWrapper);
+    }
+
+    /**
+     * 统计会话消息总数（用于分页）
+     *
+     * @param sessionId 会话ID
+     * @return 消息总数
+     */
+    public long countBySessionId(String sessionId) {
+        if (!StringUtils.hasText(sessionId)) {
+            return 0L;
+        }
+        return recordMapper.selectCount(new LambdaQueryWrapper<Record>()
+                .eq(Record::getSessionId, sessionId));
+    }
+
+    /**
      * 根据助手ID查询聊天记录，按创建时间正序
      * @param assistantId 助手ID
      * @return 聊天记录列表

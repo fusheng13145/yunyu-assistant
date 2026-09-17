@@ -59,12 +59,20 @@ export async function deleteSession(id: string): Promise<void> {
   await parseResponse<void>(response)
 }
 
-/** 查询会话历史消息（切换会话时回显） */
-export async function fetchSessionMessages(id: string): Promise<ChatRecordMessage[]> {
-  const response = await fetch(`${API_BASE}/sessions/${id}/messages`, {
+/** 查询会话历史消息（分页，倒序最新在前；切换会话时回显，长会话惰性加载） */
+export interface SessionMessagePage {
+  list: ChatRecordMessage[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export async function fetchSessionMessages(id: string, page = 1, pageSize = 50): Promise<SessionMessagePage> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+  const response = await fetch(`${API_BASE}/sessions/${id}/messages?${params.toString()}`, {
     headers: getAuthHeaders(),
   })
-  return parseResponse<ChatRecordMessage[]>(response)
+  return parseResponse<SessionMessagePage>(response)
 }
 
 /** 会话历史消息（与后端 Record 实体对齐） */

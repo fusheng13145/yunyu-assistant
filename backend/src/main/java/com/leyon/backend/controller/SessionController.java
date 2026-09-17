@@ -26,9 +26,6 @@ public class SessionController {
     private final SessionService sessionService;
     private final RecordService recordService;
 
-    /** 会话历史消息最多返回条数（覆盖常规长对话渲染） */
-    private static final int MAX_HISTORY_LIMIT = 200;
-
     public SessionController(SessionService sessionService, RecordService recordService) {
         this.sessionService = sessionService;
         this.recordService = recordService;
@@ -85,10 +82,16 @@ public class SessionController {
     }
 
     /**
-     * 查询会话历史消息（切换会话时前端用于回显，仅返回本人会话）
+     * 查询会话历史消息（分页，倒序最新在前；切换会话时前端回显）
+     * 返回结构：{ list, total, page, pageSize }
+     * 仅返回本人会话
      */
     @GetMapping("/{id}/messages")
-    public ApiResponse<List<Record>> messages(@PathVariable String id, HttpServletRequest request) {
+    public ApiResponse<Map<String, Object>> messages(
+            @PathVariable String id,
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "pageSize", defaultValue = "50") int pageSize,
+            HttpServletRequest request) {
         if (!StringUtils.hasText(id)) {
             return ApiResponse.paramError("会话ID不能为空");
         }
@@ -97,7 +100,19 @@ public class SessionController {
         if (owned == null) {
             return ApiResponse.paramError("会话不存在或无操作权限");
         }
-        return ApiResponse.success(recordService.listBySessionIdLimit(id, MAX_HISTORY_LIMIT));
+        int safePage = Math.max(page, 1);
+        int safeSize = Math.min(Math.max(pageSize, 1), 100);
+        long offset = (long) (safePage - 1) * safeSize;
+
+        List<Record> list = recordService.pageBySessionIdDesc(id, offset, safeSize);
+        long total = recordService.countBySessionId(id);
+
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("list", list);
+        result.put("total", total);
+        result.put("page", safePage);
+        result.put("pageSize", safeSize);
+        return ApiResponse.success(result);
     }
 
     /**

@@ -202,13 +202,25 @@
         </div>
 
         <!-- 消息列表 -->
-        <div class="flex-1 min-h-0">
-          <ChatMessages
-            :messages="messages"
-            :auto-scroll="true"
-            @scroll-state-change="handleScrollStateChange"
-            class="h-full"
-          />
+        <div class="flex-1 min-h-0 flex flex-col">
+          <div v-if="historyHasMore" class="shrink-0 text-center py-2 border-b geek-divider">
+            <button
+              @click="loadEarlierMessages"
+              :disabled="historyLoadingMore"
+              class="geek-btn geek-btn-ghost geek-btn-sm"
+              :class="{ 'opacity-40 cursor-not-allowed': historyLoadingMore }"
+            >
+              {{ historyLoadingMore ? '加载中...' : '加载更早消息' }}
+            </button>
+          </div>
+          <div class="flex-1 min-h-0">
+            <ChatMessages
+              :messages="messages"
+              :auto-scroll="true"
+              @scroll-state-change="handleScrollStateChange"
+              class="h-full"
+            />
+          </div>
         </div>
 
         <!-- 输入区域 -->
@@ -1262,11 +1274,20 @@ const closeTextSocket = () => {
   isFirstOfStream.value = true
 }
 
-/** 渲染会话历史消息（含工具调用/结果，恢复调试时间线） */
+/** 渲染会话历史消息（分页惰性加载，含工具调用/结果，恢复调试时间线） */
+const HISTORY_PAGE_SIZE = 50
+let historyPage = 1
+const historyHasMore = ref(false)
+const historyLoadingMore = ref(false)
+
 const renderSessionHistory = async (sessionId: string) => {
+  historyPage = 1
   try {
-    const history = await fetchSessionMessages(sessionId)
-    const list: DisplayMessage[] = history
+    const page = await fetchSessionMessages(sessionId, 1, HISTORY_PAGE_SIZE)
+    // 后端倒序（最新在前），反转成正序显示
+    const list = page.list
+      .slice()
+      .reverse()
       .map((r): DisplayMessage | null => {
         if (r.role === 0) return { role: 'user', text: r.message }
         if (r.role === 1) return { role: 'assistant', text: r.message, costTime: r.costTime }
@@ -1280,8 +1301,37 @@ const renderSessionHistory = async (sessionId: string) => {
       list.push({ role: 'assistant', text: `您好，我是${name}，请问有什么可以帮您？` })
     }
     messages.value = list
+    historyHasMore.value = historyPage * page.pageSize < page.total
   } catch (error) {
     console.error('加载会话历史失败：', error)
+  }
+}
+
+/** 加载更早的会话历史（向前拼接） */
+const loadEarlierMessages = async () => {
+  const sessionId = currentSession.value?.id
+  if (!sessionId || historyLoadingMore.value) return
+  historyLoadingMore.value = true
+  try {
+    const page = await fetchSessionMessages(sessionId, historyPage + 1, HISTORY_PAGE_SIZE)
+    const older = page.list
+      .slice()
+      .reverse()
+      .map((r): DisplayMessage | null => {
+        if (r.role === 0) return { role: 'user', text: r.message }
+        if (r.role === 1) return { role: 'assistant', text: r.message, costTime: r.costTime }
+        if (r.role === 2) return { role: 'tool_call', toolName: r.toolName, text: r.toolArgs || r.message }
+        if (r.role === 3) return { role: 'tool_result', toolName: r.toolName, toolResult: r.toolResult || r.message, text: r.toolResult || r.message }
+        return null
+      })
+      .filter((m): m is DisplayMessage => m !== null)
+    messages.value = [...older, ...messages.value]
+    historyPage += 1
+    historyHasMore.value = historyPage * page.pageSize < page.total
+  } catch (error) {
+    console.error('加载更早消息失败：', error)
+  } finally {
+    historyLoadingMore.value = false
   }
 }
 
