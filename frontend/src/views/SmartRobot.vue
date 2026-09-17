@@ -1462,6 +1462,11 @@ const startVoiceCall = async () => {
             asrText.value = (data.data as AsrDeltaData).text
           } else if (data.type === 'assistant_message') {
             handleStreamMessage(data.data)
+          } else if (data.type === 'tool_call') {
+            messages.value.push({ role: 'tool_call', toolName: data.toolName, text: data.toolArgs || '' })
+          } else if (data.type === 'tool_result') {
+            const tr = data.data
+            messages.value.push({ role: 'tool_result', toolName: tr?.name, toolResult: tr?.result, text: tr?.result || '' })
           } else if (data.type === 'query_end') {
             finishStreamMessage(data.data)
             asrText.value = ''
@@ -1516,6 +1521,11 @@ const connectWebSocket = () => {
         const data = JSON.parse(event.data)
         if (data.type === 'assistant_message') {
           handleStreamMessage(data.data)
+        } else if (data.type === 'tool_call') {
+          messages.value.push({ role: 'tool_call', toolName: data.toolName, text: data.toolArgs || '' })
+        } else if (data.type === 'tool_result') {
+          const tr = data.data
+          messages.value.push({ role: 'tool_result', toolName: tr?.name, toolResult: tr?.result, text: tr?.result || '' })
         } else if (data.type === 'query_end') {
           finishStreamMessage(data.data)
         }

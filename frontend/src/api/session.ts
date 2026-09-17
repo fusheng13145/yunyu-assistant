@@ -72,6 +72,9 @@ export interface ChatRecordMessage {
   id: string
   role: number
   message: string
+  toolName?: string
+  toolArgs?: string
+  toolResult?: string
   costTime?: number
   createdAt?: string
 }

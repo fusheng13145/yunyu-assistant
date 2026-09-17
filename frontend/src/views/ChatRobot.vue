@@ -785,6 +785,12 @@ const connectWebSocket = () => {
               }
             }
           }
+        } else if (data.type === 'tool_call') {
+          // 工具调用（调试时间线）：参数/结果折叠查看
+          messages.value.push({ role: 'tool_call', toolName: data.toolName, text: data.toolArgs || '' })
+        } else if (data.type === 'tool_result') {
+          const tr = data.data
+          messages.value.push({ role: 'tool_result', toolName: tr?.name, toolResult: tr?.result, text: tr?.result || '' })
         } else if (data.type === 'query_end') {
           const queryData = data.data
           isTyping.value = false
@@ -856,6 +862,11 @@ const startVoiceCall = async () => {
                 }
               }
             }
+          } else if (data.type === 'tool_call') {
+            messages.value.push({ role: 'tool_call', toolName: data.toolName, text: data.toolArgs || '' })
+          } else if (data.type === 'tool_result') {
+            const tr = data.data
+            messages.value.push({ role: 'tool_result', toolName: tr?.name, toolResult: tr?.result, text: tr?.result || '' })
           } else if (data.type === 'query_end') {
             const queryData = data.data
             isTyping.value = false
@@ -1251,17 +1262,19 @@ const closeTextSocket = () => {
   isFirstOfStream.value = true
 }
 
-/** 渲染会话历史消息 */
+/** 渲染会话历史消息（含工具调用/结果，恢复调试时间线） */
 const renderSessionHistory = async (sessionId: string) => {
   try {
     const history = await fetchSessionMessages(sessionId)
     const list: DisplayMessage[] = history
-      .filter(r => r.role === 0 || r.role === 1)
-      .map(r => ({
-        role: r.role === 0 ? 'user' : 'assistant' as const,
-        text: r.message,
-        costTime: r.costTime,
-      }))
+      .map((r): DisplayMessage | null => {
+        if (r.role === 0) return { role: 'user', text: r.message }
+        if (r.role === 1) return { role: 'assistant', text: r.message, costTime: r.costTime }
+        if (r.role === 2) return { role: 'tool_call', toolName: r.toolName, text: r.toolArgs || r.message }
+        if (r.role === 3) return { role: 'tool_result', toolName: r.toolName, toolResult: r.toolResult || r.message, text: r.toolResult || r.message }
+        return null
+      })
+      .filter((m): m is DisplayMessage => m !== null)
     if (list.length === 0) {
       const name = currentAssistant.value?.name || '智能助手'
       list.push({ role: 'assistant', text: `您好，我是${name}，请问有什么可以帮您？` })
