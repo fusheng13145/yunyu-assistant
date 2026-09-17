@@ -74,6 +74,10 @@ app:
   # Redis 共享状态开关：true 时限流/令牌黑名单/登录锁定写入 Redis（多实例共享），false 时降级单实例内存实现
   redis:
     enabled: ${REDIS_ENABLED:false}
+  # WebRTC ICE 服务器配置（JSON 数组，如 [{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]）
+  # 未配置时前端回退默认 Google STUN；生产建议配置 TURN 穿透对称 NAT（见手册 6.6）
+  webrtc:
+    ice-servers: ${WEBRTC_ICE_SERVERS:[]}
   # JWT 认证配置（Secret 长度必须 ≥ 256 位 / 32 字节，生产环境使用强随机生成值）
   jwt:
     secret: ${JWT_SECRET}

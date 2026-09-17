@@ -1,5 +1,27 @@
 import { ref, onBeforeUnmount } from 'vue'
 
+/** 从后端 /api/webrtc/config 拉取 ICE 服务器配置（STUN/TURN），生产可配置 TURN 穿透对称 NAT */
+async function fetchIceServers(): Promise<RTCIceServer[]> {
+  try {
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const response = await fetch('/api/webrtc/config', { headers })
+    if (!response.ok) return []
+    const result = await response.json()
+    if (result.code !== 200 || !Array.isArray(result.data?.iceServers)) return []
+    return result.data.iceServers as RTCIceServer[]
+  } catch {
+    return []
+  }
+}
+
+/** 未配置时的默认 STUN（Google 公共 STUN） */
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+]
+
 export function useWebRTC() {
   const peerConnection = ref<RTCPeerConnection | null>(null)
   const localStream = ref<MediaStream | null>(null)
@@ -11,15 +33,16 @@ export function useWebRTC() {
   let analyser: AnalyserNode | null = null
   let animationFrameId: number | null = null
 
-  const ICE_SERVERS: RTCConfiguration = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-    ],
-  }
+  /** 缓存拉取到的 ICE 配置（避免每次建链重复请求） */
+  let cachedIceServers: RTCIceServer[] | null = null
 
   const createOffer = async (): Promise<string> => {
-    peerConnection.value = new RTCPeerConnection(ICE_SERVERS)
+    // 从后端下发配置，失败/为空时回退默认 STUN
+    if (cachedIceServers === null) {
+      const servers = await fetchIceServers()
+      cachedIceServers = servers.length > 0 ? servers : DEFAULT_ICE_SERVERS
+    }
+    peerConnection.value = new RTCPeerConnection({ iceServers: cachedIceServers })
     isConnecting.value = true
 
     try {
