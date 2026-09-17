@@ -9,6 +9,12 @@ server:
 spring:
   application:
     name: backend
+  # Redis 连接（多实例共享状态用；app.redis.enabled=false 时不需要 Redis，自动配置惰性连接）
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
   servlet:
     # Multipart 上传限制：与前端单文件 50MB 上限对齐，避免大文件上传被默认 1MB 拒绝
     multipart:
@@ -65,6 +71,9 @@ mybatis-plus:
 
 # 自定义业务配置（所有敏感值必须通过环境变量注入，禁止硬编码默认值）
 app:
+  # Redis 共享状态开关：true 时限流/令牌黑名单/登录锁定写入 Redis（多实例共享），false 时降级单实例内存实现
+  redis:
+    enabled: ${REDIS_ENABLED:false}
   # JWT 认证配置（Secret 长度必须 ≥ 256 位 / 32 字节，生产环境使用强随机生成值）
   jwt:
     secret: ${JWT_SECRET}

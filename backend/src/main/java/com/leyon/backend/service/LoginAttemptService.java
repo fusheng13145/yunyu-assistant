@@ -1,20 +1,29 @@
 package com.leyon.backend.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 登录失败计数与账号临时锁定服务（防撞库）
  * 同一用户名连续失败超过阈值后临时锁定，锁定期间即使密码正确也拒绝登录
- * 基于内存实现（单实例），多实例部署时需替换为 Redis
+ * 默认基于内存（单实例）；配置 app.redis.enabled=true 时改用 Redis（多实例共享）
+ * Redis 故障时自动降级内存实现
  *
  * @author leyon
  */
 @Service
 public class LoginAttemptService {
+
+    private static final Logger log = LoggerFactory.getLogger(LoginAttemptService.class);
 
     /** 锁定尝试记录 */
     private static final class Attempt {
@@ -27,8 +36,20 @@ public class LoginAttemptService {
         }
     }
 
-    /** 用户名 -> 尝试记录 */
+    /** 用户名 -> 尝试记录（内存降级实现） */
     private final Map<String, Attempt> attempts = new ConcurrentHashMap<>();
+
+    /** Redis key 前缀 */
+    private static final String KEY_FAIL_PREFIX = "auth:fail:";
+    private static final String KEY_LOCK_PREFIX = "auth:locked:";
+
+    /** 可选注入：启用 Redis 后端时使用 */
+    @Autowired(required = false)
+    private StringRedisTemplate redisTemplate;
+
+    /** 是否启用 Redis 共享状态（环境变量 REDIS_ENABLED） */
+    @Value("${app.redis.enabled:false}")
+    private boolean redisEnabled;
 
     /** 连续失败阈值：超过后锁定 */
     private static final int MAX_FAILURES = 5;
@@ -51,6 +72,10 @@ public class LoginAttemptService {
     public long recordFailure(String username) {
         if (username == null || username.isBlank()) {
             return 0L;
+        }
+        Long redisLockMs = redisRecordFailure(username);
+        if (redisLockMs != null) {
+            return redisLockMs;
         }
         maybeCleanup();
         long now = System.currentTimeMillis();
@@ -79,6 +104,15 @@ public class LoginAttemptService {
         if (username == null || username.isBlank()) {
             return;
         }
+        if (redisEnabled && redisTemplate != null) {
+            try {
+                redisTemplate.delete(KEY_FAIL_PREFIX + username);
+                redisTemplate.delete(KEY_LOCK_PREFIX + username);
+                return;
+            } catch (Exception e) {
+                log.warn("Redis 清除登录计数失败，降级内存：{}", e.getMessage());
+            }
+        }
         attempts.remove(username);
     }
 
@@ -91,6 +125,10 @@ public class LoginAttemptService {
     public long getRemainingLockMs(String username) {
         if (username == null || username.isBlank()) {
             return 0L;
+        }
+        Long redisLockMs = redisGetRemainingLockMs(username);
+        if (redisLockMs != null) {
+            return redisLockMs;
         }
         maybeCleanup();
         Attempt attempt = attempts.get(username);
@@ -107,6 +145,48 @@ public class LoginAttemptService {
                 return 0L;
             }
             return attempt.lockedUntil - System.currentTimeMillis();
+        }
+    }
+
+    /** Redis 记录失败；返回 null 表示未启用/失败需降级内存 */
+    private Long redisRecordFailure(String username) {
+        if (!redisEnabled || redisTemplate == null) {
+            return null;
+        }
+        try {
+            String failKey = KEY_FAIL_PREFIX + username;
+            Long count = redisTemplate.opsForValue().increment(failKey);
+            if (count != null && count == 1L) {
+                redisTemplate.expire(failKey, LOCK_DURATION_MS, TimeUnit.MILLISECONDS);
+            }
+            // 已锁定直接返回剩余时间
+            Long lockTtl = redisTemplate.getExpire(KEY_LOCK_PREFIX + username, TimeUnit.MILLISECONDS);
+            if (lockTtl != null && lockTtl > 0) {
+                return lockTtl;
+            }
+            if (count != null && count >= MAX_FAILURES) {
+                redisTemplate.opsForValue().set(KEY_LOCK_PREFIX + username, "1", LOCK_DURATION_MS, TimeUnit.MILLISECONDS);
+                redisTemplate.delete(failKey);
+                return LOCK_DURATION_MS;
+            }
+            return 0L;
+        } catch (Exception e) {
+            log.warn("Redis 记录登录失败失败，降级内存：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Redis 查询锁定剩余；返回 null 表示未启用/失败需降级内存 */
+    private Long redisGetRemainingLockMs(String username) {
+        if (!redisEnabled || redisTemplate == null) {
+            return null;
+        }
+        try {
+            Long lockTtl = redisTemplate.getExpire(KEY_LOCK_PREFIX + username, TimeUnit.MILLISECONDS);
+            return (lockTtl != null && lockTtl > 0) ? lockTtl : 0L;
+        } catch (Exception e) {
+            log.warn("Redis 查询登录锁定失败，降级内存：{}", e.getMessage());
+            return null;
         }
     }
 

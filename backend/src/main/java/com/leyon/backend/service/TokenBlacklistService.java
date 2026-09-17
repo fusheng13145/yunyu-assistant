@@ -2,18 +2,20 @@ package com.leyon.backend.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * JWT 令牌黑名单服务（登出失效）
- * 基于内存的 jti 黑名单：登出时按令牌 jti 加入黑名单，校验时命中即视为无效
- * 采用惰性清理过期条目，防止内存无限增长
- *
- * 说明：当前为单实例内存实现；多实例部署时需替换为 Redis（见手册 6.6 迭代方向）
+ * 默认基于内存（单实例）；配置 app.redis.enabled=true 时改用 Redis（多实例共享，jti 带 TTL 自动过期）
+ * Redis 故障时自动降级内存实现，不影响登出可用性
  *
  * @author leyon
  */
@@ -22,8 +24,19 @@ public class TokenBlacklistService {
 
     private static final Logger log = LoggerFactory.getLogger(TokenBlacklistService.class);
 
-    /** 黑名单：jti -> 过期时间戳（毫秒），超过后自动失效并清理 */
+    /** 黑名单：jti -> 过期时间戳（毫秒），超过后自动失效并清理（内存降级实现） */
     private final Map<String, Long> blacklist = new ConcurrentHashMap<>();
+
+    /** Redis key 前缀 */
+    private static final String KEY_PREFIX = "auth:blacklist:";
+
+    /** 可选注入：启用 Redis 后端时使用 */
+    @Autowired(required = false)
+    private StringRedisTemplate redisTemplate;
+
+    /** 是否启用 Redis 共享状态（环境变量 REDIS_ENABLED） */
+    @Value("${app.redis.enabled:false}")
+    private boolean redisEnabled;
 
     /** 上次全量清理时间戳（毫秒），用于节流清理频率 */
     private volatile long lastCleanupTime = System.currentTimeMillis();
@@ -44,9 +57,13 @@ public class TokenBlacklistService {
         if (jti == null || jti.isBlank()) {
             return;
         }
-        long expireAt = System.currentTimeMillis() + Math.max(ttlMs, 1000L);
+        long safeTtl = Math.max(ttlMs, 1000L);
+        if (tryRedisBlacklist(jti, safeTtl)) {
+            return;
+        }
+        long expireAt = System.currentTimeMillis() + safeTtl;
         blacklist.put(jti, expireAt);
-        log.info("令牌已加入黑名单，jti:{}", jti);
+        log.info("令牌已加入黑名单（内存），jti:{}", jti);
     }
 
     /**
@@ -59,6 +76,12 @@ public class TokenBlacklistService {
         if (jti == null || jti.isBlank()) {
             return false;
         }
+        if (redisEnabled) {
+            Boolean exists = redisHasKey(KEY_PREFIX + jti);
+            if (exists != null) {
+                return exists;
+            }
+        }
         maybeCleanup();
         Long expireAt = blacklist.get(jti);
         if (expireAt == null) {
@@ -69,6 +92,31 @@ public class TokenBlacklistService {
             return false;
         }
         return true;
+    }
+
+    /** Redis 写入黑名单；返回 true 表示成功使用 Redis，false 表示未启用/失败需降级内存 */
+    private boolean tryRedisBlacklist(String jti, long ttlMs) {
+        if (!redisEnabled || redisTemplate == null) {
+            return false;
+        }
+        try {
+            redisTemplate.opsForValue().set(KEY_PREFIX + jti, "1", ttlMs, TimeUnit.MILLISECONDS);
+            log.info("令牌已加入黑名单（Redis），jti:{}", jti);
+            return true;
+        } catch (Exception e) {
+            log.warn("Redis 黑名单写入失败，降级内存：{}", e.getMessage());
+            return false;
+        }
+    }
+
+    /** Redis 查询黑名单；返回 null 表示未启用/失败（由调用方降级内存） */
+    private Boolean redisHasKey(String key) {
+        try {
+            return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+        } catch (Exception e) {
+            log.warn("Redis 黑名单查询失败，降级内存：{}", e.getMessage());
+            return null;
+        }
     }
 
     /**

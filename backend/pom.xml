@@ -116,6 +116,12 @@
             <version>${okhttp.version}</version>
         </dependency>
 
+        <!-- Redis（多实例共享状态：限流/令牌黑名单/登录锁定；未启用时降级内存实现） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
         <!-- 测试依赖 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

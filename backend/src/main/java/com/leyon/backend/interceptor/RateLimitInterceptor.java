@@ -5,6 +5,9 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -14,11 +17,13 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 接口速率限制拦截器
- * 基于内存的简易速率限制，防止登录/注册接口被暴力破解
- * 使用滑动窗口算法，同一 IP 每分钟最多允许指定次数的请求
+ * 防止登录/注册接口被暴力破解
+ * 配置 app.redis.enabled=true 时使用 Redis 固定窗口计数（多实例共享）；否则使用内存滑动窗口（单实例）
+ * Redis 故障时自动降级内存实现
  *
  * @author leyon
  */
@@ -29,9 +34,20 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
     /**
      * 请求记录：IP → 请求时间戳队列（毫秒）
-     * 使用 ConcurrentHashMap 保证线程安全
+     * 使用 ConcurrentHashMap 保证线程安全（内存降级实现）
      */
     private final Map<String, LinkedList<Long>> requestRecords = new ConcurrentHashMap<>();
+
+    /** Redis key 前缀 */
+    private static final String KEY_PREFIX = "rate:";
+
+    /** 可选注入：启用 Redis 后端时使用 */
+    @Autowired(required = false)
+    private StringRedisTemplate redisTemplate;
+
+    /** 是否启用 Redis 共享状态（环境变量 REDIS_ENABLED） */
+    @Value("${app.redis.enabled:false}")
+    private boolean redisEnabled;
 
     /**
      * 上次全量清理时间戳，用于节流清理频率
@@ -118,8 +134,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         // 获取客户端真实IP（优先 X-Forwarded-For，其次 RemoteAddr）
         String clientIp = getClientIp(request);
 
-        // 检查是否超出速率限制
-        if (isRateLimited(clientIp, response)) {
+        // 检查是否超出速率限制（Redis 优先，失败降级内存）
+        if (isRateLimited(clientIp, requestUri, response)) {
             return false;
         }
 
@@ -158,14 +174,46 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     }
 
     /**
-     * 执行速率限制检查（滑动窗口算法）
-     * 清除过期记录后判断当前窗口内请求数是否超限
+     * 执行速率限制检查：Redis 固定窗口优先，异常时降级内存滑动窗口
      *
      * @param clientIp 客户端 IP
      * @param response 响应对象（用于设置429响应头）
      * @return true-已限流需拦截，false-未超限可放行
      */
-    private boolean isRateLimited(String clientIp, HttpServletResponse response) throws IOException {
+    private boolean isRateLimited(String clientIp, String requestUri, HttpServletResponse response) throws IOException {
+        Boolean redisLimited = redisRateLimit(clientIp, requestUri, response);
+        if (redisLimited != null) {
+            return redisLimited;
+        }
+        return memoryRateLimit(clientIp, response);
+    }
+
+    /** Redis 固定窗口限流；返回 null 表示未启用/失败需降级内存 */
+    private Boolean redisRateLimit(String clientIp, String requestUri, HttpServletResponse response) throws IOException {
+        if (!redisEnabled || redisTemplate == null) {
+            return null;
+        }
+        try {
+            String key = KEY_PREFIX + clientIp + ":" + requestUri;
+            Long count = redisTemplate.opsForValue().increment(key);
+            if (count != null && count == 1L) {
+                redisTemplate.expire(key, WINDOW_MS, TimeUnit.MILLISECONDS);
+            }
+            if (count != null && count > MAX_REQUESTS_PER_WINDOW) {
+                writeRateLimitResponse(response);
+                return true;
+            }
+            return false;
+        } catch (Exception e) {
+            log.warn("Redis 限流失败，降级内存：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 内存滑动窗口限流（单实例降级实现）
+     */
+    private boolean memoryRateLimit(String clientIp, HttpServletResponse response) throws IOException {
         long now = System.currentTimeMillis();
 
         // 惰性全量清理：每隔 CLEANUP_INTERVAL_MS 扫描一次，移除长时间无请求的过期 IP 条目
@@ -199,10 +247,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
                 long retryAfterSeconds = Math.max(1, (oldestInWindow + WINDOW_MS - now + 999) / 1000);
 
                 // 设置 429 响应头和状态码
-                response.setStatus(TOO_MANY_REQUESTS_CODE);
-                response.setContentType(JSON_CONTENT_TYPE);
-                response.setHeader(RETRY_AFTER_HEADER, String.valueOf(retryAfterSeconds));
-                response.getWriter().write(RATE_LIMIT_RESPONSE_TEMPLATE);
+                writeRateLimitResponse(response, retryAfterSeconds);
                 return true;
             }
 
@@ -210,6 +255,19 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             timestamps.addLast(now);
             return false;
         }
+    }
+
+    /** 写入 429 响应（默认 Retry-After 由窗口剩余时间计算） */
+    private void writeRateLimitResponse(HttpServletResponse response) throws IOException {
+        writeRateLimitResponse(response, Math.max(1, WINDOW_MS / 1000));
+    }
+
+    /** 写入 429 响应（自定义 Retry-After） */
+    private void writeRateLimitResponse(HttpServletResponse response, long retryAfterSeconds) throws IOException {
+        response.setStatus(TOO_MANY_REQUESTS_CODE);
+        response.setContentType(JSON_CONTENT_TYPE);
+        response.setHeader(RETRY_AFTER_HEADER, String.valueOf(retryAfterSeconds));
+        response.getWriter().write(RATE_LIMIT_RESPONSE_TEMPLATE);
     }
 
     /**
