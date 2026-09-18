@@ -29,7 +29,7 @@
         </div>
       </section>
 
-      <!-- 审计日志 / 用户列表 Tabs -->
+      <!-- 审计日志 / 用户列表 / 数据归档 Tabs -->
       <div class="flex items-center gap-2 mb-4">
         <button
           @click="activeTab = 'audit'"
@@ -41,7 +41,57 @@
           class="geek-btn geek-btn-sm"
           :class="activeTab === 'users' ? 'geek-btn-primary' : 'geek-btn-ghost'"
         >用户列表</button>
+        <button
+          @click="activeTab = 'archive'"
+          class="geek-btn geek-btn-sm"
+          :class="activeTab === 'archive' ? 'geek-btn-primary' : 'geek-btn-ghost'"
+        >数据归档</button>
       </div>
+
+      <!-- 数据归档面板 -->
+      <section v-if="activeTab === 'archive'" class="geek-card rounded-xl overflow-hidden">
+        <div class="px-4 py-3 border-b geek-divider flex items-center justify-between">
+          <span class="text-sm font-medium" style="color: var(--geek-text)">数据归档概览（超期数据将归档至 *_archive 表并清理录音文件）</span>
+        </div>
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b geek-divider" style="background: var(--geek-bg-subtle)">
+              <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">数据表</th>
+              <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">总量</th>
+              <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-warning)">超期待归档</th>
+              <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">保留天数</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in archiveRows" :key="row.key" class="border-b geek-divider">
+              <td class="px-4 py-2.5 font-medium" style="color: var(--geek-text)">{{ row.label }}</td>
+              <td class="px-4 py-2.5 tabular-nums" style="color: var(--geek-text)">{{ row.stat?.total ?? '-' }}</td>
+              <td class="px-4 py-2.5 tabular-nums" style="color: var(--geek-warning)">{{ row.stat?.expired ?? '-' }}</td>
+              <td class="px-4 py-2.5 tabular-nums" style="color: var(--geek-text-secondary)">{{ row.stat?.retentionDays ?? '-' }} 天</td>
+            </tr>
+            <tr v-if="!archiveOverview">
+              <td colspan="4" class="px-4 py-10 text-center text-sm" style="color: var(--geek-text-muted)">加载中…</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="flex flex-col items-center gap-3 px-4 py-5 border-t geek-divider">
+          <span class="text-xs" style="color: var(--geek-text-muted)">
+            定时归档：{{ archiveOverview?.scheduleEnabled ? '已开启（' + (archiveOverview?.cron || '') + '）' : '已关闭' }}
+          </span>
+          <div class="flex items-center gap-3">
+            <button
+              @click="onRunArchive"
+              :disabled="archiveRunning"
+              class="geek-btn geek-btn-primary geek-btn-sm"
+              :class="{ 'opacity-40 cursor-not-allowed': archiveRunning }"
+            >{{ archiveRunning ? '归档中…' : '立即归档' }}</button>
+          </div>
+          <span v-if="archiveResult" class="text-xs mono text-center" style="color: var(--geek-text-secondary)">
+            归档完成：消息 {{ archiveResult.recordsArchived }} · 通话 {{ archiveResult.callRecordsArchived }} · 审计 {{ archiveResult.auditLogsArchived }} 条；录音删除 {{ archiveResult.recordingsDeleted }} 个（失败 {{ archiveResult.recordingsFailed }}）
+          </span>
+          <span v-else-if="archiveError" class="text-xs" style="color: var(--geek-error)">{{ archiveError }}</span>
+        </div>
+      </section>
 
       <!-- 审计日志表格 -->
       <section v-if="activeTab === 'audit'" class="geek-card rounded-xl overflow-hidden">
@@ -151,7 +201,7 @@ import {
 } from 'lucide-vue-next'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { useTheme } from '../composables/useTheme'
-import { fetchOverview, fetchAuditLogs, fetchUsers, type AdminOverview, type AdminAuditLog } from '../api/admin'
+import { fetchOverview, fetchAuditLogs, fetchUsers, fetchArchiveOverview, runArchive, type AdminOverview, type AdminAuditLog, type ArchiveOverview, type ArchiveRunResult } from '../api/admin'
 import type { User } from '../types'
 
 const { themeMode, setTheme } = useTheme()
@@ -171,7 +221,41 @@ const overviewCards = computed(() => [
 ])
 
 // Tabs
-const activeTab = ref<'audit' | 'users'>('audit')
+const activeTab = ref<'audit' | 'users' | 'archive'>('audit')
+
+// 数据归档
+const archiveOverview = ref<ArchiveOverview | null>(null)
+const archiveRunning = ref(false)
+const archiveResult = ref<ArchiveRunResult | null>(null)
+const archiveError = ref('')
+
+const archiveRows = computed(() => [
+  { key: 'records', label: '对话消息（records）', stat: archiveOverview.value?.records },
+  { key: 'callRecords', label: '通话记录（call_records）', stat: archiveOverview.value?.callRecords },
+  { key: 'auditLogs', label: '审计日志（audit_logs）', stat: archiveOverview.value?.auditLogs },
+])
+
+const loadArchiveOverview = async () => {
+  try {
+    archiveOverview.value = await fetchArchiveOverview()
+  } catch (error) {
+    console.error('加载数据归档概览失败:', error)
+  }
+}
+
+const onRunArchive = async () => {
+  if (archiveRunning.value) return
+  archiveRunning.value = true
+  archiveError.value = ''
+  try {
+    archiveResult.value = await runArchive()
+    await loadArchiveOverview()
+  } catch (error) {
+    archiveError.value = error instanceof Error ? error.message : '归档执行失败'
+  } finally {
+    archiveRunning.value = false
+  }
+}
 
 // 审计日志分页
 const auditLogs = ref<AdminAuditLog[]>([])
@@ -224,6 +308,7 @@ onMounted(async () => {
     fetchOverview().then(data => { overview.value = data }).catch(e => console.error('加载概览失败:', e)),
     loadAuditLogs(),
     loadUsers(),
+    loadArchiveOverview(),
   ])
 })
 </script>

@@ -14,6 +14,8 @@ import com.leyon.backend.mapper.RecordMapper;
 import com.leyon.backend.mapper.SessionMapper;
 import com.leyon.backend.mapper.UserMapper;
 import com.leyon.backend.service.AuditLogService;
+import com.leyon.backend.service.ArchiveResult;
+import com.leyon.backend.service.DataArchiveService;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -37,19 +39,22 @@ public class AdminController {
     private final RecordMapper recordMapper;
     private final SessionMapper sessionMapper;
     private final AuditLogService auditLogService;
+    private final DataArchiveService dataArchiveService;
 
     public AdminController(UserMapper userMapper,
                            AssistantMapper assistantMapper,
                            CallRecordMapper callRecordMapper,
                            RecordMapper recordMapper,
                            SessionMapper sessionMapper,
-                           AuditLogService auditLogService) {
+                           AuditLogService auditLogService,
+                           DataArchiveService dataArchiveService) {
         this.userMapper = userMapper;
         this.assistantMapper = assistantMapper;
         this.callRecordMapper = callRecordMapper;
         this.recordMapper = recordMapper;
         this.sessionMapper = sessionMapper;
         this.auditLogService = auditLogService;
+        this.dataArchiveService = dataArchiveService;
     }
 
     /**
@@ -123,5 +128,31 @@ public class AdminController {
         result.put("page", safePage);
         result.put("pageSize", safeSize);
         return ApiResponse.success(result);
+    }
+
+    /**
+     * 数据归档概览（P2-9）：三表总量 / 超期量 / 保留天数 + 定时开关状态，只读
+     */
+    @GetMapping("/archive/overview")
+    public ApiResponse<Map<String, Object>> archiveOverview() {
+        return ApiResponse.success(dataArchiveService.overview());
+    }
+
+    /**
+     * 手动执行数据归档（P2-9）：超期数据复制到 *_archive 归档表后物理删除源表，并清理录音文件
+     */
+    @PostMapping("/archive/run")
+    public ApiResponse<Map<String, Object>> archiveRun() {
+        ArchiveResult result = dataArchiveService.runArchive();
+        dataArchiveService.deleteRecordings(result);
+        Map<String, Object> data = new HashMap<>();
+        data.put("recordsArchived", result.getRecordsArchived());
+        data.put("callRecordsArchived", result.getCallRecordsArchived());
+        data.put("auditLogsArchived", result.getAuditLogsArchived());
+        data.put("recordingsDeleted", result.getRecordingsDeleted());
+        data.put("recordingsFailed", result.getRecordingsFailed());
+        data.put("startedAt", result.getStartedAt());
+        data.put("finishedAt", result.getFinishedAt());
+        return ApiResponse.success(data);
     }
 }

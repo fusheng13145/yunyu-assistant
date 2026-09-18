@@ -84,3 +84,45 @@ export async function fetchUsers(page: number, pageSize: number, keyword?: strin
   })
   return parseResponse<AdminUserPage>(response)
 }
+
+/** 单表归档状态（数据归档 Tab） */
+export interface ArchiveTableStat {
+  total: number
+  expired: number
+  retentionDays: number
+}
+
+/** 数据归档概览 */
+export interface ArchiveOverview {
+  records: ArchiveTableStat
+  callRecords: ArchiveTableStat
+  auditLogs: ArchiveTableStat
+  scheduleEnabled: boolean
+  cron: string
+}
+
+/** 归档执行结果 */
+export interface ArchiveRunResult {
+  recordsArchived: number
+  callRecordsArchived: number
+  auditLogsArchived: number
+  recordingsDeleted: number
+  recordingsFailed: number
+  startedAt: string
+  finishedAt: string
+}
+
+export async function fetchArchiveOverview(): Promise<ArchiveOverview> {
+  const response = await fetch(`${API_BASE}/admin/archive/overview`, {
+    headers: getAuthHeaders(),
+  })
+  return parseResponse<ArchiveOverview>(response)
+}
+
+export async function runArchive(): Promise<ArchiveRunResult> {
+  const response = await fetch(`${API_BASE}/admin/archive/run`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  })
+  return parseResponse<ArchiveRunResult>(response)
+}

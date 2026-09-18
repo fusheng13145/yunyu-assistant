@@ -81,6 +81,18 @@ app:
   # 通话录音存储目录（前端 MediaRecorder 录制上传，文件名 {callId}.webm）
   recording:
     dir: ${RECORDING_DIR:./data/recordings}
+  # 数据归档（P2-9）：管理端手动触发 + 可选定时任务（默认关闭）
+  archive:
+    # 定时归档开关，默认关闭；开启后按 cron 自动执行（单实例调度，跨实例防重未做）
+    schedule-enabled: ${ARCHIVE_SCHEDULE_ENABLED:false}
+    # 每日凌晨 3 点执行
+    cron: ${ARCHIVE_CRON:0 0 3 * * ?}
+    # 每批次处理条数（含 TEXT/JSON 大字段，建议 200-500）
+    batch-size: ${ARCHIVE_BATCH_SIZE:500}
+    # 各表保留天数（超期即归档到 *_archive 并物理删除源表）
+    records-retention-days: ${ARCHIVE_RECORDS_RETENTION_DAYS:180}
+    call-records-retention-days: ${ARCHIVE_CALL_RECORDS_RETENTION_DAYS:180}
+    audit-logs-retention-days: ${ARCHIVE_AUDIT_LOGS_RETENTION_DAYS:180}
   # JWT 认证配置（Secret 长度必须 ≥ 256 位 / 32 字节，生产环境使用强随机生成值）
   jwt:
     secret: ${JWT_SECRET}

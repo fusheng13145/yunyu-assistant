@@ -151,6 +151,72 @@ CREATE TABLE `audit_logs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='审计日志表';
 
 -- ----------------------------
+-- 数据归档表: records_archive（P2-9 数据归档与容量治理）
+-- 与 records 结构对齐，行级复制 + archived_at 归档时间；不启用逻辑删除，is_deleted 仅存原值供追溯
+-- ----------------------------
+DROP TABLE IF EXISTS `records_archive`;
+CREATE TABLE `records_archive` (
+    `id` VARCHAR(36) NOT NULL COMMENT '聊天记录UUID（原值）',
+    `assistant_id` VARCHAR(36) NOT NULL COMMENT '所属助手ID',
+    `session_id` VARCHAR(36) DEFAULT NULL COMMENT '关联会话ID（文本会话维度）',
+    `call_id` VARCHAR(36) DEFAULT NULL COMMENT '关联通话记录ID（语音消息时）',
+    `role` TINYINT(1) NOT NULL COMMENT '角色 0:user, 1:assistant, 2:tool_call, 3:tool_result',
+    `message` TEXT NOT NULL COMMENT '消息内容',
+    `tool_name` VARCHAR(100) DEFAULT NULL COMMENT '工具名称（tool_call/tool_result 时）',
+    `tool_args` JSON DEFAULT NULL COMMENT '工具参数（tool_call 时）',
+    `tool_result` JSON DEFAULT NULL COMMENT '工具执行结果（tool_result 时）',
+    `knowledgebase_info` JSON DEFAULT NULL COMMENT '引用的知识库信息 {docCount, docName[]}',
+    `cost_time` BIGINT DEFAULT 0 COMMENT '响应耗时',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '消息原时间',
+    `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '来源 is_deleted 原值',
+    `archived_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '归档时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_archive_r_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='聊天记录归档表';
+
+-- ----------------------------
+-- 数据归档表: call_records_archive（P2-9 数据归档与容量治理）
+-- ----------------------------
+DROP TABLE IF EXISTS `call_records_archive`;
+CREATE TABLE `call_records_archive` (
+    `id` VARCHAR(36) NOT NULL COMMENT '通话记录UUID（原值）',
+    `user_id` VARCHAR(36) NOT NULL COMMENT '归属用户ID',
+    `assistant_id` VARCHAR(36) NOT NULL COMMENT '助手ID',
+    `status` TINYINT(1) DEFAULT 1 COMMENT '状态 0:失败 1:进行中 2:正常结束 3:中断',
+    `duration_sec` INT DEFAULT 0 COMMENT '通话时长（秒）',
+    `message_count` INT DEFAULT 0 COMMENT '消息数',
+    `started_at` TIMESTAMP NULL COMMENT '开始时间',
+    `ended_at` TIMESTAMP NULL COMMENT '结束时间',
+    `fail_reason` VARCHAR(255) DEFAULT NULL COMMENT '失败原因',
+    `recording_name` VARCHAR(255) DEFAULT NULL COMMENT '录音文件名（原值）',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '来源 is_deleted 原值',
+    `archived_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '归档时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_archive_cr_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通话记录归档表';
+
+-- ----------------------------
+-- 数据归档表: audit_logs_archive（P2-9 数据归档与容量治理）
+-- 审计日志源表无 is_deleted，天然无逻辑删除
+-- ----------------------------
+DROP TABLE IF EXISTS `audit_logs_archive`;
+CREATE TABLE `audit_logs_archive` (
+    `id` VARCHAR(36) NOT NULL COMMENT '审计日志UUID（原值）',
+    `user_id` VARCHAR(36) DEFAULT NULL COMMENT '操作人用户ID（未登录时为 null）',
+    `action` VARCHAR(64) NOT NULL COMMENT '操作动作（LOGIN/ASSISTANT_CREATE/...）',
+    `target_type` VARCHAR(64) DEFAULT NULL COMMENT '目标类型',
+    `target_id` VARCHAR(64) DEFAULT NULL COMMENT '目标ID',
+    `detail` TEXT DEFAULT NULL COMMENT '详情（JSON）',
+    `ip` VARCHAR(64) DEFAULT NULL COMMENT '客户端IP',
+    `result` TINYINT(1) DEFAULT 1 COMMENT '结果 1:成功 0:失败',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `archived_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '归档时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_archive_audit_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='审计日志归档表';
+
+-- ----------------------------
 -- 插入用户数据
 -- ----------------------------
 INSERT INTO `users` (`id`, `username`, `nickname`, `password`, `avatar`, `email`, `phone`, `role`)

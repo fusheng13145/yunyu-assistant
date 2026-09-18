@@ -3,6 +3,7 @@ package com.leyon.backend;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 项目启动入口
@@ -10,6 +11,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @author leyon
  */
 @SpringBootApplication
+@EnableScheduling
 @MapperScan("com.leyon.backend.mapper")
 public class BackendApplication {
 
