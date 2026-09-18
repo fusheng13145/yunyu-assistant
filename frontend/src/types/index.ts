@@ -116,6 +116,7 @@ export interface CallRecord {
   startedAt: string
   endedAt: string
   failReason?: string
+  recording?: boolean
 }
 
 export interface CallRecordDetail extends CallRecord {

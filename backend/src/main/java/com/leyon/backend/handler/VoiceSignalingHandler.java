@@ -345,24 +345,28 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         if (rustpbxSessionId != null) {
             rustPBXService.sendTTS(rustpbxSessionId, greeting, sessionVoiceMap.get(sessionId));
         }
-        // 通话真正建立，创建通话记录
-        createCallRecord(session);
-        sendMessage(session, MSG_TYPE_WEBRTC_CONNECTED, null);
+        // 通话真正建立，创建通话记录；下发 callId 供前端录音结束后回传上传
+        String callId = createCallRecord(session);
+        Map<String, Object> data = new HashMap<>();
+        if (StringUtils.hasText(callId)) {
+            data.put("callId", callId);
+        }
+        sendMessage(session, MSG_TYPE_WEBRTC_CONNECTED, data);
     }
 
     /**
-     * 创建通话记录（状态=进行中）
+     * 创建通话记录（状态=进行中），返回通话记录ID
      */
-    private void createCallRecord(WebSocketSession session) {
+    private String createCallRecord(WebSocketSession session) {
         String sessionId = session.getId();
         String assistantId = sessionAssistantMap.get(sessionId);
         String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
         if (!StringUtils.hasText(assistantId) || !StringUtils.hasText(userId)) {
-            return;
+            return null;
         }
         // 避免重复创建
         if (sessionCallRecordMap.containsKey(sessionId)) {
-            return;
+            return sessionCallRecordMap.get(sessionId);
         }
         try {
             CallRecord record = new CallRecord();
@@ -376,8 +380,10 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             callRecordService.create(record);
             sessionCallRecordMap.put(sessionId, record.getId());
             logger.info("通话记录已创建，会话ID:{}，通话ID:{}", sessionId, record.getId());
+            return record.getId();
         } catch (Exception e) {
             logger.error("创建通话记录失败，会话ID:{}", sessionId, e);
+            return null;
         }
     }
 

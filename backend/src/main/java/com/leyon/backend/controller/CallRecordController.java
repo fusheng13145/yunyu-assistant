@@ -8,9 +8,21 @@ import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
 import com.leyon.backend.service.RecordService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -18,13 +30,19 @@ import java.util.Map;
 
 /**
  * 通话记录接口
- * 提供通话记录列表与单次通话详情（F7.1 / F7.2）
+ * 提供通话记录列表与单次通话详情（F7.1 / F7.2），以及通话录音上传/回放（P2-8）
  *
  * @author leyon
  */
 @RestController
 @RequestMapping("/api/call-records")
 public class CallRecordController {
+
+    private final Logger logger = LoggerFactory.getLogger(CallRecordController.class);
+
+    /** 通话录音存储目录（前端 MediaRecorder 录制上传） */
+    @Value("${app.recording.dir:./data/recordings}")
+    private String recordingDir;
 
     private final CallRecordService callRecordService;
     private final AssistantService assistantService;
@@ -106,6 +124,77 @@ public class CallRecordController {
     }
 
     /**
+     * 上传通话录音（multipart file，前端 MediaRecorder 录制 webm/opus）
+     * 文件以 {callId}.webm 存入 app.recording.dir，并回写 call_records.recording_name
+     */
+    @PostMapping("/{id}/recording")
+    public ApiResponse<Void> uploadRecording(@PathVariable String id,
+                                             @RequestParam("file") MultipartFile file,
+                                             HttpServletRequest request) {
+        if (!StringUtils.hasText(id)) {
+            return ApiResponse.paramError("通话记录ID不能为空");
+        }
+        if (file == null || file.isEmpty()) {
+            return ApiResponse.paramError("录音文件不能为空");
+        }
+        String userId = (String) request.getAttribute("userId");
+        CallRecord record = callRecordService.getById(id);
+        if (record == null) {
+            return ApiResponse.paramError("通话记录不存在");
+        }
+        // 归属校验：仅本人可上传
+        if (!StringUtils.hasText(userId) || !userId.equals(record.getUserId())) {
+            return ApiResponse.paramError("无权访问该通话记录");
+        }
+        try {
+            Path dir = Path.of(recordingDir);
+            Files.createDirectories(dir);
+            String fileName = id + ".webm";
+            Path target = dir.resolve(fileName);
+            try (var in = file.getInputStream()) {
+                Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            record.setRecordingName(fileName);
+            callRecordService.update(record);
+            return ApiResponse.success();
+        } catch (Exception e) {
+            logger.error("保存通话录音失败，通话ID:{}", id, e);
+            return ApiResponse.paramError("保存录音失败");
+        }
+    }
+
+    /**
+     * 下载通话录音（audio/webm 流，供前端回放；鉴权经 AuthInterceptor + 归属校验）
+     */
+    @GetMapping("/{id}/recording")
+    public ResponseEntity<Resource> downloadRecording(@PathVariable String id, HttpServletRequest request) {
+        if (!StringUtils.hasText(id)) {
+            return ResponseEntity.badRequest().build();
+        }
+        String userId = (String) request.getAttribute("userId");
+        CallRecord record = callRecordService.getById(id);
+        if (record == null) {
+            return ResponseEntity.notFound().build();
+        }
+        // 归属校验：仅本人可回放
+        if (!StringUtils.hasText(userId) || !userId.equals(record.getUserId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        if (!StringUtils.hasText(record.getRecordingName())) {
+            return ResponseEntity.notFound().build();
+        }
+        File file = Path.of(recordingDir, record.getRecordingName()).toFile();
+        if (!file.exists() || !file.isFile()) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .header("Content-Type", "audio/webm")
+                .header("Content-Disposition", "inline; filename=\"" + record.getRecordingName() + "\"")
+                .contentLength(file.length())
+                .body(new FileSystemResource(file));
+    }
+
+    /**
      * 组装列表项（补充助手名称，名称来自批量预取的映射）
      */
     private Map<String, Object> toListItem(CallRecord record, Map<String, String> assistantNameMap) {
@@ -118,6 +207,7 @@ public class CallRecordController {
         item.put("startedAt", record.getStartedAt());
         item.put("endedAt", record.getEndedAt());
         item.put("failReason", record.getFailReason());
+        item.put("recording", StringUtils.hasText(record.getRecordingName()));
         item.put("assistantName", assistantNameMap.getOrDefault(record.getAssistantId(), ""));
         return item;
     }

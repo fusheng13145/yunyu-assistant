@@ -1036,7 +1036,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Bot, LogOut, Settings, RotateCcw, MessageCircle,
@@ -1054,6 +1054,7 @@ import { useQuickCommands } from '../composables/useQuickCommands'
 import { exportChatToMarkdown, exportChatToJson } from '../utils/exportChat'
 import { useWebSocket } from '../utils/websocket'
 import { useWebRTC } from '../composables/useWebRTC'
+import { uploadRecording } from '../api/callRecord'
 import { fetchAssistantsPage, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels } from '../api/assistant'
 import { logout } from '../api/auth'
 import { RagflowApi } from '../api/ragflow'
@@ -1146,6 +1147,19 @@ const webrtc = useWebRTC()
 const audioLevel = webrtc.audioLevel
 const voiceCallActive = ref(false)
 const asrText = ref('')
+/** 当前通话记录ID（录音上传回传用） */
+let currentCallId = ''
+
+// 弱网降级：WebRTC 连接失败时结束通话，引导改用文字对话
+watch(
+  () => webrtc.connectionState.value,
+  (state) => {
+    if (state === 'failed') {
+      showNotification('网络不稳定，语音通话已降级，请改用文字对话', 'warning')
+      endVoiceCall()
+    }
+  }
+)
 
 // 设置弹窗
 const showSettings = ref(false)
@@ -1469,6 +1483,14 @@ const startVoiceCall = async () => {
             voiceCallActive.value = true
             voiceWs?.send({ type: 'webrtc_connected' })
             showNotification('语音通话已连接！', 'success')
+          } else if (data.type === 'webrtc_connected') {
+            // 后端回执通话记录ID，随即开始录音（P2-8 通话录音）
+            currentCallId = String(data.data?.callId || '')
+            if (!currentCallId) {
+              showNotification('通话记录未建立，本次通话将不保存录音', 'info')
+            } else if (!webrtc.startRecording()) {
+              showNotification('录音启动失败，本次通话将不保存录音', 'info')
+            }
           } else if (data.type === 'asr_delta') {
             asrText.value = (data.data as AsrDeltaData).text
           } else if (data.type === 'assistant_message') {
@@ -1502,13 +1524,21 @@ const startVoiceCall = async () => {
   }
 }
 
-const endVoiceCall = () => {
+const endVoiceCall = async () => {
+  const callId = currentCallId
+  currentCallId = ''
+  // 先取录音 blob，再挂断清理（webrtc.hangup 会丢弃未保存录音）
+  const blob = await webrtc.stopRecording()
   voiceWs?.send({ type: 'hangup' })
   voiceWs?.close()
   voiceWs = null
   webrtc.hangup()
   voiceCallActive.value = false
   asrText.value = ''
+  // 异步上传录音（不阻塞通话收尾）
+  if (callId && blob && blob.size > 0) {
+    uploadRecording(callId, blob).catch((e) => console.error('上传通话录音失败', e))
+  }
 }
 
 // 聊天 WebSocket

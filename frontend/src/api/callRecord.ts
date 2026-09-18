@@ -50,6 +50,38 @@ export async function fetchCallRecordDetail(id: string): Promise<CallRecordDetai
   return parseResponse<CallRecordDetail>(response)
 }
 
+/** 上传通话录音（MediaRecorder 录制的 webm blob；multipart 需显式去除 JSON Content-Type） */
+export async function uploadRecording(id: string, blob: Blob): Promise<void> {
+  const token = localStorage.getItem('token')
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const form = new FormData()
+  form.append('file', blob, `${id}.webm`)
+  const response = await fetch(`${API_BASE}/call-records/${id}/recording`, {
+    method: 'POST',
+    headers,
+    body: form,
+  })
+  if (!response.ok) {
+    throw new Error('上传录音失败')
+  }
+  const result: ApiResponse<null> = await response.json()
+  if (result.code !== 200) {
+    throw new Error(result.message || '上传录音失败')
+  }
+}
+
+/** 拉取通话录音 blob（供回放播放器使用） */
+export async function fetchRecordingBlob(id: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/call-records/${id}/recording`, {
+    headers: getAuthHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error('获取录音失败')
+  }
+  return response.blob()
+}
+
 /** 获取用量统计（day/week/month） */
 export async function fetchUsageStats(range: 'day' | 'week' | 'month' = 'week'): Promise<UsageStats> {
   const response = await fetch(`${API_BASE}/stats/usage?range=${range}`, {

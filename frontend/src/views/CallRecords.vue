@@ -114,6 +114,7 @@
               <span class="status-badge" :class="statusClass(record.status)">
                 {{ statusLabel(record.status) }}
               </span>
+              <span v-if="record.recording" class="rec-badge" title="含通话录音">REC</span>
               <ChevronRight class="w-4 h-4" style="color: var(--geek-text-faint)" />
             </div>
           </div>
@@ -150,11 +151,29 @@
               {{ formatTime(detail?.startedAt) }} · {{ formatDuration(detail?.durationSec || 0) }}
             </p>
           </div>
-          <button @click="showDetail = false" class="p-1 transition-colors hover:opacity-70" style="color: var(--geek-text-muted)">
+          <button @click="closeDetail" class="p-1 transition-colors hover:opacity-70" style="color: var(--geek-text-muted)">
             <X class="w-5 h-5" />
           </button>
         </div>
         <div class="flex-1 min-h-0 overflow-y-auto geek-scroll px-6 py-5 space-y-4">
+          <!-- 通话录音回放 -->
+          <div v-if="detail && detail.recording" class="p-3 rounded-lg" style="background: var(--geek-input-bg); border: 1px solid var(--geek-border)">
+            <div class="flex items-center gap-3">
+              <Mic class="w-4 h-4 flex-shrink-0" style="color: var(--geek-accent)" />
+              <div class="flex-1 min-w-0">
+                <p class="text-xs font-medium mb-1" style="color: var(--geek-text)">通话录音</p>
+                <audio v-if="recordingUrl" :src="recordingUrl" controls class="w-full" style="height: 32px"></audio>
+                <button
+                  v-else-if="!recordingLoading"
+                  @click="loadRecording(detail.id)"
+                  class="geek-btn geek-btn-ghost geek-btn-sm"
+                >
+                  播放录音
+                </button>
+                <span v-else class="text-xs" style="color: var(--geek-text-muted)">加载中…</span>
+              </div>
+            </div>
+          </div>
           <div v-if="detail && detail.messages.length === 0" class="text-center py-10 text-sm" style="color: var(--geek-text-muted)">
             本次通话无消息记录
           </div>
@@ -182,10 +201,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, Bot, ChevronRight, PhoneOff, X } from 'lucide-vue-next'
+import { ArrowLeft, Bot, ChevronRight, Mic, PhoneOff, X } from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme'
 import ThemeToggle from '../components/ThemeToggle.vue'
-import { fetchCallRecords, fetchCallRecordDetail, fetchUsageStats } from '../api/callRecord'
+import { fetchCallRecords, fetchCallRecordDetail, fetchRecordingBlob, fetchUsageStats } from '../api/callRecord'
 import type { CallRecord, CallRecordDetail, UsageStats } from '../types'
 
 const router = useRouter()
@@ -198,6 +217,9 @@ const pageSize = 10
 const total = ref(0)
 const showDetail = ref(false)
 const detail = ref<CallRecordDetail | null>(null)
+// 录音回放
+const recordingUrl = ref('')
+const recordingLoading = ref(false)
 
 // 用量统计
 const stats = ref<UsageStats | null>(null)
@@ -245,10 +267,36 @@ const changePage = (p: number) => {
 const openDetail = async (record: CallRecord) => {
   showDetail.value = true
   detail.value = null
+  if (recordingUrl.value) {
+    URL.revokeObjectURL(recordingUrl.value)
+    recordingUrl.value = ''
+  }
+  recordingLoading.value = false
   try {
     detail.value = await fetchCallRecordDetail(record.id)
   } catch (error) {
     console.error('获取通话详情失败:', error)
+  }
+}
+
+const closeDetail = () => {
+  showDetail.value = false
+  if (recordingUrl.value) {
+    URL.revokeObjectURL(recordingUrl.value)
+    recordingUrl.value = ''
+  }
+}
+
+const loadRecording = async (id: string) => {
+  recordingLoading.value = true
+  try {
+    const blob = await fetchRecordingBlob(id)
+    if (recordingUrl.value) URL.revokeObjectURL(recordingUrl.value)
+    recordingUrl.value = URL.createObjectURL(blob)
+  } catch (error) {
+    console.error('获取通话录音失败:', error)
+  } finally {
+    recordingLoading.value = false
   }
 }
 
@@ -320,5 +368,16 @@ onMounted(() => {
 .status-interrupted {
   background: var(--geek-warning-bg);
   color: var(--geek-warning);
+}
+/* 录音徽章：方正红字 */
+.rec-badge {
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  letter-spacing: 0.05em;
+  background: var(--geek-error-bg);
+  color: var(--geek-error);
 }
 </style>

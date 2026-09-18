@@ -123,6 +123,7 @@ CREATE TABLE `call_records` (
     `started_at` TIMESTAMP NULL COMMENT '开始时间',
     `ended_at` TIMESTAMP NULL COMMENT '结束时间',
     `fail_reason` VARCHAR(255) DEFAULT NULL COMMENT '失败原因',
+    `recording_name` VARCHAR(255) DEFAULT NULL COMMENT '通话录音文件名（{callId}.webm），NULL 表示无录音',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
     PRIMARY KEY (`id`),

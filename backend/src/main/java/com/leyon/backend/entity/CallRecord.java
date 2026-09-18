@@ -78,6 +78,11 @@ public class CallRecord {
     private String failReason;
 
     /**
+     * 通话录音文件名（如 `{callId}.webm`，NULL 表示无录音）
+     */
+    private String recordingName;
+
+    /**
      * 创建时间
      */
     @TableField(fill = FieldFill.INSERT)
@@ -160,6 +165,14 @@ public class CallRecord {
 
     public void setFailReason(String failReason) {
         this.failReason = failReason;
+    }
+
+    public String getRecordingName() {
+        return recordingName;
+    }
+
+    public void setRecordingName(String recordingName) {
+        this.recordingName = recordingName;
     }
 
     public LocalDateTime getCreatedAt() {
