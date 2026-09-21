@@ -49,6 +49,11 @@ public class Session {
     private String assistantId;
 
     /**
+     * 所属组织ID（P2-10 多租户；空=个人数据，非空=组织数据按角色矩阵）
+     */
+    private String orgId;
+
+    /**
      * 会话标题（默认"新对话"，首轮对话后自动取用户消息前缀）
      */
     private String title;
@@ -101,6 +106,14 @@ public class Session {
 
     public void setAssistantId(String assistantId) {
         this.assistantId = assistantId;
+    }
+
+    public String getOrgId() {
+        return orgId;
+    }
+
+    public void setOrgId(String orgId) {
+        this.orgId = orgId;
     }
 
     public String getTitle() {

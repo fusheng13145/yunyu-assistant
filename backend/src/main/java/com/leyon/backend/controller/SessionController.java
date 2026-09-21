@@ -32,7 +32,7 @@ public class SessionController {
     }
 
     /**
-     * 创建会话（归属当前用户）
+     * 创建会话（归属当前用户；请求体携带 orgId 且为组织 editor 以上时归属组织）
      */
     @Audit(action = "SESSION_CREATE", targetType = "session")
     @PostMapping
@@ -42,7 +42,7 @@ public class SessionController {
         if (!StringUtils.hasText(assistantId)) {
             return ApiResponse.paramError("助手ID不能为空");
         }
-        Session created = sessionService.create(userId, assistantId, body.get("title"));
+        Session created = sessionService.create(userId, assistantId, body.get("title"), body.get("orgId"));
         return ApiResponse.success(created);
     }
 

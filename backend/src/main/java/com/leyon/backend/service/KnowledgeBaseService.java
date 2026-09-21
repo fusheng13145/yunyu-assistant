@@ -18,9 +18,11 @@ import java.util.List;
 public class KnowledgeBaseService {
 
     private final KnowledgeBaseMapper knowledgeBaseMapper;
+    private final OrgService orgService;
 
-    public KnowledgeBaseService(KnowledgeBaseMapper knowledgeBaseMapper) {
+    public KnowledgeBaseService(KnowledgeBaseMapper knowledgeBaseMapper, OrgService orgService) {
         this.knowledgeBaseMapper = knowledgeBaseMapper;
+        this.orgService = orgService;
     }
 
     /**
@@ -70,19 +72,56 @@ public class KnowledgeBaseService {
     }
 
     /**
-     * 校验指定数据集是否属于当前用户（对象级授权，防越权）
+     * 校验指定数据集是否属于当前用户/组织（读取级授权，防越权）
+     * 个人数据按 userId；组织数据要求当前用户为组织成员（viewer 以上可读）
+     *
      * @param datasetId RAGFlow 数据集ID
      * @param userId    登录用户ID
-     * @return 属于当前用户返回 true，否则 false
+     * @return 可读返回 true，否则 false
      */
     public boolean isOwnedDataset(String datasetId, String userId) {
-        if (!StringUtils.hasText(datasetId) || !StringUtils.hasText(userId)) {
+        KnowledgeBase kb = findByDatasetId(datasetId);
+        if (kb == null) {
             return false;
+        }
+        if (StringUtils.hasText(kb.getOrgId())) {
+            return orgService.isMember(kb.getOrgId(), userId);
+        }
+        return StringUtils.hasText(userId) && userId.equals(kb.getUserId());
+    }
+
+    /**
+     * 校验指定数据集是否可管理（写/删除/解析级授权）
+     * 个人数据按 userId；组织数据要求当前用户为 editor(含)以上
+     *
+     * @param datasetId RAGFlow 数据集ID
+     * @param userId    登录用户ID
+     * @return 可管理返回 true，否则 false
+     */
+    public boolean canManageDataset(String datasetId, String userId) {
+        KnowledgeBase kb = findByDatasetId(datasetId);
+        if (kb == null) {
+            return false;
+        }
+        if (StringUtils.hasText(kb.getOrgId())) {
+            try {
+                orgService.requireRole(kb.getOrgId(), userId, com.leyon.backend.entity.Org.ROLE_EDITOR);
+                return true;
+            } catch (RuntimeException e) {
+                return false;
+            }
+        }
+        return StringUtils.hasText(userId) && userId.equals(kb.getUserId());
+    }
+
+    private KnowledgeBase findByDatasetId(String datasetId) {
+        if (!StringUtils.hasText(datasetId)) {
+            return null;
         }
         LambdaQueryWrapper<KnowledgeBase> queryWrapper = new LambdaQueryWrapper<KnowledgeBase>()
                 .eq(KnowledgeBase::getDatasetId, datasetId)
-                .eq(KnowledgeBase::getUserId, userId);
-        return knowledgeBaseMapper.selectCount(queryWrapper) > 0;
+                .last("LIMIT 1");
+        return knowledgeBaseMapper.selectOne(queryWrapper);
     }
 
     /**

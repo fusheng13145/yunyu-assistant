@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.leyon.backend.common.ApiResponse;
+import com.leyon.backend.common.ForbiddenException;
+import com.leyon.backend.common.QuotaExceededException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -31,6 +33,28 @@ public class GlobalExceptionHandler {
     private static final String VALIDATE_FAIL_MSG = "参数校验失败";
     /** 系统内部错误提示文案 */
     private static final String SERVER_ERROR_MSG = "服务器内部错误，请稍后重试";
+
+    /**
+     * 处理用量配额超限异常（P2-10 配额拦截）
+     */
+    @ExceptionHandler(QuotaExceededException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ApiResponse<Void> handleQuotaExceeded(QuotaExceededException e) {
+        log.warn("用量配额超限：{}", e.getMessage());
+        String safeMessage = sanitizeErrorMessage(e.getMessage());
+        return ApiResponse.result(403, safeMessage);
+    }
+
+    /**
+     * 处理权限不足异常（P2-10 组织角色矩阵越权拦截）
+     */
+    @ExceptionHandler(ForbiddenException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ApiResponse<Void> handleForbidden(ForbiddenException e) {
+        log.warn("权限不足：{}", e.getMessage());
+        String safeMessage = sanitizeErrorMessage(e.getMessage());
+        return ApiResponse.result(403, safeMessage);
+    }
 
     /**
      * 处理通用业务运行时异常

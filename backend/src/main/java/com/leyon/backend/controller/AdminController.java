@@ -1,15 +1,18 @@
 package com.leyon.backend.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.leyon.backend.annotation.Audit;
 import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.AuditLog;
 import com.leyon.backend.entity.CallRecord;
+import com.leyon.backend.entity.Quota;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.Session;
 import com.leyon.backend.entity.User;
 import com.leyon.backend.mapper.AssistantMapper;
 import com.leyon.backend.mapper.CallRecordMapper;
+import com.leyon.backend.mapper.QuotaMapper;
 import com.leyon.backend.mapper.RecordMapper;
 import com.leyon.backend.mapper.SessionMapper;
 import com.leyon.backend.mapper.UserMapper;
@@ -38,6 +41,7 @@ public class AdminController {
     private final CallRecordMapper callRecordMapper;
     private final RecordMapper recordMapper;
     private final SessionMapper sessionMapper;
+    private final QuotaMapper quotaMapper;
     private final AuditLogService auditLogService;
     private final DataArchiveService dataArchiveService;
 
@@ -46,6 +50,7 @@ public class AdminController {
                            CallRecordMapper callRecordMapper,
                            RecordMapper recordMapper,
                            SessionMapper sessionMapper,
+                           QuotaMapper quotaMapper,
                            AuditLogService auditLogService,
                            DataArchiveService dataArchiveService) {
         this.userMapper = userMapper;
@@ -53,6 +58,7 @@ public class AdminController {
         this.callRecordMapper = callRecordMapper;
         this.recordMapper = recordMapper;
         this.sessionMapper = sessionMapper;
+        this.quotaMapper = quotaMapper;
         this.auditLogService = auditLogService;
         this.dataArchiveService = dataArchiveService;
     }
@@ -154,5 +160,56 @@ public class AdminController {
         data.put("startedAt", result.getStartedAt());
         data.put("finishedAt", result.getFinishedAt());
         return ApiResponse.success(data);
+    }
+
+    /**
+     * 配额列表（P2-10）：全部已配置配额（org/user 作用域）
+     */
+    @GetMapping("/quotas")
+    public ApiResponse<List<Quota>> quotas() {
+        return ApiResponse.success(quotaMapper.selectList(new LambdaQueryWrapper<Quota>()
+                .orderByAsc(Quota::getScopeType)
+                .orderByAsc(Quota::getScopeId)));
+    }
+
+    /**
+     * 配置/更新配额（P2-10）：按 scope_type + scope_id UPSERT；某项为空则不修改该维度
+     */
+    @Audit(action = "QUOTA_UPDATE", targetType = "quota")
+    @PutMapping("/quotas")
+    public ApiResponse<Void> upsertQuota(@RequestBody Quota quota) {
+        if (quota == null || !StringUtils.hasText(quota.getScopeType())
+                || !StringUtils.hasText(quota.getScopeId())) {
+            return ApiResponse.paramError("scopeType 与 scopeId 不能为空");
+        }
+        if (!Quota.SCOPE_ORG.equals(quota.getScopeType()) && !Quota.SCOPE_USER.equals(quota.getScopeType())) {
+            return ApiResponse.paramError("scopeType 仅支持 org / user");
+        }
+        Quota exist = quotaMapper.selectOne(new LambdaQueryWrapper<Quota>()
+                .eq(Quota::getScopeType, quota.getScopeType())
+                .eq(Quota::getScopeId, quota.getScopeId())
+                .last("LIMIT 1"));
+        if (exist == null) {
+            exist = new Quota();
+            exist.setScopeType(quota.getScopeType());
+            exist.setScopeId(quota.getScopeId());
+            quotaMapper.insert(exist);
+        }
+        Quota update = new Quota();
+        update.setId(exist.getId());
+        if (quota.getAssistantLimit() != null) {
+            update.setAssistantLimit(quota.getAssistantLimit());
+        }
+        if (quota.getDailyCallLimit() != null) {
+            update.setDailyCallLimit(quota.getDailyCallLimit());
+        }
+        if (quota.getDailyCallSecLimit() != null) {
+            update.setDailyCallSecLimit(quota.getDailyCallSecLimit());
+        }
+        if (quota.getDailyMsgLimit() != null) {
+            update.setDailyMsgLimit(quota.getDailyMsgLimit());
+        }
+        quotaMapper.updateById(update);
+        return ApiResponse.success();
     }
 }

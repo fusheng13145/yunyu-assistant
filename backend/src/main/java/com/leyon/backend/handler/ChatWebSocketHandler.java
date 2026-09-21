@@ -3,6 +3,7 @@ package com.leyon.backend.handler;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.leyon.backend.common.QuotaExceededException;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.Session;
@@ -10,6 +11,8 @@ import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
+import com.leyon.backend.service.OrgService;
+import com.leyon.backend.service.QuotaService;
 import com.leyon.backend.service.RecordService;
 import com.leyon.backend.service.SessionService;
 import com.leyon.backend.tool.ToolRegistry;
@@ -89,6 +92,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final AssistantService assistantService;
     private final RecordService recordService;
     private final SessionService sessionService;
+    private final OrgService orgService;
+    private final QuotaService quotaService;
     private final ObjectMapper objectMapper;
     private final JwtUtil jwtUtil;
     private final ToolRegistry toolRegistry;
@@ -110,6 +115,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 AssistantService assistantService,
                                 RecordService recordService,
                                 SessionService sessionService,
+                                OrgService orgService,
+                                QuotaService quotaService,
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
                                 ToolRegistry toolRegistry) {
@@ -118,6 +125,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.assistantService = assistantService;
         this.recordService = recordService;
         this.sessionService = sessionService;
+        this.orgService = orgService;
+        this.quotaService = quotaService;
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
         this.toolRegistry = toolRegistry;
@@ -165,8 +174,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // 校验当前用户是否有权限访问该助手
-        if (!userId.equals(assistant.getUserId())) {
+        // 校验当前用户是否有权限访问该助手（个人数据按 userId；组织数据按成员 viewer 以上可读/使用）
+        if (!canUseAssistant(assistant, userId)) {
             sendMessage(session, MSG_TYPE_ERROR, "无权访问此助手");
             session.close(CloseStatus.NOT_ACCEPTABLE);
             return;
@@ -301,6 +310,17 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private void handleChat(@NonNull WebSocketSession session, ChatService chatService, JsonNode node) {
         String sessionId = session.getId();
         String content = node.get(FIELD_CONTENT).asText();
+        String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
+
+        // P2-10 消息配额拦截：单日消息量超限时回错误消息，不发起流式（WS 场景不抛 HTTP 异常）
+        if (userId != null) {
+            try {
+                quotaService.checkSendMessage(userId);
+            } catch (QuotaExceededException e) {
+                sendMessage(session, MSG_TYPE_ERROR, e.getMessage());
+                return;
+            }
+        }
 
         // 终止上一次未完成的流式请求
         Disposable oldSub = activeSubscriptions.get(sessionId);
@@ -412,6 +432,20 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         // 持久化本次会话新增的对话记录（修复对话历史无法落库的问题）
         persistNewRecords(assistantId, businessSessionMap.get(sessionId), chatService);
+    }
+
+    /**
+     * 校验当前用户是否可读取/使用助手（P2-10 组织共享）
+     * 个人数据按 userId；组织数据按成员 viewer 以上
+     */
+    private boolean canUseAssistant(Assistant assistant, String userId) {
+        if (assistant == null || !StringUtils.hasText(userId)) {
+            return false;
+        }
+        if (StringUtils.hasText(assistant.getOrgId())) {
+            return orgService.isMember(assistant.getOrgId(), userId);
+        }
+        return userId.equals(assistant.getUserId());
     }
 
     /**

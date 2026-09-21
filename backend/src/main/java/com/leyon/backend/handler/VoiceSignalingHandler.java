@@ -3,16 +3,21 @@ package com.leyon.backend.handler;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.leyon.backend.common.QuotaExceededException;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.CallRecord;
 import com.leyon.backend.entity.Record;
+import com.leyon.backend.entity.WebhookDelivery;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
+import com.leyon.backend.service.OrgService;
+import com.leyon.backend.service.QuotaService;
 import com.leyon.backend.service.RecordService;
 import com.leyon.backend.service.RustPBXService;
+import com.leyon.backend.service.WebhookService;
 import com.leyon.backend.tool.ToolRegistry;
 import com.leyon.backend.util.JwtUtil;
 import org.slf4j.Logger;
@@ -76,6 +81,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
 
     /** 会话属性Key */
     private static final String SESSION_ATTR_USER_ID = "userId";
+    /** 会话属性Key：第三方应用ID（OpenAPI 语音会话由 OpenApiWebSocketAuthInterceptor 注入） */
+    private static final String SESSION_ATTR_APP_ID = "appId";
 
     // ====================== 日志 ======================
     private final Logger logger = LoggerFactory.getLogger(VoiceSignalingHandler.class);
@@ -87,6 +94,9 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private final KnowledgeProvider knowledgeProvider;
     private final RecordService recordService;
     private final CallRecordService callRecordService;
+    private final OrgService orgService;
+    private final QuotaService quotaService;
+    private final WebhookService webhookService;
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
     private final JwtUtil jwtUtil;
@@ -102,6 +112,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private final ConcurrentHashMap<String, String> sessionVoiceMap = new ConcurrentHashMap<>();
     /** 会话ID -> 通话记录ID（用于通话记录统计） */
     private final ConcurrentHashMap<String, String> sessionCallRecordMap = new ConcurrentHashMap<>();
+    /** 会话ID -> 第三方应用ID（P2-17 Webhook；仅 OpenAPI 语音会话非空） */
+    private final ConcurrentHashMap<String, String> sessionAppIdMap = new ConcurrentHashMap<>();
     /** 会话ID -> 流式订阅器，防止并发流堆积 */
     private final ConcurrentHashMap<String, Disposable> activeSubscriptions = new ConcurrentHashMap<>();
     /** 已认证的会话ID集合 */
@@ -113,6 +125,9 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                                  KnowledgeProvider knowledgeProvider,
                                  RecordService recordService,
                                  CallRecordService callRecordService,
+                                 OrgService orgService,
+                                 QuotaService quotaService,
+                                 WebhookService webhookService,
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
                                  JwtUtil jwtUtil) {
@@ -122,6 +137,9 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         this.knowledgeProvider = knowledgeProvider;
         this.recordService = recordService;
         this.callRecordService = callRecordService;
+        this.orgService = orgService;
+        this.quotaService = quotaService;
+        this.webhookService = webhookService;
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
         this.jwtUtil = jwtUtil;
@@ -280,9 +298,9 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             return null;
         }
 
-        // 权限校验
+        // 权限校验（个人数据按 userId；组织数据按成员 viewer 以上可发起通话）
         String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
-        if (userId == null || !userId.equals(assistant.getUserId())) {
+        if (userId == null || !canUseAssistant(assistant, userId)) {
             sendMessage(session, MSG_TYPE_ERROR, "无权访问此助手");
             return null;
         }
@@ -372,6 +390,11 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             CallRecord record = new CallRecord();
             record.setUserId(userId);
             record.setAssistantId(assistantId);
+            // 组织归属从助手继承（P2-10：组织级配额统计与通话记录隔离依赖 org_id）
+            Assistant assistant = assistantService.getById(assistantId);
+            if (assistant != null) {
+                record.setOrgId(assistant.getOrgId());
+            }
             record.setStatus(CallRecord.STATUS_IN_PROGRESS);
             record.setDurationSec(0);
             record.setMessageCount(0);
@@ -379,6 +402,18 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             record.setIsDeleted(CallRecord.NOT_DELETED);
             callRecordService.create(record);
             sessionCallRecordMap.put(sessionId, record.getId());
+
+            // P2-17：记录调用方应用ID（OpenAPI 语音会话注入 appId，内部会话为空），仅第三方应用投递 call.connected
+            String appId = (String) session.getAttributes().get(SESSION_ATTR_APP_ID);
+            if (StringUtils.hasText(appId)) {
+                sessionAppIdMap.put(sessionId, appId);
+                Map<String, Object> payload = new HashMap<>();
+                payload.put("callId", record.getId());
+                payload.put("assistantId", assistantId);
+                payload.put("userId", userId);
+                webhookService.dispatch(WebhookDelivery.EVENT_CALL_CONNECTED, appId, payload);
+            }
+
             logger.info("通话记录已创建，会话ID:{}，通话ID:{}", sessionId, record.getId());
             return record.getId();
         } catch (Exception e) {
@@ -388,7 +423,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     }
 
     /**
-     * 结束通话记录（更新状态/时长/消息数）
+     * 结束通话记录（更新状态/时长/消息数），OpenAPI 语音会话追加投递 call.completed Webhook
      */
     private void finishCallRecord(String sessionId, int status, int messageCount) {
         String callId = sessionCallRecordMap.remove(sessionId);
@@ -408,6 +443,21 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                 record.setDurationSec((int) Math.max(seconds, 0));
             }
             callRecordService.update(record);
+
+            // P2-17：OpenAPI 语音会话（有 appId）通话结束投递 Webhook；内部会话无 appId 跳过
+            String appId = sessionAppIdMap.remove(sessionId);
+            if (StringUtils.hasText(appId)) {
+                Map<String, Object> payload = new HashMap<>();
+                payload.put("callId", callId);
+                payload.put("assistantId", record.getAssistantId());
+                payload.put("userId", record.getUserId());
+                payload.put("status", status);
+                payload.put("durationSec", record.getDurationSec() == null ? 0 : record.getDurationSec());
+                payload.put("messageCount", messageCount);
+                payload.put("recording", StringUtils.hasText(record.getRecordingName()));
+                webhookService.dispatch(WebhookDelivery.EVENT_CALL_COMPLETED, appId, payload);
+            }
+
             logger.info("通话记录已更新，通话ID:{}，状态:{}，消息数:{}", callId, status, messageCount);
         } catch (Exception e) {
             logger.error("更新通话记录失败，通话ID:{}", callId, e);
@@ -435,13 +485,24 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             return;
         }
 
+        // P2-19：语音配额逐条拦截（单日消息量超限时终止本轮，不发流）
+        String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
+        String voice = sessionVoiceMap.get(sessionId);
+        try {
+            quotaService.checkSendMessage(userId);
+        } catch (QuotaExceededException e) {
+            sendMessage(session, MSG_TYPE_QUERY_END,
+                    Map.of(FIELD_MESSAGE, e.getMessage(), "status", "error"));
+            rustPBXService.sendTTS(rustpbxSessionId, "抱歉，单日消息量已达上限，请明日再试。", voice);
+            return;
+        }
+
         // 终止上一轮未结束的流式请求
         Disposable oldSub = activeSubscriptions.get(sessionId);
         if (oldSub != null && !oldSub.isDisposed()) {
             oldSub.dispose();
         }
 
-        String voice = sessionVoiceMap.get(sessionId);
         StringBuilder replyBuilder = new StringBuilder();
         // 捕获流结束帧中的 message/costTime/knowledgebase，用于 query_end 推送
         final Map<String, Object> endInfo = new HashMap<>();
@@ -595,6 +656,20 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         // 结束通话记录
         finishCallRecord(sessionId, endStatus, messageCount);
         sessionVoiceMap.remove(sessionId);
+    }
+
+    /**
+     * 校验当前用户是否可读取/使用助手（P2-10 组织共享）
+     * 个人数据按 userId；组织数据按成员 viewer 以上
+     */
+    private boolean canUseAssistant(Assistant assistant, String userId) {
+        if (assistant == null || !StringUtils.hasText(userId)) {
+            return false;
+        }
+        if (StringUtils.hasText(assistant.getOrgId())) {
+            return orgService.isMember(assistant.getOrgId(), userId);
+        }
+        return userId.equals(assistant.getUserId());
     }
 
     /**

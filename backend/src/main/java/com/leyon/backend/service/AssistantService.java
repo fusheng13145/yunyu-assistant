@@ -18,17 +18,21 @@ import java.util.List;
 public class AssistantService {
 
     private final AssistantMapper assistantMapper;
+    private final QuotaService quotaService;
 
-    public AssistantService(AssistantMapper assistantMapper) {
+    public AssistantService(AssistantMapper assistantMapper, QuotaService quotaService) {
         this.assistantMapper = assistantMapper;
+        this.quotaService = quotaService;
     }
 
     /**
-     * 创建助手信息
-     * @param assistant 助手实体
+     * 创建助手信息（创建前校验助手数量配额，超限抛 403）
+     * @param assistant 助手实体（userId/orgId 由 Controller 归属解析后写入）
      * @return 保存后的助手对象
      */
     public Assistant create(Assistant assistant) {
+        // 创建前校验助手数量配额（QuotaService 内部按 org 优先 / user 兜底定位作用域），超限抛 403
+        quotaService.checkCreateAssistant(assistant.getUserId());
         // MP 已配置 ASSIGN_UUID，无需手动生成ID，移除重复UUID逻辑
         assistantMapper.insert(assistant);
         return assistant;

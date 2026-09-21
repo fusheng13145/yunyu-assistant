@@ -33,6 +33,8 @@ class SessionServiceTest {
 
     @Mock
     private SessionMapper sessionMapper;
+    @Mock
+    private OrgService orgService;
 
     private SessionService sessionService;
 
@@ -40,7 +42,7 @@ class SessionServiceTest {
     void setUp() {
         // 初始化 MyBatis-Plus 实体元数据，使 LambdaUpdateWrapper 在纯单测环境可用
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Session.class);
-        sessionService = new SessionService(sessionMapper);
+        sessionService = new SessionService(sessionMapper, orgService);
     }
 
     private Session ownedSession(String id, String userId, String assistantId, String title, int pinned) {
@@ -55,9 +57,10 @@ class SessionServiceTest {
 
     @Test
     void create_assignsOwnerAndDefaultTitle() {
-        Session created = sessionService.create("u1", "a1", null);
+        Session created = sessionService.create("u1", "a1", null, null);
         assertThat(created.getUserId()).isEqualTo("u1");
         assertThat(created.getAssistantId()).isEqualTo("a1");
+        assertThat(created.getOrgId()).isNull();
         assertThat(created.getTitle()).isEqualTo(Session.DEFAULT_TITLE);
         assertThat(created.getIsPinned()).isEqualTo(Session.NOT_PINNED);
         verify(sessionMapper).insert(created);

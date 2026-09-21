@@ -2,8 +2,11 @@ package com.leyon.backend.controller;
 
 import com.leyon.backend.annotation.Audit;
 import com.leyon.backend.common.ApiResponse;
+import com.leyon.backend.common.ForbiddenException;
 import com.leyon.backend.entity.KnowledgeBase;
+import com.leyon.backend.entity.Org;
 import com.leyon.backend.service.KnowledgeBaseService;
+import com.leyon.backend.service.OrgService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +33,7 @@ public class KnowledgeBaseController {
     private static final Logger log = LoggerFactory.getLogger(KnowledgeBaseController.class);
 
     private final KnowledgeBaseService knowledgeBaseService;
+    private final OrgService orgService;
     private final RestTemplate restTemplate;
 
     @Value("${app.ragflow.api-key:}")
@@ -38,8 +42,10 @@ public class KnowledgeBaseController {
     @Value("${app.ragflow.endpoint:}")
     private String ragflowEndpoint;
 
-    public KnowledgeBaseController(KnowledgeBaseService knowledgeBaseService, RestTemplate restTemplate) {
+    public KnowledgeBaseController(KnowledgeBaseService knowledgeBaseService, OrgService orgService,
+                                   RestTemplate restTemplate) {
         this.knowledgeBaseService = knowledgeBaseService;
+        this.orgService = orgService;
         this.restTemplate = restTemplate;
     }
 
@@ -54,17 +60,19 @@ public class KnowledgeBaseController {
 
     /**
      * 创建知识库
+     * 归属规则：请求体携带 orgId 且当前用户为该组织 editor(含)以上时归属组织；否则归属个人
      */
     @Audit(action = "KB_CREATE", targetType = "knowledge_base")
     @PostMapping
     public ApiResponse<KnowledgeBase> create(@RequestBody KnowledgeBase kb, HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");
         kb.setUserId(userId);
+        kb.setOrgId(resolveCreateOrg(kb.getOrgId(), userId));
         return ApiResponse.success(knowledgeBaseService.create(kb));
     }
 
     /**
-     * 根据ID查询知识库详情（增加归属权限校验）
+     * 根据ID查询知识库详情（鉴权：个人数据按 userId，组织数据按成员角色 viewer 以上可读）
      */
     @GetMapping("/{id}")
     public ApiResponse<KnowledgeBase> getById(@PathVariable String id, HttpServletRequest request) {
@@ -76,15 +84,12 @@ public class KnowledgeBaseController {
         if (kb == null) {
             return ApiResponse.paramError("知识库不存在");
         }
-        // 校验数据归属
-        if (!StringUtils.hasText(loginUserId) || !loginUserId.equals(kb.getUserId())) {
-            return ApiResponse.paramError("无权访问该知识库");
-        }
+        requireRead(kb.getOrgId(), kb.getUserId(), loginUserId);
         return ApiResponse.success(kb);
     }
 
     /**
-     * 更新知识库（增加归属权限校验）
+     * 更新知识库（鉴权：个人数据按 userId，组织数据按成员角色 editor 以上可改；不改动归属）
      */
     @PutMapping("/{id}")
     public ApiResponse<Void> update(@PathVariable String id,
@@ -98,11 +103,10 @@ public class KnowledgeBaseController {
         if (existKb == null) {
             return ApiResponse.paramError("知识库不存在");
         }
-        if (!loginUserId.equals(existKb.getUserId())) {
-            return ApiResponse.paramError("无权修改该知识库");
-        }
+        requireManage(existKb.getOrgId(), existKb.getUserId(), loginUserId);
         kb.setId(id);
-        kb.setUserId(loginUserId);
+        kb.setUserId(existKb.getUserId());
+        kb.setOrgId(existKb.getOrgId());
         boolean updated = knowledgeBaseService.update(kb);
         if (!updated) {
             return ApiResponse.paramError("更新失败");
@@ -111,7 +115,7 @@ public class KnowledgeBaseController {
     }
 
     /**
-     * 删除知识库（增加归属权限校验）
+     * 删除知识库（鉴权：个人数据按 userId，组织数据按成员角色 editor 以上可删）
      */
     @Audit(action = "KB_DELETE", targetType = "knowledge_base")
     @DeleteMapping("/{id}")
@@ -124,14 +128,49 @@ public class KnowledgeBaseController {
         if (existKb == null) {
             return ApiResponse.paramError("知识库不存在");
         }
-        if (!loginUserId.equals(existKb.getUserId())) {
-            return ApiResponse.paramError("无权删除该知识库");
-        }
+        requireManage(existKb.getOrgId(), existKb.getUserId(), loginUserId);
         boolean deleted = knowledgeBaseService.delete(id);
         if (!deleted) {
             return ApiResponse.paramError("删除失败");
         }
         return ApiResponse.success();
+    }
+
+    /**
+     * 解析创建归属组织：携带 orgId 且当前用户为 editor(含)以上时归属组织；否则归属个人
+     */
+    private String resolveCreateOrg(String orgId, String userId) {
+        if (!StringUtils.hasText(orgId)) {
+            return null;
+        }
+        orgService.requireRole(orgId, userId, Org.ROLE_EDITOR);
+        return orgId;
+    }
+
+    /**
+     * 读取校验：个人资源按 userId；组织资源需为组织成员（viewer 以上）
+     */
+    private void requireRead(String orgId, String ownerUserId, String userId) {
+        if (!StringUtils.hasText(orgId)) {
+            if (!StringUtils.hasText(userId) || !userId.equals(ownerUserId)) {
+                throw new ForbiddenException("无权访问该知识库");
+            }
+            return;
+        }
+        orgService.requireMember(orgId, userId);
+    }
+
+    /**
+     * 管理校验：个人资源按 userId；组织资源需 editor(含)以上
+     */
+    private void requireManage(String orgId, String ownerUserId, String userId) {
+        if (!StringUtils.hasText(orgId)) {
+            if (!StringUtils.hasText(userId) || !userId.equals(ownerUserId)) {
+                throw new ForbiddenException("无权访问该知识库");
+            }
+            return;
+        }
+        orgService.requireRole(orgId, userId, Org.ROLE_EDITOR);
     }
 
     /**

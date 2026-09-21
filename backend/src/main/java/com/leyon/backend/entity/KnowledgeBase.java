@@ -54,6 +54,11 @@ public class KnowledgeBase {
     private String userId;
 
     /**
+     * 所属组织ID（P2-10 多租户；空=个人数据，非空=组织数据按角色矩阵）
+     */
+    private String orgId;
+
+    /**
      * 创建时间，自动填充
      */
     @TableField(fill = FieldFill.INSERT)
@@ -134,6 +139,14 @@ public class KnowledgeBase {
 
     public void setUserId(String userId) {
         this.userId = userId;
+    }
+
+    public String getOrgId() {
+        return orgId;
+    }
+
+    public void setOrgId(String orgId) {
+        this.orgId = orgId;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -33,13 +33,15 @@ class AssistantServiceTest {
 
     @Mock
     private AssistantMapper assistantMapper;
+    @Mock
+    private QuotaService quotaService;
 
     private AssistantService assistantService;
 
     @BeforeEach
     void setUp() {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Assistant.class);
-        assistantService = new AssistantService(assistantMapper);
+        assistantService = new AssistantService(assistantMapper, quotaService);
     }
 
     @Test

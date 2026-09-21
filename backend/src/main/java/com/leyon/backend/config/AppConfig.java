@@ -10,6 +10,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import com.leyon.backend.interceptor.AdminAuthInterceptor;
 import com.leyon.backend.interceptor.AuthInterceptor;
+import com.leyon.backend.interceptor.OpenApiAuthInterceptor;
 import com.leyon.backend.interceptor.RateLimitInterceptor;
 
 /**
@@ -33,6 +34,10 @@ public class AppConfig implements WebMvcConfigurer {
      * 管理员接口鉴权拦截器
      */
     private final AdminAuthInterceptor adminAuthInterceptor;
+    /**
+     * 开放 OpenAPI 鉴权拦截器（X-API-Key，与 JWT 通道隔离）
+     */
+    private final OpenApiAuthInterceptor openApiAuthInterceptor;
 
     /**
      * 构造器注入拦截器
@@ -40,12 +45,14 @@ public class AppConfig implements WebMvcConfigurer {
      * @param authInterceptor       自定义认证拦截器
      * @param rateLimitInterceptor  速率限制拦截器
      * @param adminAuthInterceptor  管理员鉴权拦截器
+     * @param openApiAuthInterceptor OpenAPI 鉴权拦截器
      */
     public AppConfig(AuthInterceptor authInterceptor, RateLimitInterceptor rateLimitInterceptor,
-                     AdminAuthInterceptor adminAuthInterceptor) {
+                     AdminAuthInterceptor adminAuthInterceptor, OpenApiAuthInterceptor openApiAuthInterceptor) {
         this.authInterceptor = authInterceptor;
         this.rateLimitInterceptor = rateLimitInterceptor;
         this.adminAuthInterceptor = adminAuthInterceptor;
+        this.openApiAuthInterceptor = openApiAuthInterceptor;
     }
 
     /**
@@ -63,7 +70,9 @@ public class AppConfig implements WebMvcConfigurer {
                 // 拦截所有api接口
                 .addPathPatterns("/api/**")
                 // 排除认证模块接口（登录/注册/刷新令牌等无需鉴权）
-                .excludePathPatterns("/api/auth/**");
+                .excludePathPatterns("/api/auth/**")
+                // 排除开放 OpenAPI（由 OpenApiAuthInterceptor 以 API Key 鉴权，与 JWT 通道隔离）
+                .excludePathPatterns("/api/open/**");
 
         // 速率限制拦截器（仅限制登录和注册接口）
         registry.addInterceptor(rateLimitInterceptor)
@@ -72,6 +81,12 @@ public class AppConfig implements WebMvcConfigurer {
         // 管理员接口鉴权拦截器（依赖 AuthInterceptor 解析的 userId，须在其之后）
         registry.addInterceptor(adminAuthInterceptor)
                 .addPathPatterns("/api/admin/**");
+
+        // 开放 OpenAPI 鉴权拦截器（X-API-Key 校验 /api/open/**，独立于 JWT 通道）
+        // 排除 PSTN 网关回调端点（/api/open/callbacks/** 用独立 X-Gateway-Token 校验）
+        registry.addInterceptor(openApiAuthInterceptor)
+                .addPathPatterns("/api/open/**")
+                .excludePathPatterns("/api/open/callbacks/**");
     }
 
     /**

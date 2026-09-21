@@ -217,6 +217,134 @@ CREATE TABLE `audit_logs_archive` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='审计日志归档表';
 
 -- ----------------------------
+-- 组织表: orgs（P2-10 多租户与商业化前置）
+-- ----------------------------
+DROP TABLE IF EXISTS `orgs`;
+CREATE TABLE `orgs` (
+    `id` VARCHAR(36) NOT NULL COMMENT '组织UUID',
+    `name` VARCHAR(64) NOT NULL COMMENT '组织名',
+    `owner_user_id` VARCHAR(36) NOT NULL COMMENT '创建者(owner)用户ID',
+    `description` VARCHAR(255) DEFAULT NULL COMMENT '组织描述',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_org_owner` (`owner_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='组织表';
+
+-- ----------------------------
+-- 组织成员表: org_members（P2-10 多租户与商业化前置）
+-- 角色: owner / editor / viewer，成员关系不可重复
+-- --------------------------
+DROP TABLE IF EXISTS `org_members`;
+CREATE TABLE `org_members` (
+    `id` VARCHAR(36) NOT NULL COMMENT '成员关系UUID',
+    `org_id` VARCHAR(36) NOT NULL COMMENT '组织ID',
+    `user_id` VARCHAR(36) NOT NULL COMMENT '用户ID',
+    `role` VARCHAR(16) NOT NULL COMMENT '角色 owner:拥有者 editor:编辑者 viewer:只读',
+    `joined_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '加入时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_org_user` (`org_id`, `user_id`),
+    KEY `idx_member_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='组织成员表';
+
+-- ----------------------------
+-- 业务表增加组织的可选归属（P2-10 多租户与商业化前置）
+-- org_id 为空表示个人数据（仍按 user_id 隔离）；非空表示组织数据（按组织角色矩阵控制）
+-- ----------------------------
+ALTER TABLE `assistants` ADD COLUMN `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）' AFTER `user_id`;
+ALTER TABLE `assistants` ADD KEY `idx_assistant_org_id` (`org_id`);
+
+ALTER TABLE `knowledgebases` ADD COLUMN `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）' AFTER `user_id`;
+ALTER TABLE `knowledgebases` ADD KEY `idx_kb_org_id` (`org_id`);
+
+ALTER TABLE `sessions` ADD COLUMN `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）' AFTER `assistant_id`;
+ALTER TABLE `sessions` ADD KEY `idx_session_org_id` (`org_id`);
+
+ALTER TABLE `call_records` ADD COLUMN `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）' AFTER `user_id`;
+ALTER TABLE `call_records` ADD KEY `idx_cr_org_id` (`org_id`);
+
+-- ----------------------------
+-- 配额表: quotas（P2-10 用量配额与账单统计）
+-- scope_type: org(组织级,优先) / user(用户级,无组织时兜底)；无记录时用环境变量默认值
+-- ----------------------------
+DROP TABLE IF EXISTS `quotas`;
+CREATE TABLE `quotas` (
+    `id` VARCHAR(36) NOT NULL COMMENT '配额UUID',
+    `scope_type` VARCHAR(8) NOT NULL COMMENT '作用域类型 org:组织 user:用户',
+    `scope_id` VARCHAR(36) NOT NULL COMMENT '作用域ID（org_id 或 user_id）',
+    `assistant_limit` INT DEFAULT 50 COMMENT '助手上限',
+    `daily_call_limit` INT DEFAULT 20 COMMENT '单日通话次数上限',
+    `daily_call_sec_limit` BIGINT DEFAULT 3600 COMMENT '单日通话时长上限（秒）',
+    `daily_msg_limit` INT DEFAULT 500 COMMENT '单日消息量上限',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_quota_scope` (`scope_type`, `scope_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='配额表';
+
+-- ----------------------------
+-- 第三方应用表: api_apps（P2-10 开放 OpenAPI）
+-- app_key 为明文 API Key（第三方请求头 X-API-Key 携带），scopes 逗号分隔能力
+-- ----------------------------
+DROP TABLE IF EXISTS `api_apps`;
+CREATE TABLE `api_apps` (
+    `id` VARCHAR(36) NOT NULL COMMENT '应用UUID',
+    `app_key` VARCHAR(64) NOT NULL COMMENT 'API Key（明文，第三方请求鉴权）',
+    `app_name` VARCHAR(64) NOT NULL COMMENT '应用名称',
+    `user_id` VARCHAR(36) NOT NULL COMMENT '属主用户ID',
+    `scopes` VARCHAR(255) NOT NULL DEFAULT 'chat' COMMENT '能力范围，逗号分隔（chat:文本对话）',
+    `webhook_url` VARCHAR(255) DEFAULT NULL COMMENT 'Webhook 回调地址（P2-17；空=不接收事件回调）',
+    `webhook_secret` VARCHAR(64) DEFAULT NULL COMMENT 'Webhook 签名密钥（P2-17；用于 HMAC-SHA256 签名）',
+    `enabled` TINYINT(1) DEFAULT 1 COMMENT '是否启用 1:启用 0:停用',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_app_key` (`app_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='第三方应用表';
+
+-- ----------------------------
+-- PSTN 外呼任务表: outbound_calls（P2-17 开放 OpenAPI 语音外呼）
+-- 状态机: PENDING(待发起) → DIALING(呼叫中) → ACTIVE(接通) → COMPLETED(完成)；任一 → FAILED
+-- ----------------------------
+DROP TABLE IF EXISTS `outbound_calls`;
+CREATE TABLE `outbound_calls` (
+    `id` VARCHAR(36) NOT NULL COMMENT '外呼任务UUID',
+    `user_id` VARCHAR(36) NOT NULL COMMENT '属主用户ID（第三方应用属主）',
+    `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）',
+    `assistant_id` VARCHAR(36) NOT NULL COMMENT '使用的助手ID',
+    `phone_number` VARCHAR(32) NOT NULL COMMENT '被叫电话号码',
+    `status` VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '状态 PENDING/DIALING/ACTIVE/COMPLETED/FAILED',
+    `fail_reason` VARCHAR(255) DEFAULT NULL COMMENT '失败原因',
+    `started_at` TIMESTAMP NULL COMMENT '发起时间',
+    `completed_at` TIMESTAMP NULL COMMENT '完成时间',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_oc_user_time` (`user_id`, `created_at`),
+    KEY `idx_oc_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='PSTN 外呼任务表';
+
+-- ----------------------------
+-- Webhook 投递记录表: webhook_deliveries（P2-17 Webhook 回调）
+-- 异步投递 + 失败重试（指数退避，最多 app.webhook.retry-max-attempts 次）
+-- ----------------------------
+DROP TABLE IF EXISTS `webhook_deliveries`;
+CREATE TABLE `webhook_deliveries` (
+    `id` VARCHAR(36) NOT NULL COMMENT '投递记录UUID',
+    `event_type` VARCHAR(32) NOT NULL COMMENT '事件类型（call.connected/call.completed/call.status_changed/message.completed）',
+    `app_id` VARCHAR(36) NOT NULL COMMENT '第三方应用ID',
+    `payload` JSON DEFAULT NULL COMMENT '事件负载（JSON）',
+    `status` VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '状态 PENDING/SUCCESS/FAILED',
+    `attempt_count` INT DEFAULT 0 COMMENT '已尝试次数',
+    `next_retry_at` TIMESTAMP NULL COMMENT '下次重试时间（失败且未超次时）',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_wh_retry` (`status`, `next_retry_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Webhook 投递记录表';
+
+-- ----------------------------
 -- 插入用户数据
 -- ----------------------------
 INSERT INTO `users` (`id`, `username`, `nickname`, `password`, `avatar`, `email`, `phone`, `role`)

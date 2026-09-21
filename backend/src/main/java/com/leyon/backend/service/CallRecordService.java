@@ -17,15 +17,20 @@ import java.util.List;
 public class CallRecordService {
 
     private final CallRecordMapper callRecordMapper;
+    private final QuotaService quotaService;
 
-    public CallRecordService(CallRecordMapper callRecordMapper) {
+    public CallRecordService(CallRecordMapper callRecordMapper, QuotaService quotaService) {
         this.callRecordMapper = callRecordMapper;
+        this.quotaService = quotaService;
     }
 
     /**
-     * 新增通话记录
+     * 新增通话记录（创建前校验单日通话次数/时长配额，超限抛 403）
      */
     public CallRecord create(CallRecord record) {
+        if (record.getUserId() != null) {
+            quotaService.checkStartCall(record.getUserId());
+        }
         callRecordMapper.insert(record);
         return record;
     }

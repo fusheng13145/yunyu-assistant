@@ -1,11 +1,13 @@
 package com.leyon.backend.controller;
 
 import com.leyon.backend.common.ApiResponse;
+import com.leyon.backend.common.ForbiddenException;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.CallRecord;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
+import com.leyon.backend.service.OrgService;
 import com.leyon.backend.service.RecordService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -47,13 +49,16 @@ public class CallRecordController {
     private final CallRecordService callRecordService;
     private final AssistantService assistantService;
     private final RecordService recordService;
+    private final OrgService orgService;
 
     public CallRecordController(CallRecordService callRecordService,
                                 AssistantService assistantService,
-                                RecordService recordService) {
+                                RecordService recordService,
+                                OrgService orgService) {
         this.callRecordService = callRecordService;
         this.assistantService = assistantService;
         this.recordService = recordService;
+        this.orgService = orgService;
     }
 
     /**
@@ -102,10 +107,8 @@ public class CallRecordController {
         if (record == null) {
             return ApiResponse.paramError("通话记录不存在");
         }
-        // 归属校验
-        if (!StringUtils.hasText(userId) || !userId.equals(record.getUserId())) {
-            return ApiResponse.paramError("无权访问该通话记录");
-        }
+        // 归属校验：个人按 userId，组织按成员 viewer 以上可读
+        requireRead(record.getOrgId(), record.getUserId(), userId);
 
         List<Record> messages = recordService.listByCallId(id);
 
@@ -142,10 +145,8 @@ public class CallRecordController {
         if (record == null) {
             return ApiResponse.paramError("通话记录不存在");
         }
-        // 归属校验：仅本人可上传
-        if (!StringUtils.hasText(userId) || !userId.equals(record.getUserId())) {
-            return ApiResponse.paramError("无权访问该通话记录");
-        }
+        // 归属校验：个人按 userId，组织按成员 viewer 以上可读（录音回传属本人/组织成员操作）
+        requireRead(record.getOrgId(), record.getUserId(), userId);
         try {
             Path dir = Path.of(recordingDir);
             Files.createDirectories(dir);
@@ -176,8 +177,10 @@ public class CallRecordController {
         if (record == null) {
             return ResponseEntity.notFound().build();
         }
-        // 归属校验：仅本人可回放
-        if (!StringUtils.hasText(userId) || !userId.equals(record.getUserId())) {
+        // 归属校验：个人按 userId，组织按成员 viewer 以上可读
+        try {
+            requireRead(record.getOrgId(), record.getUserId(), userId);
+        } catch (ForbiddenException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         if (!StringUtils.hasText(record.getRecordingName())) {
@@ -192,6 +195,19 @@ public class CallRecordController {
                 .header("Content-Disposition", "inline; filename=\"" + record.getRecordingName() + "\"")
                 .contentLength(file.length())
                 .body(new FileSystemResource(file));
+    }
+
+    /**
+     * 读取校验：个人资源按 userId；组织资源需为组织成员（viewer 以上）
+     */
+    private void requireRead(String orgId, String ownerUserId, String userId) {
+        if (!StringUtils.hasText(orgId)) {
+            if (!StringUtils.hasText(userId) || !userId.equals(ownerUserId)) {
+                throw new ForbiddenException("无权访问该通话记录");
+            }
+            return;
+        }
+        orgService.requireMember(orgId, userId);
     }
 
     /**

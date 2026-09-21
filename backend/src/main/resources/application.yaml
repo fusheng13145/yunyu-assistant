@@ -93,6 +93,36 @@ app:
     records-retention-days: ${ARCHIVE_RECORDS_RETENTION_DAYS:180}
     call-records-retention-days: ${ARCHIVE_CALL_RECORDS_RETENTION_DAYS:180}
     audit-logs-retention-days: ${ARCHIVE_AUDIT_LOGS_RETENTION_DAYS:180}
+    # 归档分布式锁 TTL（毫秒，v2.19 跨实例防重；同刻仅一个实例执行归档）
+    lock-ttl-ms: ${APP_ARCHIVE_LOCK_TTL_MS:600000}
+  # 用量配额（P2-10）：org/user 无配置记录时的默认上限（管理端可经 /api/admin/quotas 按作用域覆盖）
+  quota:
+    assistant-limit: ${APP_QUOTA_ASSISTANT_LIMIT:50}
+    daily-call-limit: ${APP_QUOTA_DAILY_CALL:20}
+    daily-call-sec-limit: ${APP_QUOTA_DAILY_CALL_SEC:3600}
+    daily-msg-limit: ${APP_QUOTA_DAILY_MSG:500}
+  # PSTN 外呼网关（P2-17）：可插拔 HTTP 网关，未配置 gateway-url 时外呼任务置 FAILED
+  pstn:
+    # 外呼网关地址（POST JSON {taskId, assistantId, phoneNumber, callbackUrl}），空=不启用
+    gateway-url: ${PSTN_GATEWAY_URL:}
+    # 本系统 PSTN 回调端点（供网关回调，默认相对路径占位）
+    callback-url: ${PSTN_CALLBACK_URL:}
+    # PSTN 网关回调鉴权 Token（/api/open/callbacks/pstn 校验 X-Gateway-Token）
+    callback-token: ${PSTN_CALLBACK_TOKEN:}
+    # DIALING 滞留超时阈值（毫秒，v2.18）：超过即由超时扫描置 FAILED「呼叫超时未接通」
+    timeout-ms: ${PSTN_TIMEOUT_MS:120000}
+    # 外呼超时扫描周期（毫秒，v2.18）
+    scan-interval-ms: ${PSTN_SCAN_INTERVAL_MS:30000}
+  # Webhook 回调（P2-17）：事件投递到第三方应用配置的 webhook_url，异步 + 失败重试（指数退避）
+  webhook:
+    # 全局开关
+    enabled: ${WEBHOOK_ENABLED:true}
+    # 失败重试最大次数
+    retry-max-attempts: 3
+    # 重试基础延迟（毫秒），指数退避 baseDelay * 2^(attempt-1)
+    retry-base-delay-ms: 5000
+    # 失败重试定时扫描周期（毫秒）
+    retry-interval-ms: 60000
   # JWT 认证配置（Secret 长度必须 ≥ 256 位 / 32 字节，生产环境使用强随机生成值）
   jwt:
     secret: ${JWT_SECRET}

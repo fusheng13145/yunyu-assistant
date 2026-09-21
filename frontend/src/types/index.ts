@@ -193,3 +193,23 @@ export interface WsChatMessage {
   type: 'assistant_message' | 'tool_call' | 'tool_result' | 'error' | 'query_end'
   data: ChatAnswer | ToolCallMessage | QueryEndData | string
 }
+
+/** 组织（P2-10 多租户） */
+export interface Org {
+  id: string
+  name: string
+  ownerUserId: string
+  description?: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** 组织成员（P2-10 角色矩阵 owner/editor/viewer） */
+export interface OrgMember {
+  id: string
+  orgId: string
+  userId: string
+  username?: string
+  role: 'owner' | 'editor' | 'viewer'
+  joinedAt: string
+}

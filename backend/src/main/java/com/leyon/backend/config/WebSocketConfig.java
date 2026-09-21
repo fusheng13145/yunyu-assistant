@@ -2,6 +2,7 @@ package com.leyon.backend.config;
 
 import com.leyon.backend.handler.ChatWebSocketHandler;
 import com.leyon.backend.handler.VoiceSignalingHandler;
+import com.leyon.backend.interceptor.OpenApiWebSocketAuthInterceptor;
 import com.leyon.backend.interceptor.WebSocketAuthInterceptor;
 
 import org.springframework.context.annotation.Configuration;
@@ -13,6 +14,7 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 /**
  * WebSocket 服务配置类
  * 注册聊天、语音信令 WebSocket 处理器，统一配置拦截器与跨域规则
+ * v2.16 新增开放 OpenAPI 语音端点（/api/open/ws-voice/*，X-API-Key 鉴权，任意 Origin 放行）
  *
  * @author leyon
  */
@@ -24,6 +26,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private static final String PATH_CHAT = "/ws/*";
     /** 语音信令 WebSocket 路由 */
     private static final String PATH_VOICE = "/ws-voice/*";
+    /** 开放 OpenAPI 语音信令 WebSocket 路由（X-API-Key 鉴权，第三方接入） */
+    private static final String PATH_OPEN_VOICE = "/api/open/ws-voice/*";
     /** 允许跨域的前端域名列表 */
     private static final String[] ALLOWED_ORIGINS = {
             "http://localhost:5173",
@@ -35,16 +39,19 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private final ChatWebSocketHandler chatWebSocketHandler;
     private final VoiceSignalingHandler voiceSignalingHandler;
     private final WebSocketAuthInterceptor webSocketAuthInterceptor;
+    private final OpenApiWebSocketAuthInterceptor openApiWebSocketAuthInterceptor;
 
     /**
      * 构造函数：注入聊天、语音信令处理器与认证拦截器
      */
     public WebSocketConfig(@NonNull ChatWebSocketHandler chatWebSocketHandler,
                            @NonNull VoiceSignalingHandler voiceSignalingHandler,
-                           @NonNull WebSocketAuthInterceptor webSocketAuthInterceptor) {
+                           @NonNull WebSocketAuthInterceptor webSocketAuthInterceptor,
+                           @NonNull OpenApiWebSocketAuthInterceptor openApiWebSocketAuthInterceptor) {
         this.chatWebSocketHandler = chatWebSocketHandler;
         this.voiceSignalingHandler = voiceSignalingHandler;
         this.webSocketAuthInterceptor = webSocketAuthInterceptor;
+        this.openApiWebSocketAuthInterceptor = openApiWebSocketAuthInterceptor;
     }
 
     @Override
@@ -58,5 +65,11 @@ public class WebSocketConfig implements WebSocketConfigurer {
         registry.addHandler(voiceSignalingHandler, PATH_VOICE)
                 .addInterceptors(webSocketAuthInterceptor)
                 .setAllowedOrigins(ALLOWED_ORIGINS);
+
+        // 注册开放 OpenAPI 语音信令 WebSocket（复用同一 VoiceSignalingHandler 单例，全链路信令/ASR/TTS/配额复用）
+        // 跨域放行任意第三方 Origin（鉴权由 OpenApiWebSocketAuthInterceptor 的 API Key 承担）
+        registry.addHandler(voiceSignalingHandler, PATH_OPEN_VOICE)
+                .addInterceptors(openApiWebSocketAuthInterceptor)
+                .setAllowedOriginPatterns("*");
     }
 }

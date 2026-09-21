@@ -15,6 +15,7 @@ backend/target/
 # 编辑器 / 系统文件
 .idea/
 .vscode/
+.trae/
 *.iml
 .DS_Store
 Thumbs.db

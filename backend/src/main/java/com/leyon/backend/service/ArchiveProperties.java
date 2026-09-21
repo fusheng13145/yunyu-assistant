@@ -30,12 +30,23 @@ public class ArchiveProperties {
     /** audit_logs 保留天数（超期即归档） */
     private int auditLogsRetentionDays = 180;
 
+    /** 分布式锁 TTL（毫秒，v2.19 跨实例防重；默认 10 分钟） */
+    private long lockTtlMs = 600_000;
+
     public boolean isScheduleEnabled() {
         return scheduleEnabled;
     }
 
     public void setScheduleEnabled(boolean scheduleEnabled) {
         this.scheduleEnabled = scheduleEnabled;
+    }
+
+    public long getLockTtlMs() {
+        return lockTtlMs;
+    }
+
+    public void setLockTtlMs(long lockTtlMs) {
+        this.lockTtlMs = lockTtlMs;
     }
 
     public String getCron() {

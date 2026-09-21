@@ -4,6 +4,7 @@ import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.CallRecord;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
+import com.leyon.backend.service.OrgService;
 import com.leyon.backend.service.RecordService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,13 +48,15 @@ class CallRecordControllerTest {
     private AssistantService assistantService;
     @Mock
     private RecordService recordService;
+    @Mock
+    private OrgService orgService;
 
     private CallRecordController controller;
     private Path tempDir;
 
     @BeforeEach
     void setUp() throws Exception {
-        controller = new CallRecordController(callRecordService, assistantService, recordService);
+        controller = new CallRecordController(callRecordService, assistantService, recordService, orgService);
         tempDir = Files.createTempDirectory("call-rec-test");
         Field f = CallRecordController.class.getDeclaredField("recordingDir");
         f.setAccessible(true);
@@ -109,11 +112,12 @@ class CallRecordControllerTest {
     }
 
     @Test
-    void uploadRecording_notOwner_returnsParamError() {
+    void uploadRecording_notOwner_throwsForbidden() {
         when(callRecordService.getById(CALL_ID)).thenReturn(ownedRecord());
-        ApiResponse<Void> result = controller.uploadRecording(CALL_ID, new MockMultipartFile(
-                "file", "a.webm", "audio/webm", new byte[]{1}), req(OTHER));
-        assertThat(result.getCode()).isEqualTo(400);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.uploadRecording(
+                        CALL_ID, new MockMultipartFile(
+                                "file", "a.webm", "audio/webm", new byte[]{1}), req(OTHER)))
+                .isInstanceOf(com.leyon.backend.common.ForbiddenException.class);
     }
 
     // ===================== 下载 =====================

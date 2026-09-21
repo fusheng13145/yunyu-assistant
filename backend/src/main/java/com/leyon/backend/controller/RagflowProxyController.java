@@ -244,8 +244,8 @@ public class RagflowProxyController {
             @PathVariable String id,
             @RequestParam("file") MultipartFile file,
             HttpServletRequest request) {
-        // 对象级授权：校验数据集归属，防止跨用户越权上传
-        if (!knowledgeBaseService.isOwnedDataset(id, (String) request.getAttribute("userId"))) {
+        // 对象级授权：校验数据集归属（写操作要求 editor 以上），防止跨用户越权上传
+        if (!knowledgeBaseService.canManageDataset(id, (String) request.getAttribute("userId"))) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body("{\"code\":403,\"message\":\"无权访问该数据集\"}");
         }
@@ -284,8 +284,8 @@ public class RagflowProxyController {
             @PathVariable String id,
             @RequestBody String body,
             HttpServletRequest request) {
-        // 对象级授权：校验数据集归属，防止跨用户越权删除
-        if (!knowledgeBaseService.isOwnedDataset(id, (String) request.getAttribute("userId"))) {
+        // 对象级授权：校验数据集归属（写操作要求 editor 以上），防止跨用户越权删除
+        if (!knowledgeBaseService.canManageDataset(id, (String) request.getAttribute("userId"))) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body("{\"code\":403,\"message\":\"无权访问该数据集\"}");
         }
@@ -311,8 +311,8 @@ public class RagflowProxyController {
             @PathVariable String id,
             @RequestBody String body,
             HttpServletRequest request) {
-        // 对象级授权：校验数据集归属，防止跨用户越权解析
-        if (!knowledgeBaseService.isOwnedDataset(id, (String) request.getAttribute("userId"))) {
+        // 对象级授权：校验数据集归属（写操作要求 editor 以上），防止跨用户越权解析
+        if (!knowledgeBaseService.canManageDataset(id, (String) request.getAttribute("userId"))) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body("{\"code\":403,\"message\":\"无权访问该数据集\"}");
         }

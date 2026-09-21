@@ -2,8 +2,11 @@ package com.leyon.backend.controller;
 
 import com.leyon.backend.annotation.Audit;
 import com.leyon.backend.common.ApiResponse;
+import com.leyon.backend.common.ForbiddenException;
 import com.leyon.backend.entity.Assistant;
+import com.leyon.backend.entity.Org;
 import com.leyon.backend.service.AssistantService;
+import com.leyon.backend.service.OrgService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -21,19 +24,23 @@ import java.util.Map;
 public class AssistantController {
 
     private final AssistantService assistantService;
+    private final OrgService orgService;
 
-    public AssistantController(AssistantService assistantService) {
+    public AssistantController(AssistantService assistantService, OrgService orgService) {
         this.assistantService = assistantService;
+        this.orgService = orgService;
     }
 
     /**
      * 创建助手
+     * 归属规则：请求体携带 orgId 且当前用户为该组织 editor(含)以上时归属组织；否则归属个人
      */
     @Audit(action = "ASSISTANT_CREATE", targetType = "assistant")
     @PostMapping
     public ApiResponse<Assistant> create(@RequestBody Assistant assistant, HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");
         assistant.setUserId(userId);
+        assistant.setOrgId(resolveCreateOrg(assistant.getOrgId(), userId));
         Assistant created = assistantService.create(assistant);
         return ApiResponse.success(created);
     }
@@ -74,7 +81,7 @@ public class AssistantController {
     }
 
     /**
-     * 根据ID查询单个助手（鉴权）
+     * 根据ID查询单个助手（鉴权：个人数据按 userId，组织数据按成员角色 viewer 以上可读）
      */
     @GetMapping("/{id}")
     public ApiResponse<Assistant> getById(@PathVariable String id, HttpServletRequest request) {
@@ -86,14 +93,12 @@ public class AssistantController {
         if (assistant == null) {
             return ApiResponse.paramError("助手不存在");
         }
-        if (!userId.equals(assistant.getUserId())) {
-            return ApiResponse.paramError("无权访问该助手");
-        }
+        requireRead(assistant.getOrgId(), assistant.getUserId(), userId);
         return ApiResponse.success(assistant);
     }
 
     /**
-     * 删除助手（鉴权）
+     * 删除助手（鉴权：个人数据按 userId，组织数据按成员角色 editor 以上可删）
      */
     @Audit(action = "ASSISTANT_DELETE", targetType = "assistant")
     @DeleteMapping("/{id}")
@@ -103,9 +108,10 @@ public class AssistantController {
         }
         String userId = (String) request.getAttribute("userId");
         Assistant assistant = assistantService.getById(id);
-        if (assistant == null || !userId.equals(assistant.getUserId())) {
+        if (assistant == null) {
             return ApiResponse.paramError("助手不存在或无操作权限");
         }
+        requireManage(assistant.getOrgId(), assistant.getUserId(), userId);
         boolean result = assistantService.delete(id);
         if (!result) {
             return ApiResponse.paramError("删除失败");
@@ -114,7 +120,7 @@ public class AssistantController {
     }
 
     /**
-     * 更新助手信息（鉴权）
+     * 更新助手信息（鉴权：个人数据按 userId，组织数据按成员角色 editor 以上可改；不改动归属）
      */
     @Audit(action = "ASSISTANT_UPDATE", targetType = "assistant")
     @PutMapping
@@ -123,16 +129,55 @@ public class AssistantController {
         if (assistant == null || !StringUtils.hasText(assistant.getId())) {
             return ApiResponse.paramError("助手ID不能为空");
         }
-        // 校验所属用户
+        // 校验所属用户/组织
         Assistant exist = assistantService.getById(assistant.getId());
-        if (exist == null || !userId.equals(exist.getUserId())) {
+        if (exist == null) {
             return ApiResponse.paramError("助手不存在或无操作权限");
         }
-        assistant.setUserId(userId);
+        requireManage(exist.getOrgId(), exist.getUserId(), userId);
+        assistant.setUserId(exist.getUserId());
+        assistant.setOrgId(exist.getOrgId());
         boolean result = assistantService.update(assistant);
         if (!result) {
             return ApiResponse.paramError("更新失败");
         }
         return ApiResponse.success();
+    }
+
+    /**
+     * 解析创建归属组织：携带 orgId 且当前用户为 editor(含)以上时归属组织；否则归属个人
+     */
+    private String resolveCreateOrg(String orgId, String userId) {
+        if (!StringUtils.hasText(orgId)) {
+            return null;
+        }
+        orgService.requireRole(orgId, userId, Org.ROLE_EDITOR);
+        return orgId;
+    }
+
+    /**
+     * 读取校验：个人资源按 userId；组织资源需为组织成员（viewer 以上）
+     */
+    private void requireRead(String orgId, String ownerUserId, String userId) {
+        if (!StringUtils.hasText(orgId)) {
+            if (!userId.equals(ownerUserId)) {
+                throw new ForbiddenException("无权访问该助手");
+            }
+            return;
+        }
+        orgService.requireMember(orgId, userId);
+    }
+
+    /**
+     * 管理校验：个人资源按 userId；组织资源需 editor(含)以上
+     */
+    private void requireManage(String orgId, String ownerUserId, String userId) {
+        if (!StringUtils.hasText(orgId)) {
+            if (!userId.equals(ownerUserId)) {
+                throw new ForbiddenException("无权访问该助手");
+            }
+            return;
+        }
+        orgService.requireRole(orgId, userId, Org.ROLE_EDITOR);
     }
 }
