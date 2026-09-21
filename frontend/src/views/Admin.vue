@@ -35,17 +35,23 @@
           @click="activeTab = 'audit'"
           class="geek-btn geek-btn-sm"
           :class="activeTab === 'audit' ? 'geek-btn-primary' : 'geek-btn-ghost'"
-        >审计日志</button>
+        >
+          审计日志
+        </button>
         <button
           @click="activeTab = 'users'"
           class="geek-btn geek-btn-sm"
           :class="activeTab === 'users' ? 'geek-btn-primary' : 'geek-btn-ghost'"
-        >用户列表</button>
+        >
+          用户列表
+        </button>
         <button
           @click="activeTab = 'archive'"
           class="geek-btn geek-btn-sm"
           :class="activeTab === 'archive' ? 'geek-btn-primary' : 'geek-btn-ghost'"
-        >数据归档</button>
+        >
+          数据归档
+        </button>
       </div>
 
       <!-- 数据归档面板 -->
@@ -84,7 +90,9 @@
               :disabled="archiveRunning"
               class="geek-btn geek-btn-primary geek-btn-sm"
               :class="{ 'opacity-40 cursor-not-allowed': archiveRunning }"
-            >{{ archiveRunning ? '归档中…' : '立即归档' }}</button>
+            >
+              {{ archiveRunning ? '归档中…' : '立即归档' }}
+            </button>
           </div>
           <span v-if="archiveResult" class="text-xs mono text-center" style="color: var(--geek-text-secondary)">
             归档完成：消息 {{ archiveResult.recordsArchived }} · 通话 {{ archiveResult.callRecordsArchived }} · 审计 {{ archiveResult.auditLogsArchived }} 条；录音删除 {{ archiveResult.recordingsDeleted }} 个（失败 {{ archiveResult.recordingsFailed }}）
@@ -115,9 +123,11 @@
               <td class="px-4 py-2.5 mono text-xs" style="color: var(--geek-text-secondary)">{{ log.userId || '-' }}</td>
               <td class="px-4 py-2.5 mono text-xs" style="color: var(--geek-text-secondary)">{{ log.ip || '-' }}</td>
               <td class="px-4 py-2.5 text-center">
-                <span class="text-xs px-1.5 py-0.5 rounded-sm" :style="log.result === 1
-                  ? { background: 'var(--geek-success-bg)', color: 'var(--geek-success)' }
-                  : { background: 'var(--geek-error-bg)', color: 'var(--geek-error)' }">
+                <span
+                  class="text-xs px-1.5 py-0.5 rounded-sm" :style="log.result === 1
+                    ? { background: 'var(--geek-success-bg)', color: 'var(--geek-success)' }
+                    : { background: 'var(--geek-error-bg)', color: 'var(--geek-error)' }"
+                >
                   {{ log.result === 1 ? '成功' : '失败' }}
                 </span>
               </td>
@@ -165,9 +175,11 @@
               <td class="px-4 py-2.5 font-medium" style="color: var(--geek-text)">{{ u.username }}</td>
               <td class="px-4 py-2.5" style="color: var(--geek-text-secondary)">{{ u.nickname || '-' }}</td>
               <td class="px-4 py-2.5 text-center">
-                <span class="text-xs px-1.5 py-0.5 rounded-sm" :style="u.role === 'admin'
-                  ? { background: 'var(--geek-tag-purple)', color: '#fff' }
-                  : { background: 'var(--geek-input-bg)', color: 'var(--geek-text-secondary)' }">
+                <span
+                  class="text-xs px-1.5 py-0.5 rounded-sm" :style="u.role === 'admin'
+                    ? { background: 'var(--geek-tag-purple)', color: '#fff' }
+                    : { background: 'var(--geek-input-bg)', color: 'var(--geek-text-secondary)' }"
+                >
                   {{ u.role === 'admin' ? '管理员' : '用户' }}
                 </span>
               </td>

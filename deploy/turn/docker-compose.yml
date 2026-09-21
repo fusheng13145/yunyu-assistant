@@ -1,0 +1,14 @@
+# TURN (coturn) 服务
+# 用于 WebRTC 对称 NAT 穿透（生产建议开启；未部署时前端回退默认 Google STUN）
+# 部署文档见本目录 README.md
+services:
+  turn:
+    image: coturn/coturn:latest
+    container_name: yunyu-turn
+    restart: unless-stopped
+    # host 网络：中继需要大量 UDP 端口（49152-65535），容器端口映射不便逐条列出
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    # 使用配置里的 static-auth-secret 生成临时凭据（TURN REST API）
+    command: ["-c", "/etc/coturn/turnserver.conf"]

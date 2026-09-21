@@ -46,6 +46,27 @@
           <span>通话记录</span>
         </button>
         <button
+          @click="router.push('/billing')"
+          class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
+        >
+          <Gauge class="w-4 h-4" />
+          <span>用量配额</span>
+        </button>
+        <button
+          @click="router.push('/org')"
+          class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
+        >
+          <Users class="w-4 h-4" />
+          <span>组织管理</span>
+        </button>
+        <button
+          @click="router.push('/apps')"
+          class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
+        >
+          <KeyRound class="w-4 h-4" />
+          <span>应用管理</span>
+        </button>
+        <button
           v-if="userRole === 'admin'"
           @click="router.push('/admin')"
           class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
@@ -1042,7 +1063,7 @@ import {
   Bot, LogOut, Settings, RotateCcw, MessageCircle,
   Database, FolderOpen, Check, X, Plus, List, LayoutGrid,
   Trash2, ChevronLeft, Upload, FileText, Mic, PhoneOff,
-  Search, Download, Zap, History, Shield
+  Search, Download, Zap, History, Shield, Users, Gauge, KeyRound
 } from 'lucide-vue-next'
 import ChatMessages from '../components/ChatMessages.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
