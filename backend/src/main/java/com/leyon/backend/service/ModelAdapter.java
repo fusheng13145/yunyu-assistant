@@ -19,9 +19,4 @@ public interface ModelAdapter {
      * @return 流式响应数据
      */
     Flux<ChatResponse> stream(Prompt prompt);
-
-    /**
-     * 获取当前适配器使用的模型名称
-     */
-    String getModelName();
 }

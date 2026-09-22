@@ -3,7 +3,6 @@ package com.leyon.backend.service;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
@@ -17,21 +16,13 @@ import reactor.core.publisher.Flux;
 public class OpenAiModelAdapter implements ModelAdapter {
 
     private final ChatModel chatModel;
-    private final String modelName;
 
-    public OpenAiModelAdapter(ChatModel chatModel,
-                               @Value("${spring.ai.chat.options.model:deepseek-chat}") String modelName) {
+    public OpenAiModelAdapter(ChatModel chatModel) {
         this.chatModel = chatModel;
-        this.modelName = modelName;
     }
 
     @Override
     public Flux<ChatResponse> stream(Prompt prompt) {
         return chatModel.stream(prompt);
-    }
-
-    @Override
-    public String getModelName() {
-        return modelName;
     }
 }

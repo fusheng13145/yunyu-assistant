@@ -118,11 +118,11 @@ app:
     # 全局开关
     enabled: ${WEBHOOK_ENABLED:true}
     # 失败重试最大次数
-    retry-max-attempts: 3
+    retry-max-attempts: ${WEBHOOK_RETRY_MAX_ATTEMPTS:3}
     # 重试基础延迟（毫秒），指数退避 baseDelay * 2^(attempt-1)
-    retry-base-delay-ms: 5000
+    retry-base-delay-ms: ${WEBHOOK_RETRY_BASE_DELAY_MS:5000}
     # 失败重试定时扫描周期（毫秒）
-    retry-interval-ms: 60000
+    retry-interval-ms: ${WEBHOOK_RETRY_INTERVAL_MS:60000}
   # JWT 认证配置（Secret 长度必须 ≥ 256 位 / 32 字节，生产环境使用强随机生成值）
   jwt:
     secret: ${JWT_SECRET}

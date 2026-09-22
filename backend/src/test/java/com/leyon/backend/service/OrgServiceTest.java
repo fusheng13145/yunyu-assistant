@@ -219,4 +219,23 @@ class OrgServiceTest {
         assertThat(orgs).hasSize(1);
         assertThat(orgs.get(0).getId()).isEqualTo("org1");
     }
+
+    @Test
+    void listMembers_hydratesUsernames() {
+        when(orgMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(orgMemberMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(
+                member("m1", "org1", "u1", Org.ROLE_OWNER),
+                member("m2", "org1", "u2", Org.ROLE_VIEWER)));
+        User u1 = new User();
+        u1.setId("u1");
+        u1.setUsername("alice");
+        User u2 = new User();
+        u2.setId("u2");
+        u2.setUsername("bob");
+        when(userMapper.selectBatchIds(List.of("u1", "u2"))).thenReturn(List.of(u1, u2));
+
+        List<OrgMember> members = orgService.listMembers("org1", "u1");
+
+        assertThat(members).extracting(OrgMember::getUsername).containsExactly("alice", "bob");
+    }
 }

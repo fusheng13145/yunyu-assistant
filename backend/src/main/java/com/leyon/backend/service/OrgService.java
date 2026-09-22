@@ -13,6 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 组织业务服务（P2-10 多租户与商业化前置）
@@ -174,9 +176,24 @@ public class OrgService {
      */
     public List<OrgMember> listMembers(String orgId, String userId) {
         requireMember(orgId, userId);
-        return orgMemberMapper.selectList(new LambdaQueryWrapper<OrgMember>()
+        List<OrgMember> members = orgMemberMapper.selectList(new LambdaQueryWrapper<OrgMember>()
                 .eq(OrgMember::getOrgId, orgId)
                 .orderByAsc(OrgMember::getJoinedAt));
+        fillUsernames(members);
+        return members;
+    }
+
+    /**
+     * 批量回填成员用户名（前端成员列表展示用户名而非用户ID；一次批量查询避免 N+1）
+     */
+    private void fillUsernames(List<OrgMember> members) {
+        if (members.isEmpty()) {
+            return;
+        }
+        List<String> userIds = members.stream().map(OrgMember::getUserId).distinct().toList();
+        Map<String, String> usernameById = userMapper.selectBatchIds(userIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getUsername));
+        members.forEach(member -> member.setUsername(usernameById.get(member.getUserId())));
     }
 
     /**

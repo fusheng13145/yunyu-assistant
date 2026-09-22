@@ -101,7 +101,7 @@
             <tbody>
               <tr v-for="member in members" :key="member.id" class="border-b geek-divider">
                 <td class="px-4 py-2.5" style="color: var(--geek-text)">
-                  {{ member.userId }}
+                  {{ member.username || member.userId }}
                   <span v-if="member.userId === selectedOrg.ownerUserId" class="text-xs px-1.5 py-0.5 rounded-sm mono ml-1" style="background: var(--geek-success-bg); color: var(--geek-success)">创建者</span>
                 </td>
                 <td class="px-4 py-2.5">
@@ -289,7 +289,7 @@ const onRoleChange = async (member: OrgMember, role: string) => {
 
 const onRemoveMember = async (member: OrgMember) => {
   if (!selectedOrg.value) return
-  if (!window.confirm(`确认移除成员 ${member.userId}？`)) return
+  if (!window.confirm(`确认移除成员 ${member.username || member.userId}？`)) return
   try {
     await removeOrgMember(selectedOrg.value.id, member.userId)
     members.value = await fetchOrgMembers(selectedOrg.value.id)

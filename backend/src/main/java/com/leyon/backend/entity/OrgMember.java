@@ -1,6 +1,7 @@
 package com.leyon.backend.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.LocalDateTime;
@@ -41,6 +42,12 @@ public class OrgMember {
      */
     private LocalDateTime joinedAt;
 
+    /**
+     * 成员用户名（非表字段，仅由查询侧批量回填，供前端展示）
+     */
+    @TableField(exist = false)
+    private String username;
+
     // ========== Getter & Setter ==========
     public String getId() {
         return id;
@@ -80,5 +87,13 @@ public class OrgMember {
 
     public void setJoinedAt(LocalDateTime joinedAt) {
         this.joinedAt = joinedAt;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
     }
 }
