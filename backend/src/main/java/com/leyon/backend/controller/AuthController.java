@@ -27,13 +27,9 @@ public class AuthController {
     private final JwtUtil jwtUtil;
     private final TokenBlacklistService tokenBlacklistService;
 
-    /** 密码复杂度正则：至少包含大小写字母、数字中的两种，长度 6-128 */
+    /** 密码规则：长度 6-128 且至少含一个字母与一个数字（与前端注册校验、报错文案一致） */
     private static final Pattern PASSWORD_PATTERN = Pattern.compile(
-            "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)[a-zA-Z0-9!@#$%^&*()_+\\-=\\[\\]{};':\"\\\\|,.<>/?].{5,}$"
-    );
-    /** 宽松模式密码正则：生产环境建议启用上面的严格模式 */
-    private static final Pattern PASSWORD_PATTERN_RELAXED = Pattern.compile(
-            "^(?=.*[a-zA-Z])(?=.*\\d).{5,}$"
+            "^(?=.*[a-zA-Z])(?=.*\\d).{6,}$"
     );
 
     public AuthController(UserService userService, JwtUtil jwtUtil, TokenBlacklistService tokenBlacklistService) {
@@ -67,8 +63,8 @@ public class AuthController {
         if (password.length() > 128) {
             return ApiResponse.paramError("密码长度不能超过128个字符");
         }
-        // 密码复杂度校验：至少包含字母和数字
-        if (!PASSWORD_PATTERN_RELAXED.matcher(password).matches()) {
+        // 密码规则校验：≥6 位且至少包含一个字母和一个数字
+        if (!PASSWORD_PATTERN.matcher(password).matches()) {
             return ApiResponse.paramError("密码必须至少包含一个字母和一个数字，长度不少于6位");
         }
 
@@ -130,7 +126,13 @@ public class AuthController {
             return ApiResponse.paramError("刷新令牌无效或已过期，请重新登录");
         }
         String userId = jwtUtil.getUserIdFromToken(refreshToken);
-        String username = jwtUtil.getUsernameFromToken(refreshToken);
+
+        // 账号必须仍存在：软删除后不再续期，否则已注销账号可凭 7 天 refresh token 无限换发
+        User user = userService.getById(userId);
+        if (user == null) {
+            return ApiResponse.paramError("账号不存在或已注销，请重新登录");
+        }
+        String username = user.getUsername();
 
         // 旧 refresh token 作废（轮换）
         String oldJti = jwtUtil.getJtiFromToken(refreshToken);
@@ -143,6 +145,7 @@ public class AuthController {
         result.put("refreshToken", jwtUtil.generateRefreshToken(userId, username));
         result.put("userId", userId);
         result.put("username", username);
+        result.put("role", user.getRole() == null ? User.ROLE_USER : user.getRole());
         return ApiResponse.success(result);
     }
 
@@ -245,7 +248,7 @@ public class AuthController {
             return ApiResponse.paramError("新密码长度不能超过128位");
         }
         // 与注册一致的复杂度校验：至少包含一个字母和一个数字
-        if (!PASSWORD_PATTERN_RELAXED.matcher(newPassword).matches()) {
+        if (!PASSWORD_PATTERN.matcher(newPassword).matches()) {
             return ApiResponse.paramError("新密码必须至少包含一个字母和一个数字，长度不少于6位");
         }
 
