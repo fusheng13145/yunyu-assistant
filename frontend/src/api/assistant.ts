@@ -21,13 +21,6 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return result.data
 }
 
-export async function fetchAssistants(): Promise<Assistant[]> {
-  const response = await fetch(`${API_BASE}/assistants`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<Assistant[]>(response)
-}
-
 /** 分页查询助手列表（支持关键词搜索名称/描述） */
 export interface AssistantPage {
   list: Assistant[]
@@ -92,13 +85,4 @@ export async function fetchModels(): Promise<ModelInfo[]> {
     headers: getAuthHeaders(),
   })
   return parseResponse<ModelInfo[]>(response)
-}
-
-export async function cloneAssistant(id: string): Promise<Assistant> {
-  const original = await fetchAssistant(id)
-  return createAssistant({
-    name: `${original.name}（副本）`,
-    description: original.description,
-    personality: original.personality,
-  })
 }

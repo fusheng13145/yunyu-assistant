@@ -51,31 +51,6 @@
       "description": "语音识别模型标识，默认 16k_zh 中文16k模型。"
     },
     {
-      "name": "app.asr.app-id",
-      "type": "java.lang.String",
-      "description": "腾讯云语音识别 ASR 应用ID。"
-    },
-    {
-      "name": "app.asr.secret-id",
-      "type": "java.lang.String",
-      "description": "腾讯云 ASR 访问凭证 SecretId。"
-    },
-    {
-      "name": "app.asr.secret-key",
-      "type": "java.lang.String",
-      "description": "腾讯云 ASR 访问凭证 SecretKey。"
-    },
-    {
-      "name": "app.asr.endpoint",
-      "type": "java.lang.String",
-      "description": "腾讯云语音识别服务域名地址。"
-    },
-    {
-      "name": "app.tts.provider",
-      "type": "java.lang.String",
-      "description": "语音合成服务提供商，当前默认 tencent 腾讯云。"
-    },
-    {
       "name": "app.tts.model",
       "type": "java.lang.String",
       "description": "语音合成模型标识。"
@@ -84,26 +59,6 @@
       "name": "app.tts.speaker",
       "type": "java.lang.String",
       "description": "语音合成音色名称/ID。"
-    },
-    {
-      "name": "app.tts.app-id",
-      "type": "java.lang.String",
-      "description": "腾讯云语音合成 TTS 应用ID。"
-    },
-    {
-      "name": "app.tts.secret-id",
-      "type": "java.lang.String",
-      "description": "腾讯云 TTS 访问凭证 SecretId。"
-    },
-    {
-      "name": "app.tts.secret-key",
-      "type": "java.lang.String",
-      "description": "腾讯云 TTS 访问凭证 SecretKey。"
-    },
-    {
-      "name": "app.tts.endpoint",
-      "type": "java.lang.String",
-      "description": "腾讯云语音合成服务域名地址。"
     }
   ]
 }

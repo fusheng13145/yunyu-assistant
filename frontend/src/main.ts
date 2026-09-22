@@ -1,5 +1,4 @@
 import { createApp } from 'vue'
-import { createPinia } from 'pinia'
 import './style.css'
 import App from './App.vue'
 import router from './router'
@@ -32,5 +31,4 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
 
 // 初始化应用
 const app = createApp(App)
-app.use(createPinia())
 app.use(router).mount('#app')

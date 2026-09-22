@@ -147,25 +147,15 @@ app:
     silence-timeout: ${RUSTPBX_SILENCE_TIMEOUT:30}
     # 是否启用 VAD 打断 TTS
     break-on-vad: ${RUSTPBX_BREAK_ON_VAD:true}
-  # 语音识别 ASR（腾讯云）
+  # 语音识别参数（透传 RustPBX 网关，腾讯云凭据在网关侧配置）
   asr:
     provider: ${ASR_PROVIDER:tencent}
     model: ${ASR_MODEL:16k_zh}
-    app-id: ${ASR_APP_ID:}
-    secret-id: ${ASR_SECRET_ID:}
-    secret-key: ${ASR_SECRET_KEY:}
-    endpoint: ${ASR_ENDPOINT:asr.tencentcloudapi.com}
 
-  # 语音合成 TTS（腾讯云）
+  # 语音合成参数（同上，TTS 服务商由网关固定为 tencent）
   tts:
-    provider: ${TTS_PROVIDER:tencent}
-    # 模型/音色配置
     model: ${TTS_MODEL:cosvoice-v1}
     speaker: ${TTS_SPEAKER:longxiaochun}
-    app-id: ${TTS_APP_ID:}
-    secret-id: ${TTS_SECRET_ID:}
-    secret-key: ${TTS_SECRET_KEY:}
-    endpoint: ${TTS_ENDPOINT:tts.tencentcloudapi.com}
 
 # Actuator 健康检查与运行指标（F9.4）
 management:

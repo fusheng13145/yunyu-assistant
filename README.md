@@ -23,7 +23,7 @@
 
 **后端**：Spring Boot 3.5 · Java 21 · MyBatis-Plus 3.5 · MySQL 8 · Spring AI 1.0（OpenAI 兼容）· Spring WebSocket · JJWT · OkHttp
 
-**前端**：Vue 3.5 · TypeScript · Vite 6 · Pinia · vue-router 4 · TailwindCSS 3 · WebRTC · lucide-vue-next
+**前端**：Vue 3.5 · TypeScript · Vite 6 · vue-router 4 · TailwindCSS 3 · WebRTC · lucide-vue-next
 
 ## 目录结构
 
@@ -34,7 +34,7 @@ yunyu-assistant/
 │       ├── java/com/leyon/backend/   # controller/service/mapper/entity/handler/interceptor/tool
 │       └── resources/                # application.yaml、index.sql（建库与种子数据）
 ├── frontend/                # Vue3 前端（Vite）
-│   └── src/                 # api/composables/router/stores/utils/views/components
+│   └── src/                 # api/composables/router/utils/views/components
 ├── docs/                    # 项目手册（详见《云谕助手项目手册.md》）
 ├── start-backend.bat        # 一键启动后端（双击）
 ├── start-frontend.bat       # 一键启动前端（双击）

@@ -37,7 +37,7 @@ export interface RAGFlowDocumentInfo {
   progress: number
 }
 
-export class RagflowApiError extends Error {
+class RagflowApiError extends Error {
   constructor(message: string, public status?: number) {
     super(message)
     this.name = 'RagflowApiError'
