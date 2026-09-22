@@ -5,10 +5,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.common.QuotaExceededException;
 import com.leyon.backend.entity.Assistant;
+import com.leyon.backend.entity.Org;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.Session;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
+import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
 import com.leyon.backend.service.OrgService;
@@ -36,6 +38,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 聊天 WebSocket 处理器
@@ -73,6 +76,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private static final String FIELD_IDS = "ids";
     private static final String FIELD_SEGMENT = "segment";
     private static final String FIELD_STREAM_END = "streamEnd";
+    private static final String FIELD_MESSAGE = "message";
 
     /** 会话属性Key */
     private static final String SESSION_ATTR_USER_ID = "userId";
@@ -94,6 +98,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final SessionService sessionService;
     private final OrgService orgService;
     private final QuotaService quotaService;
+    private final KnowledgeBaseService knowledgeBaseService;
     private final ObjectMapper objectMapper;
     private final JwtUtil jwtUtil;
     private final ToolRegistry toolRegistry;
@@ -117,6 +122,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 SessionService sessionService,
                                 OrgService orgService,
                                 QuotaService quotaService,
+                                KnowledgeBaseService knowledgeBaseService,
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
                                 ToolRegistry toolRegistry) {
@@ -127,6 +133,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.sessionService = sessionService;
         this.orgService = orgService;
         this.quotaService = quotaService;
+        this.knowledgeBaseService = knowledgeBaseService;
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
         this.toolRegistry = toolRegistry;
@@ -201,8 +208,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             businessSessionMap.put(sessionId, businessSessionId);
         }
 
-        // 从服务端持久化的 knowledge_ids 加载知识库关联
-        List<String> knowledgeIds = parseKnowledgeIds(assistant.getKnowledgeIds());
+        // 从服务端持久化的 knowledge_ids 加载知识库关联（与当前用户可见数据集求交后再注入）
+        List<String> knowledgeIds = retainVisibleKnowledgeIds(
+                parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
 
         // 初始化聊天实例
         ChatService chatService = new ChatService(
@@ -295,7 +303,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         switch (type) {
             case MSG_TYPE_CHAT -> handleChat(session, chatService, node);
             case MSG_TYPE_PROMPT -> handlePrompt(chatService, node);
-            case MSG_TYPE_KB_SELECT -> handleSelectedKbIds(chatService, node);
+            case MSG_TYPE_KB_SELECT -> handleSelectedKbIds(session, chatService, node);
             case MSG_TYPE_RESET -> chatService.reset();
             case MSG_TYPE_CLOSE -> handleClose(session, chatService);
             case MSG_TYPE_PING -> sendMessage(session, MSG_TYPE_PONG, null);
@@ -329,9 +337,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
 
         // 订阅流式响应
+        // 捕获流结束分片（含 message/costTime/knowledgebase/tokenUsage），用于收尾下发 query_end
+        final AtomicReference<Map<String, Object>> endChunkRef = new AtomicReference<>();
         Disposable subscription = chatService.chatStream(content)
                 .subscribe(
                         chunk -> {
+                            if (Boolean.TRUE.equals(chunk.get(FIELD_STREAM_END))) {
+                                endChunkRef.set(chunk);
+                            }
                             if (chunk.containsKey(FIELD_TYPE) && !chunk.containsKey(FIELD_SEGMENT)) {
                                 sendRawMessage(session, chunk);
                             } else {
@@ -340,17 +353,33 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                         },
                         error -> {
                             logger.error("流式对话异常，会话ID:{}", sessionId, error);
-                            Map<String, Object> endData = new HashMap<>();
-                            endData.put(FIELD_SEGMENT, "");
-                            endData.put(FIELD_STREAM_END, true);
-                            sendMessage(session, MSG_TYPE_ASSISTANT_MSG, endData);
-                            sendMessage(session, MSG_TYPE_QUERY_END, null);
+                            sendMessage(session, MSG_TYPE_ASSISTANT_MSG, endChunkOrMarker(endChunkRef.get()));
+                            sendMessage(session, MSG_TYPE_QUERY_END, endChunkOrMarker(endChunkRef.get()));
                             activeSubscriptions.remove(sessionId);
                         },
-                        () -> activeSubscriptions.remove(sessionId)
+                        () -> {
+                            // 正常收尾：前端依据 query_end 解除打字态并渲染耗时/引用/Token 诊断
+                            sendMessage(session, MSG_TYPE_QUERY_END, endChunkOrMarker(endChunkRef.get()));
+                            activeSubscriptions.remove(sessionId);
+                        }
                 );
 
         activeSubscriptions.put(sessionId, subscription);
+    }
+
+    /**
+     * 取流结束分片；流未产出结束分片（异常/空流）时补一个最小收尾标记，
+     * 保证前端必定收到收尾帧，不会停在打字态
+     */
+    private Map<String, Object> endChunkOrMarker(Map<String, Object> endChunk) {
+        if (endChunk != null) {
+            return endChunk;
+        }
+        Map<String, Object> marker = new HashMap<>();
+        marker.put(FIELD_SEGMENT, "");
+        marker.put(FIELD_STREAM_END, true);
+        marker.put(FIELD_MESSAGE, "");
+        return marker;
     }
 
     /**
@@ -363,13 +392,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
     /**
      * 切换选中知识库
+     * 客户端上报的数据集ID须与当前用户可见范围求交，避免越权检索他人/他组织知识库内容
      */
-    private void handleSelectedKbIds(ChatService chatService, JsonNode node) {
+    private void handleSelectedKbIds(@NonNull WebSocketSession session, ChatService chatService, JsonNode node) {
         List<String> kbIds = objectMapper.convertValue(
                 node.get(FIELD_IDS),
                 new TypeReference<List<String>>() {}
         );
-        chatService.updateDataset(kbIds);
+        String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
+        chatService.updateDataset(retainVisibleKnowledgeIds(kbIds, userId));
     }
 
     /**
@@ -420,7 +451,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         try {
             Map<String, String> state = chatService.close();
             String personality = state.get("personality");
-            if (personality != null) {
+            // 人设是跨会话共享的助手配置：仅属主（个人）或组织 editor 以上可回写，
+            // 否则组织 viewer 成员可通过对话改写共享助手提示词
+            if (personality != null && canEditAssistant(assistantService.getById(assistantId),
+                    (String) session.getAttributes().get(SESSION_ATTR_USER_ID))) {
                 Assistant assistant = new Assistant();
                 assistant.setId(assistantId);
                 assistant.setPersonality(personality);
@@ -446,6 +480,40 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return orgService.isMember(assistant.getOrgId(), userId);
         }
         return userId.equals(assistant.getUserId());
+    }
+
+    /**
+     * 校验当前用户是否可修改助手配置（与 AssistantController 的管理校验一致）
+     * 个人数据按 userId；组织数据需 editor(含)以上
+     */
+    private boolean canEditAssistant(Assistant assistant, String userId) {
+        if (assistant == null || !StringUtils.hasText(userId)) {
+            return false;
+        }
+        if (StringUtils.hasText(assistant.getOrgId())) {
+            return orgService.hasRoleAtLeast(assistant.getOrgId(), userId, Org.ROLE_EDITOR);
+        }
+        return userId.equals(assistant.getUserId());
+    }
+
+    /**
+     * 收敛知识库范围：仅保留当前用户可见的 RAGFlow 数据集ID
+     * 助手持久化的 knowledge_ids 与客户端上报的 selectedKbIds 均可能携带他人数据集，须服务端求交
+     *
+     * @param datasetIds 候选数据集ID列表
+     * @param userId     当前用户ID
+     * @return 可见的数据集ID列表（全不可见时为空，即本轮不检索知识库）
+     */
+    private List<String> retainVisibleKnowledgeIds(List<String> datasetIds, String userId) {
+        if (datasetIds == null || datasetIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<String> retained = knowledgeBaseService.retainVisibleDatasetIds(datasetIds, userId);
+        if (retained.size() < datasetIds.size()) {
+            logger.warn("用户:{} 请求的数据集 {} 个中有 {} 个不可见，已按可见范围收敛",
+                    userId, datasetIds.size(), datasetIds.size() - retained.size());
+        }
+        return retained;
     }
 
     /**

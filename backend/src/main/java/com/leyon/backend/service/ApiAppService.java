@@ -3,6 +3,7 @@ package com.leyon.backend.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.leyon.backend.entity.ApiApp;
 import com.leyon.backend.mapper.ApiAppMapper;
+import com.leyon.backend.util.ExternalUrlValidator;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -47,21 +48,16 @@ public class ApiAppService {
     }
 
     /**
-     * Webhook 地址校验：非空时必须为 http/https 且非本机回环（防 SSRF）
+     * Webhook 地址校验：非空时须为可安全访问的公网 http/https 地址（防 SSRF）
      */
     private void validateWebhookUrl(String webhookUrl) {
         if (!StringUtils.hasText(webhookUrl)) {
             return;
         }
-        String url = webhookUrl.trim().toLowerCase();
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            throw new IllegalArgumentException("Webhook 地址仅支持 http/https");
-        }
-        if (url.contains("localhost") || url.contains("127.0.0.1") || url.contains("::1")
-                || url.contains("0.0.0.0") || url.contains("10.") || url.contains("192.168.")
-                || url.contains("172.16.") || url.contains("172.17.") || url.contains("172.18.")
-                || url.contains("172.19.") || url.contains("172.2") || url.contains("172.3")) {
-            throw new IllegalArgumentException("Webhook 地址不允许指向本机或内网地址");
+        try {
+            ExternalUrlValidator.requirePublicHttpUrl(webhookUrl);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Webhook " + e.getMessage());
         }
     }
 

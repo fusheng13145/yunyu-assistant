@@ -11,6 +11,7 @@ import com.leyon.backend.entity.WebhookDelivery;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
 import com.leyon.backend.service.ChatService;
+import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
 import com.leyon.backend.service.OrgService;
@@ -31,6 +32,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import reactor.core.Disposable;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -69,7 +71,6 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
 
     /** 字段名 */
     private static final String FIELD_SDP = "sdp";
-    private static final String FIELD_ASSISTANT_ID = "assistantId";
     private static final String FIELD_GREETING = "greeting";
     private static final String FIELD_TYPE = "type";
     private static final String FIELD_SEGMENT = "segment";
@@ -96,6 +97,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private final CallRecordService callRecordService;
     private final OrgService orgService;
     private final QuotaService quotaService;
+    private final KnowledgeBaseService knowledgeBaseService;
     private final WebhookService webhookService;
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
@@ -127,6 +129,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                                  CallRecordService callRecordService,
                                  OrgService orgService,
                                  QuotaService quotaService,
+                                 KnowledgeBaseService knowledgeBaseService,
                                  WebhookService webhookService,
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
@@ -139,6 +142,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         this.callRecordService = callRecordService;
         this.orgService = orgService;
         this.quotaService = quotaService;
+        this.knowledgeBaseService = knowledgeBaseService;
         this.webhookService = webhookService;
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
@@ -240,17 +244,20 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private void handleOffer(@NonNull WebSocketSession session, @NonNull JsonNode node) {
         String sessionId = session.getId();
         String offerSDP = node.get(FIELD_SDP).asText();
-        String assistantId = node.has(FIELD_ASSISTANT_ID) ? node.get(FIELD_ASSISTANT_ID).asText() : null;
-
-        ChatService chatService = null;
-        if (assistantId != null) {
-            chatService = initChatService(session, assistantId);
-            if (chatService == null) {
-                return;
-            }
-            sessionChatServiceMap.put(sessionId, chatService);
-            sessionAssistantMap.put(sessionId, assistantId);
+        // 助手ID只能来自握手 URL 路径段（/ws-voice/{assistantId}、/api/open/ws-voice/{assistantId}），
+        // 不接受消息体传值：避免同一连接内切换到其他助手造成越权
+        String assistantId = parseAssistantId(session);
+        if (assistantId == null) {
+            sendMessage(session, MSG_TYPE_ERROR, "缺少助手ID");
+            return;
         }
+
+        ChatService chatService = initChatService(session, assistantId);
+        if (chatService == null) {
+            return;
+        }
+        sessionChatServiceMap.put(sessionId, chatService);
+        sessionAssistantMap.put(sessionId, assistantId);
 
         String voice = sessionVoiceMap.get(sessionId);
 
@@ -311,8 +318,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             sessionVoiceMap.put(sessionId, voice);
         }
 
-        // 从服务端持久化的 knowledge_ids 加载知识库关联
-        List<String> knowledgeIds = parseKnowledgeIds(assistant.getKnowledgeIds());
+        // 从服务端持久化的 knowledge_ids 加载知识库关联（与通话者可见数据集求交）
+        List<String> knowledgeIds = retainVisibleKnowledgeIds(parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
 
         // 初始化对话服务（使用新的抽象接口依赖）
         ChatService chatService = new ChatService(
@@ -334,6 +341,39 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             logger.error("加载聊天历史记录失败，助手ID:{}", assistantId, e);
         }
         return chatService;
+    }
+
+    /**
+     * 从握手 URL 路径末段解析 assistantId（与 ChatWebSocketHandler 的 /ws/{assistantId} 对称）
+     *
+     * @return 助手ID，路径无末段时返回 null
+     */
+    private String parseAssistantId(@NonNull WebSocketSession session) {
+        URI uri = session.getUri();
+        if (uri == null) {
+            return null;
+        }
+        String path = uri.getPath();
+        int lastSlashIndex = path.lastIndexOf('/');
+        if (lastSlashIndex < 0 || lastSlashIndex >= path.length() - 1) {
+            return null;
+        }
+        return path.substring(lastSlashIndex + 1);
+    }
+
+    /**
+     * 收敛知识库范围：仅保留通话者可见的 RAGFlow 数据集ID（与 ChatWebSocketHandler 同一套归属语义）
+     */
+    private List<String> retainVisibleKnowledgeIds(List<String> datasetIds, String userId) {
+        if (datasetIds == null || datasetIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<String> retained = knowledgeBaseService.retainVisibleDatasetIds(datasetIds, userId);
+        if (retained.size() < datasetIds.size()) {
+            logger.warn("用户:{} 的助手数据集 {} 个中有 {} 个不可见，已按可见范围收敛",
+                    userId, datasetIds.size(), datasetIds.size() - retained.size());
+        }
+        return retained;
     }
 
     /**

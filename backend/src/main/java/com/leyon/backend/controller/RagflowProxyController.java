@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.leyon.backend.common.ApiResponse;
+import com.leyon.backend.common.ForbiddenException;
 import com.leyon.backend.entity.KnowledgeBase;
 import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeService;
@@ -77,9 +78,11 @@ public class RagflowProxyController {
     /**
      * 检索效果测试（F5.5 扩展）
      * 输入问题与数据集ID，返回命中的 chunk 与相似度
+     * 对象级授权：每个数据集ID都须对当前用户可见（个人或其组织），否则拒绝，避免越权读取他人知识库内容
      */
     @PostMapping("/retrieval-test")
-    public ApiResponse<java.util.List<java.util.Map<String, Object>>> retrievalTest(@RequestBody Map<String, Object> body) {
+    public ApiResponse<java.util.List<java.util.Map<String, Object>>> retrievalTest(
+            @RequestBody Map<String, Object> body, HttpServletRequest request) {
         String question = String.valueOf(body.getOrDefault("question", ""));
         @SuppressWarnings("unchecked")
         java.util.List<String> datasetIds = (java.util.List<String>) body.getOrDefault("datasetIds", java.util.List.of());
@@ -88,6 +91,10 @@ public class RagflowProxyController {
         }
         if (datasetIds == null || datasetIds.isEmpty()) {
             return ApiResponse.paramError("请先选择知识库");
+        }
+        Set<String> visibleIds = knowledgeBaseService.listVisibleDatasetIds((String) request.getAttribute("userId"));
+        if (!visibleIds.containsAll(datasetIds)) {
+            throw new ForbiddenException("无权访问所选知识库");
         }
         return ApiResponse.success(knowledgeService.testRetrieval(question, datasetIds));
     }

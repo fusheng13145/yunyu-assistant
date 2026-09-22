@@ -6,8 +6,10 @@ import com.leyon.backend.entity.ApiApp;
 import com.leyon.backend.entity.WebhookDelivery;
 import com.leyon.backend.mapper.ApiAppMapper;
 import com.leyon.backend.mapper.WebhookDeliveryMapper;
+import com.leyon.backend.util.ExternalUrlValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -53,7 +55,7 @@ public class WebhookService {
     public WebhookService(ApiAppMapper apiAppMapper,
                           WebhookDeliveryMapper webhookDeliveryMapper,
                           WebhookProperties properties,
-                          RestTemplate restTemplate,
+                          @Qualifier("webhookRestTemplate") RestTemplate restTemplate,
                           ObjectMapper objectMapper) {
         this.apiAppMapper = apiAppMapper;
         this.webhookDeliveryMapper = webhookDeliveryMapper;
@@ -115,6 +117,14 @@ public class WebhookService {
         String webhookUrl = app.getWebhookUrl();
         if (!StringUtils.hasText(webhookUrl)) {
             markFailed(delivery, null);
+            return;
+        }
+        // 投递前复校地址（防 SSRF）：创建校验之外，还需覆盖 DB 直接改值与 DNS 解析变化
+        try {
+            ExternalUrlValidator.requirePublicHttpUrl(webhookUrl);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Webhook 地址非法或指向内网，拒绝投递，deliveryId:{}，appId:{}", deliveryId, delivery.getAppId());
+            markFailed(delivery, "Webhook 地址非法");
             return;
         }
 

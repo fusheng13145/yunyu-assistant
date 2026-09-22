@@ -63,7 +63,7 @@ class WebhookServiceTest {
         properties.setRetryBaseDelayMs(5000);
         properties.setRetryIntervalMs(60000);
         webhookService = new WebhookService(apiAppMapper, webhookDeliveryMapper, properties, restTemplate, objectMapper);
-        lenient().when(apiAppMapper.selectById("app-1")).thenReturn(appWithWebhook("app-1", "https://example.com/hook", "secret-1"));
+        lenient().when(apiAppMapper.selectById("app-1")).thenReturn(appWithWebhook("app-1", "https://203.0.113.10/hook", "secret-1"));
     }
 
     private ApiApp appWithWebhook(String id, String url, String secret) {
@@ -120,7 +120,7 @@ class WebhookServiceTest {
     void deliver_success_marksSuccess() {
         WebhookDelivery d = delivery("d1", WebhookDelivery.STATUS_PENDING, 0);
         when(webhookDeliveryMapper.selectById("d1")).thenReturn(d);
-        when(restTemplate.postForEntity(eq("https://example.com/hook"), any(), eq(String.class)))
+        when(restTemplate.postForEntity(eq("https://203.0.113.10/hook"), any(), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("ok"));
         webhookService.deliver("d1");
         assertThat(d.getStatus()).isEqualTo(WebhookDelivery.STATUS_SUCCESS);
@@ -132,7 +132,7 @@ class WebhookServiceTest {
     void deliver_failure_schedulesRetry() {
         WebhookDelivery d = delivery("d1", WebhookDelivery.STATUS_PENDING, 0);
         when(webhookDeliveryMapper.selectById("d1")).thenReturn(d);
-        when(restTemplate.postForEntity(eq("https://example.com/hook"), any(), eq(String.class)))
+        when(restTemplate.postForEntity(eq("https://203.0.113.10/hook"), any(), eq(String.class)))
                 .thenThrow(new RuntimeException("connect timeout"));
         webhookService.deliver("d1");
         assertThat(d.getStatus()).isEqualTo(WebhookDelivery.STATUS_FAILED);
@@ -144,11 +144,24 @@ class WebhookServiceTest {
     void deliver_failureExhaustRetries_keepsFailedNoRetry() {
         WebhookDelivery d = delivery("d1", WebhookDelivery.STATUS_FAILED, 3);
         when(webhookDeliveryMapper.selectById("d1")).thenReturn(d);
-        when(restTemplate.postForEntity(eq("https://example.com/hook"), any(), eq(String.class)))
+        when(restTemplate.postForEntity(eq("https://203.0.113.10/hook"), any(), eq(String.class)))
                 .thenThrow(new RuntimeException("boom"));
         webhookService.deliver("d1");
         assertThat(d.getAttemptCount()).isEqualTo(4);
         assertThat(d.getNextRetryAt()).isNull(); // 达上限不再重试
+    }
+
+    @Test
+    void deliver_urlPointsToInternalNetwork_refusedWithoutRequest() {
+        WebhookDelivery d = delivery("d1", WebhookDelivery.STATUS_PENDING, 0);
+        when(webhookDeliveryMapper.selectById("d1")).thenReturn(d);
+        when(apiAppMapper.selectById("app-1"))
+                .thenReturn(appWithWebhook("app-1", "http://169.254.169.254/latest/meta-data", "secret-1"));
+
+        webhookService.deliver("d1");
+
+        assertThat(d.getStatus()).isEqualTo(WebhookDelivery.STATUS_FAILED);
+        verify(restTemplate, never()).postForEntity(anyString(), any(), eq(String.class));
     }
 
     @Test

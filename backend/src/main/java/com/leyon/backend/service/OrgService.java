@@ -99,10 +99,18 @@ public class OrgService {
      * @param minRole 最低允许角色（owner/editor/viewer）
      */
     public void requireRole(String orgId, String userId, String minRole) {
-        String role = getRole(orgId, userId);
-        if (role == null || roleLevel(role) < roleLevel(minRole)) {
+        if (!hasRoleAtLeast(orgId, userId, minRole)) {
             throw new ForbiddenException("无权执行该操作");
         }
+    }
+
+    /**
+     * 判断用户角色是否 >= 最低角色（非成员返回 false）
+     * 供 WebSocket 等不适合抛 HTTP 异常的场景做授权判断
+     */
+    public boolean hasRoleAtLeast(String orgId, String userId, String minRole) {
+        String role = getRole(orgId, userId);
+        return role != null && roleLevel(role) >= roleLevel(minRole);
     }
 
     /**

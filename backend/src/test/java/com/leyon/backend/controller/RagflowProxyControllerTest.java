@@ -2,6 +2,8 @@ package com.leyon.backend.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.leyon.backend.common.ApiResponse;
+import com.leyon.backend.common.ForbiddenException;
 import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -19,9 +21,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 
 import java.lang.reflect.Field;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -31,7 +36,7 @@ import static org.mockito.Mockito.when;
 /**
  * RAGFlow 代理控制器单元测试（数据集对象级授权）
  * 覆盖：列表按可见集过滤（数组/分页两种响应形态）、RAGFlow 自身错误透传、结构异常 fail-closed、
- *       删除数据集的逐 ID 可管理校验
+ *       删除数据集的逐 ID 可管理校验、检索测试的可见集授权
  *
  * @author leyon
  */
@@ -141,5 +146,26 @@ class RagflowProxyControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    void retrievalTest_rejectsInvisibleDatasetWithoutRetrieving() {
+        when(knowledgeBaseService.listVisibleDatasetIds("u1")).thenReturn(Set.of("d1"));
+
+        assertThatThrownBy(() -> controller.retrievalTest(
+                Map.of("question", "测试问题", "datasetIds", List.of("d1", "d2")), request))
+                .isInstanceOf(ForbiddenException.class);
+        verifyNoInteractions(knowledgeService);
+    }
+
+    @Test
+    void retrievalTest_retrievesVisibleDatasets() {
+        when(knowledgeBaseService.listVisibleDatasetIds("u1")).thenReturn(Set.of("d1", "d2"));
+        when(knowledgeService.testRetrieval("测试问题", List.of("d1"))).thenReturn(List.of());
+
+        ApiResponse<List<Map<String, Object>>> response = controller.retrievalTest(
+                Map.of("question", "测试问题", "datasetIds", List.of("d1")), request);
+
+        assertThat(response.getCode()).isEqualTo(200);
     }
 }

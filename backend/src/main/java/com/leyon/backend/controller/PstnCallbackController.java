@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,8 +63,10 @@ public class PstnCallbackController {
     @PostMapping("/pstn")
     public ResponseEntity<Map<String, Object>> pstnCallback(@RequestBody Map<String, String> body,
                                                             @RequestHeader(value = HEADER_GATEWAY_TOKEN, required = false) String gatewayToken) {
-        // Token 校验（未配置 token 时拒绝回调，避免伪造）
-        if (!StringUtils.hasText(callbackToken) || !callbackToken.equals(gatewayToken)) {
+        // Token 校验（未配置 token 时拒绝回调，避免伪造）；常量时间比较，避免逐字符时序侧信泄露令牌
+        if (!StringUtils.hasText(callbackToken)
+                || !MessageDigest.isEqual(callbackToken.getBytes(StandardCharsets.UTF_8),
+                        gatewayToken == null ? new byte[0] : gatewayToken.getBytes(StandardCharsets.UTF_8))) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("code", 401, "message", "网关回调 Token 无效"));
         }

@@ -2,6 +2,8 @@ package com.leyon.backend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.leyon.backend.common.ForbiddenException;
+import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.Org;
 import com.leyon.backend.entity.Session;
 import com.leyon.backend.mapper.SessionMapper;
@@ -21,13 +23,15 @@ public class SessionService {
 
     private final SessionMapper sessionMapper;
     private final OrgService orgService;
+    private final AssistantService assistantService;
 
     /** 自动生成标题时截取的用户消息前缀长度 */
     private static final int TITLE_PREFIX_LENGTH = 20;
 
-    public SessionService(SessionMapper sessionMapper, OrgService orgService) {
+    public SessionService(SessionMapper sessionMapper, OrgService orgService, AssistantService assistantService) {
         this.sessionMapper = sessionMapper;
         this.orgService = orgService;
+        this.assistantService = assistantService;
     }
 
     /**
@@ -41,6 +45,7 @@ public class SessionService {
      */
     public Session create(String userId, String assistantId, String title, String orgId) {
         String effectiveOrgId = resolveCreateOrg(orgId, userId);
+        requireUsableAssistant(assistantId, userId);
         Session session = new Session();
         session.setUserId(userId);
         session.setAssistantId(assistantId);
@@ -50,6 +55,24 @@ public class SessionService {
         session.setIsDeleted(Session.NOT_DELETED);
         sessionMapper.insert(session);
         return session;
+    }
+
+    /**
+     * 校验会话绑定的助手存在且当前用户可用（个人助手须属主，组织助手须成员）
+     * 会话记录按 (userId, assistantId) 长期归集，绑定不可用的助手会生成永远打不开的空会话
+     */
+    private void requireUsableAssistant(String assistantId, String userId) {
+        Assistant assistant = StringUtils.hasText(assistantId) ? assistantService.getById(assistantId) : null;
+        if (assistant == null) {
+            throw new IllegalArgumentException("助手不存在");
+        }
+        if (StringUtils.hasText(assistant.getOrgId())) {
+            orgService.requireMember(assistant.getOrgId(), userId);
+            return;
+        }
+        if (!userId.equals(assistant.getUserId())) {
+            throw new ForbiddenException("无权使用该助手");
+        }
     }
 
     /**

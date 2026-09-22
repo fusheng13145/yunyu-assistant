@@ -119,6 +119,22 @@ public class KnowledgeBaseService {
     }
 
     /**
+     * 收敛数据集ID列表：仅保留对当前用户可见的项（个人知识库 + 所属组织共享知识库）
+     * 供对话链路（HTTP/REST/WebSocket）注入检索范围前调用，避免越权读取他人知识库内容
+     *
+     * @param datasetIds 候选 RAGFlow 数据集ID，可为 null
+     * @param userId     当前用户ID
+     * @return 可见的数据集ID列表；全部不可见或未传时返回空列表（即本轮不检索知识库）
+     */
+    public List<String> retainVisibleDatasetIds(List<String> datasetIds, String userId) {
+        if (datasetIds == null || datasetIds.isEmpty()) {
+            return List.of();
+        }
+        Set<String> visibleIds = listVisibleDatasetIds(userId);
+        return datasetIds.stream().filter(visibleIds::contains).toList();
+    }
+
+    /**
      * 校验指定数据集是否可管理（写/删除/解析级授权）
      * 个人数据按 userId；组织数据要求当前用户为 editor(含)以上
      *

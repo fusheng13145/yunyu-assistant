@@ -2,6 +2,7 @@ package com.leyon.backend.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.lang.NonNull;
 import org.springframework.web.client.RestTemplate;
@@ -12,6 +13,9 @@ import com.leyon.backend.interceptor.AdminAuthInterceptor;
 import com.leyon.backend.interceptor.AuthInterceptor;
 import com.leyon.backend.interceptor.OpenApiAuthInterceptor;
 import com.leyon.backend.interceptor.RateLimitInterceptor;
+
+import java.io.IOException;
+import java.net.HttpURLConnection;
 
 /**
  * 应用全局Web配置类
@@ -90,18 +94,41 @@ public class AppConfig implements WebMvcConfigurer {
     }
 
     /**
-     * 注入RestTemplate Bean
+     * 注入RestTemplate Bean（默认实例，@Primary）
      * 用于服务内部、调用第三方HTTP接口（配置连接/读取超时）
      *
      * @return RestTemplate 实例（已设置超时参数）
      */
     @Bean
+    @Primary
     public RestTemplate restTemplate() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         // 连接超时：10秒
         factory.setConnectTimeout(10000);
         // 读取超时：60秒（适配大文件上传、文档解析等耗时操作）
         factory.setReadTimeout(60000);
+        return new RestTemplate(factory);
+    }
+
+    /**
+     * Webhook 投递专用 RestTemplate：连接 10s / 读取 15s，且禁用自动重定向
+     * 禁用重定向是 SSRF 防线的一环：第三方端点若返回跳转到内网地址的 3xx，
+     * 跟随跳转将绕过 {@code ExternalUrlValidator} 的投递前地址校验，故 3xx 直接按投递失败处理
+     *
+     * @return RestTemplate 实例
+     */
+    @Bean("webhookRestTemplate")
+    public RestTemplate webhookRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+            @Override
+            protected void prepareConnection(HttpURLConnection connection, String httpMethod)
+                    throws IOException {
+                super.prepareConnection(connection, httpMethod);
+                connection.setInstanceFollowRedirects(false);
+            }
+        };
+        factory.setConnectTimeout(10000);
+        factory.setReadTimeout(15000);
         return new RestTemplate(factory);
     }
 }

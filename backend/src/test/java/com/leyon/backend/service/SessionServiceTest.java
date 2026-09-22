@@ -3,6 +3,8 @@ package com.leyon.backend.service;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.leyon.backend.common.ForbiddenException;
+import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.Session;
 import com.leyon.backend.mapper.SessionMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -17,6 +19,7 @@ import org.mockito.quality.Strictness;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -35,6 +38,8 @@ class SessionServiceTest {
     private SessionMapper sessionMapper;
     @Mock
     private OrgService orgService;
+    @Mock
+    private AssistantService assistantService;
 
     private SessionService sessionService;
 
@@ -42,7 +47,16 @@ class SessionServiceTest {
     void setUp() {
         // 初始化 MyBatis-Plus 实体元数据，使 LambdaUpdateWrapper 在纯单测环境可用
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Session.class);
-        sessionService = new SessionService(sessionMapper, orgService);
+        sessionService = new SessionService(sessionMapper, orgService, assistantService);
+    }
+
+    /** 个人助手桩：create 会校验助手存在与可用 */
+    private Assistant assistantOf(String userId, String orgId) {
+        Assistant a = new Assistant();
+        a.setId("a1");
+        a.setUserId(userId);
+        a.setOrgId(orgId);
+        return a;
     }
 
     private Session ownedSession(String id, String userId, String assistantId, String title, int pinned) {
@@ -57,6 +71,7 @@ class SessionServiceTest {
 
     @Test
     void create_assignsOwnerAndDefaultTitle() {
+        when(assistantService.getById("a1")).thenReturn(assistantOf("u1", null));
         Session created = sessionService.create("u1", "a1", null, null);
         assertThat(created.getUserId()).isEqualTo("u1");
         assertThat(created.getAssistantId()).isEqualTo("a1");
@@ -64,6 +79,35 @@ class SessionServiceTest {
         assertThat(created.getTitle()).isEqualTo(Session.DEFAULT_TITLE);
         assertThat(created.getIsPinned()).isEqualTo(Session.NOT_PINNED);
         verify(sessionMapper).insert(created);
+    }
+
+    @Test
+    void create_unknownAssistant_rejected() {
+        when(assistantService.getById("a1")).thenReturn(null);
+        assertThatThrownBy(() -> sessionService.create("u1", "a1", null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(sessionMapper, never()).insert(any(Session.class));
+    }
+
+    @Test
+    void create_foreignPersonalAssistant_rejected() {
+        when(assistantService.getById("a1")).thenReturn(assistantOf("u2", null));
+        assertThatThrownBy(() -> sessionService.create("u1", "a1", null, null))
+                .isInstanceOf(ForbiddenException.class);
+        verify(sessionMapper, never()).insert(any(Session.class));
+    }
+
+    @Test
+    void create_orgAssistant_requiresMembership() {
+        when(assistantService.getById("a1")).thenReturn(assistantOf("u9", "org-1"));
+        doThrow(new ForbiddenException("无权访问该组织资源")).when(orgService).requireMember("org-1", "u1");
+        assertThatThrownBy(() -> sessionService.create("u1", "a1", null, null))
+                .isInstanceOf(ForbiddenException.class);
+
+        reset(orgService);
+        sessionService.create("u1", "a1", null, null);
+        verify(orgService).requireMember("org-1", "u1");
+        verify(sessionMapper).insert(any(Session.class));
     }
 
     @Test
