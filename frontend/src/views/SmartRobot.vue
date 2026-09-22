@@ -1524,6 +1524,9 @@ const startVoiceCall = async () => {
           } else if (data.type === 'query_end') {
             finishStreamMessage(data.data)
             asrText.value = ''
+          } else if (data.type === 'error') {
+            // 后端拒绝类错误（如通话配额超限）：随后连接会被服务端关闭
+            showNotification(String(data.data ?? '语音通话异常'), 'error')
           } else if (data.type === 'hangup') {
             endVoiceCall()
             showNotification('对方已挂断', 'info')

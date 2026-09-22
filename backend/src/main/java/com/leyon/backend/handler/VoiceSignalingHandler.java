@@ -360,11 +360,22 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         String sessionId = session.getId();
         String rustpbxSessionId = sessionRustpbxMap.get(sessionId);
 
+        // 通话真正建立：先建通话记录（内含单日通话次数/时长配额校验），配额超限则直接终止本轮通话
+        String callId;
+        try {
+            callId = createCallRecord(session);
+        } catch (QuotaExceededException e) {
+            logger.warn("语音通话配额超限，终止通话，会话ID:{}，{}", sessionId, e.getMessage());
+            // 先发错误原因再断连：前端 onClose 会走统一的通话结束清理
+            sendMessage(session, MSG_TYPE_ERROR, e.getMessage());
+            releaseSessionResource(sessionId);
+            closeSession(session);
+            return;
+        }
         if (rustpbxSessionId != null) {
             rustPBXService.sendTTS(rustpbxSessionId, greeting, sessionVoiceMap.get(sessionId));
         }
-        // 通话真正建立，创建通话记录；下发 callId 供前端录音结束后回传上传
-        String callId = createCallRecord(session);
+        // 下发 callId 供前端录音结束后回传上传
         Map<String, Object> data = new HashMap<>();
         if (StringUtils.hasText(callId)) {
             data.put("callId", callId);
@@ -374,6 +385,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
 
     /**
      * 创建通话记录（状态=进行中），返回通话记录ID
+     *
+     * @throws QuotaExceededException 单日通话次数/时长配额超限（由调用方终止通话，不得静默放行）
      */
     private String createCallRecord(WebSocketSession session) {
         String sessionId = session.getId();
@@ -416,6 +429,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
 
             logger.info("通话记录已创建，会话ID:{}，通话ID:{}", sessionId, record.getId());
             return record.getId();
+        } catch (QuotaExceededException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("创建通话记录失败，会话ID:{}", sessionId, e);
             return null;

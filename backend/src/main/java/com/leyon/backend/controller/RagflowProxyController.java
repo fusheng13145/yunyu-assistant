@@ -1,7 +1,10 @@
 package com.leyon.backend.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.KnowledgeBase;
 import com.leyon.backend.service.KnowledgeBaseService;
@@ -21,7 +24,9 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * RAGFlow API 代理控制器
@@ -124,18 +129,61 @@ public class RagflowProxyController {
     /**
      * 获取数据集列表
      * 支持分页参数 page / page_size
+     * 对象级授权：按本地知识库归属过滤（个人 + 所属组织），避免越权看到他人数据集
      */
     @GetMapping("/datasets")
     public ResponseEntity<String> listDatasets(
             @RequestParam(value = "page", defaultValue = "1") int page,
-            @RequestParam(value = "page_size", defaultValue = "100") int pageSize) {
+            @RequestParam(value = "page_size", defaultValue = "100") int pageSize,
+            HttpServletRequest request) {
+        Set<String> visibleIds = knowledgeBaseService.listVisibleDatasetIds((String) request.getAttribute("userId"));
         try {
             String url = endpoint + RAGFLOW_API_PREFIX + "/datasets?page=" + page + "&page_size=" + pageSize;
             HttpEntity<Void> requestEntity = new HttpEntity<>(createAuthHeaders());
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, requestEntity, String.class);
-            return response;
+            return retainVisibleDatasets(response, visibleIds);
         } catch (Exception e) {
             log.error("获取数据集列表失败: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().body("{\"code\":500,\"message\":\"获取数据集列表失败\"}");
+        }
+    }
+
+    /**
+     * 收敛数据集列表响应：仅保留归属当前用户/组织的数据集
+     * RAGFlow 该接口的 data 既可能是数组，也可能是含 items/datasets 的分页对象，两种形态都要过滤
+     */
+    private ResponseEntity<String> retainVisibleDatasets(ResponseEntity<String> response, Set<String> visibleIds) {
+        String body = response.getBody();
+        if (body == null || !response.getStatusCode().is2xxSuccessful()) {
+            return response;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(body);
+            if (root.path("code").asInt(0) != 0) {
+                return response;
+            }
+            JsonNode data = root.path("data");
+            ArrayNode datasets = data instanceof ArrayNode array ? array : null;
+            if (datasets == null) {
+                for (String key : new String[]{"items", "datasets", "docs"}) {
+                    if (data.path(key) instanceof ArrayNode array) {
+                        datasets = array;
+                        break;
+                    }
+                }
+            }
+            if (datasets == null) {
+                log.warn("数据集列表响应结构无法识别，按空列表返回以避免越权透传");
+                return ResponseEntity.ok("{\"code\":0,\"data\":[]}");
+            }
+            datasets.removeIf(dataset -> !visibleIds.contains(dataset.path("id").asText("")));
+            if (data instanceof ObjectNode paged && paged.has("total")) {
+                paged.put("total", datasets.size());
+            }
+            return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON)
+                    .body(objectMapper.writeValueAsString(root));
+        } catch (Exception e) {
+            log.error("数据集列表归属过滤失败: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().body("{\"code\":500,\"message\":\"获取数据集列表失败\"}");
         }
     }
@@ -192,10 +240,21 @@ public class RagflowProxyController {
 
     /**
      * 删除数据集
-     * 将请求体原样转发到 RAGFlow
+     * 对象级授权：请求体内每个数据集ID都须可管理，否则整批拒绝；通过后原样转发到 RAGFlow
      */
     @DeleteMapping("/datasets")
-    public ResponseEntity<String> deleteDataset(@RequestBody String body) {
+    public ResponseEntity<String> deleteDataset(@RequestBody String body, HttpServletRequest request) {
+        String userId = (String) request.getAttribute("userId");
+        List<String> datasetIds = readDatasetIds(body);
+        if (datasetIds.isEmpty()) {
+            return ResponseEntity.badRequest().body("{\"code\":400,\"message\":\"缺少数据集ID\"}");
+        }
+        for (String datasetId : datasetIds) {
+            if (!knowledgeBaseService.canManageDataset(datasetId, userId)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body("{\"code\":403,\"message\":\"无权删除该数据集\"}");
+            }
+        }
         try {
             String url = endpoint + RAGFLOW_API_PREFIX + "/datasets";
             HttpEntity<String> requestEntity = new HttpEntity<>(body, createAuthHeaders());
@@ -204,6 +263,23 @@ public class RagflowProxyController {
         } catch (Exception e) {
             log.error("删除数据集失败: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().body("{\"code\":500,\"message\":\"删除数据集失败\"}");
+        }
+    }
+
+    /**
+     * 解析删除请求体的 ids 数组（格式非法或为空时返回空列表，由调用方拒绝）
+     */
+    private List<String> readDatasetIds(String body) {
+        try {
+            JsonNode ids = objectMapper.readTree(body).path("ids");
+            if (!ids.isArray()) {
+                return List.of();
+            }
+            return objectMapper.convertValue(ids, new TypeReference<List<String>>() {})
+                    .stream().filter(StringUtils::hasText).toList();
+        } catch (Exception e) {
+            log.warn("解析数据集ID列表失败: {}", e.getMessage());
+            return List.of();
         }
     }
 

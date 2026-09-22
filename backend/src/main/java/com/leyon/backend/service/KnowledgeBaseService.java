@@ -3,11 +3,14 @@ package com.leyon.backend.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.leyon.backend.entity.KnowledgeBase;
+import com.leyon.backend.entity.Org;
 import com.leyon.backend.mapper.KnowledgeBaseMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 知识库业务服务
@@ -88,6 +91,31 @@ public class KnowledgeBaseService {
             return orgService.isMember(kb.getOrgId(), userId);
         }
         return StringUtils.hasText(userId) && userId.equals(kb.getUserId());
+    }
+
+    /**
+     * 查询当前用户可见的数据集ID集合（个人知识库 + 所属组织的共享知识库）
+     * 与 isOwnedDataset 同一套归属语义；仅在 RAGFlow 侧存在、本地无元数据的数据集不可见
+     *
+     * @param userId 登录用户ID
+     * @return 可见的 dataset_id 集合
+     */
+    public Set<String> listVisibleDatasetIds(String userId) {
+        if (!StringUtils.hasText(userId)) {
+            return Set.of();
+        }
+        List<String> orgIds = orgService.listMyOrgs(userId).stream().map(Org::getId).toList();
+        LambdaQueryWrapper<KnowledgeBase> queryWrapper = new LambdaQueryWrapper<>();
+        if (orgIds.isEmpty()) {
+            queryWrapper.eq(KnowledgeBase::getUserId, userId);
+        } else {
+            queryWrapper.and(wrapper -> wrapper.eq(KnowledgeBase::getUserId, userId)
+                    .or().in(KnowledgeBase::getOrgId, orgIds));
+        }
+        return knowledgeBaseMapper.selectList(queryWrapper).stream()
+                .map(KnowledgeBase::getDatasetId)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
     }
 
     /**

@@ -220,7 +220,14 @@ public class AuthController {
     public ApiResponse<Void> changePassword(
             @RequestBody Map<String, String> body,
             HttpServletRequest request) {
+        // /api/auth/** 为拦截器放行路径，此处自行从 Authorization 头解析当前用户
         String userId = (String) request.getAttribute("userId");
+        if (!StringUtils.hasText(userId)) {
+            userId = resolveUserIdFromHeader(request);
+        }
+        if (!StringUtils.hasText(userId)) {
+            return ApiResponse.paramError("未登录");
+        }
         String oldPassword = body.getOrDefault("oldPassword", "");
         String newPassword = body.getOrDefault("newPassword", "");
 
