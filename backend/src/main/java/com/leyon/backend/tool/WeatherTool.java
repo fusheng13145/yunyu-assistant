@@ -19,9 +19,12 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
  * 天气查询工具
  * 供 Spring AI 调用，基于高德地图接口获取指定城市/地点天气信息
  *
+ * <p>依赖 WEATHER_API_KEY：未配置时本工具不注册，模型不会看到该能力。
+ *
  * @author leyon
  */
 @Component
+@RequiresProperty("app.weather.api-key")
 public class WeatherTool {
 
     /** 高德开放平台密钥 */

@@ -23,9 +23,12 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
  * 网络搜索工具
  * 供 Spring AI 调用，发起联网搜索并解析返回结果
  *
+ * <p>依赖 SEARCH_API_KEY 与 SEARCH_ENDPOINT：任一未配置时本工具不注册。
+ *
  * @author leyon
  */
 @Component
+@RequiresProperty({"app.search.api-key", "app.search.endpoint"})
 public class SearchTool {
 
     /** 搜索接口密钥 */

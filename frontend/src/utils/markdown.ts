@@ -1,6 +1,6 @@
 /**
  * 轻量 Markdown 渲染器（无外部依赖）
- * 支持：代码块、行内代码、标题、加粗、斜体、无序/有序列表、引用、链接、换行
+ * 支持：代码块、行内代码、标题、加粗、斜体、无序/有序列表、引用、链接、图片、换行
  * 安全：先做 HTML 转义，避免 XSS 注入
  */
 
@@ -23,6 +23,11 @@ function renderInline(text: string): string {
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   // 斜体 *text*
   html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
+  // 图片 ![alt](url)：须先于链接处理，否则 ![alt](url) 会被当作带感叹号的链接
+  html = html.replace(
+    /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g,
+    '<img src="$2" alt="$1" class="md-image" loading="lazy" />'
+  )
   // 链接 [text](url)
   html = html.replace(
     /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,

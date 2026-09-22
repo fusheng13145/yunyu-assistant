@@ -133,13 +133,28 @@ app:
   ragflow:
     api-key: ${RAGFLOW_API_KEY:}
     endpoint: ${RAGFLOW_ENDPOINT:}
-  # 全网搜索服务（未配置时工具调用降级）
+  # 全网搜索服务（未配置 api-key/endpoint 时该工具不注册）
   search:
     api-key: ${SEARCH_API_KEY:}
     endpoint: ${SEARCH_ENDPOINT:}
-  # 天气接口（未配置时工具调用降级）
+  # 天气接口（未配置时该工具不注册）
   weather:
     api-key: ${WEATHER_API_KEY:}
+  # 图像生成工具（OpenAI 兼容 images 接口；未配置 api-key 时该工具不注册）
+  image:
+    api-key: ${IMAGE_API_KEY:}
+    endpoint: ${IMAGE_ENDPOINT:https://api.openai.com/v1/images/generations}
+    model: ${IMAGE_MODEL:dall-e-3}
+  # 视频生成工具（OpenAI 兼容 videos 异步任务；未配置 api-key 时该工具不注册）
+  video:
+    api-key: ${VIDEO_API_KEY:}
+    endpoint: ${VIDEO_ENDPOINT:https://api.openai.com/v1/videos}
+    model: ${VIDEO_MODEL:sora-2}
+  # 网页正文读取工具（免第三方密钥，但会让服务端出网访问模型给出的任意公网地址，故默认关闭）
+  webfetch:
+    enabled: ${WEBFETCH_ENABLED:false}
+    # 单次抓取响应体读取上限（字节），超出即截断
+    max-bytes: ${WEBFETCH_MAX_BYTES:200000}
   # WebSocket 语音服务（未配置时语音功能降级）
   rustpbx:
     endpoint: ${RUSTPBX_ENDPOINT:}

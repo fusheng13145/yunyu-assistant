@@ -318,6 +318,12 @@ defineExpose({
   color: var(--geek-primary);
   text-decoration: underline;
 }
+.md-content :deep(.md-image) {
+  max-width: 100%;
+  border-radius: 8px;
+  display: block;
+  margin: 8px 0;
+}
 .md-content :deep(strong) { font-weight: 600; }
 .md-content :deep(em) { font-style: italic; }
 </style>

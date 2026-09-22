@@ -143,17 +143,57 @@
     {
       "name": "app.search.api-key",
       "type": "java.lang.String",
-      "description": "全网搜索服务(BochaAI)访问密钥，未配置时工具调用降级。"
+      "description": "全网搜索服务(BochaAI)访问密钥，未配置时 web_search 工具不注册（模型不可见）。"
     },
     {
       "name": "app.search.endpoint",
       "type": "java.lang.String",
-      "description": "全网搜索服务接口地址，未配置时工具调用降级。"
+      "description": "全网搜索服务接口地址，未配置时 web_search 工具不注册（模型不可见）。"
     },
     {
       "name": "app.weather.api-key",
       "type": "java.lang.String",
-      "description": "天气查询接口密钥，未配置时工具调用降级。"
+      "description": "天气查询接口密钥，未配置时 get_weather 工具不注册（模型不可见）。"
+    },
+    {
+      "name": "app.image.api-key",
+      "type": "java.lang.String",
+      "description": "图像生成服务访问密钥（OpenAI 兼容 images 接口），未配置时 generate_image 工具不注册。"
+    },
+    {
+      "name": "app.image.endpoint",
+      "type": "java.lang.String",
+      "description": "图像生成接口地址，默认 https://api.openai.com/v1/images/generations。"
+    },
+    {
+      "name": "app.image.model",
+      "type": "java.lang.String",
+      "description": "图像生成模型标识，默认 dall-e-3。"
+    },
+    {
+      "name": "app.video.api-key",
+      "type": "java.lang.String",
+      "description": "视频生成服务访问密钥（OpenAI 兼容 videos 异步任务接口），未配置时 generate_video / query_video 工具不注册。"
+    },
+    {
+      "name": "app.video.endpoint",
+      "type": "java.lang.String",
+      "description": "视频任务提交接口地址，默认 https://api.openai.com/v1/videos；查询按 {endpoint}/{jobId} 拼接。"
+    },
+    {
+      "name": "app.video.model",
+      "type": "java.lang.String",
+      "description": "视频生成模型标识，默认 sora-2。"
+    },
+    {
+      "name": "app.webfetch.enabled",
+      "type": "java.lang.Boolean",
+      "description": "网页正文读取工具（fetch_webpage）开关，默认 false。该工具无需第三方密钥但会让服务端出网访问模型给出的公网地址（已做 SSRF 校验与禁重定向），须显式开启。"
+    },
+    {
+      "name": "app.webfetch.max-bytes",
+      "type": "java.lang.Integer",
+      "description": "单次网页抓取响应体读取上限，单位：字节，默认 200000；超出即截断。"
     },
     {
       "name": "app.rustpbx.endpoint",
