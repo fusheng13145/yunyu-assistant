@@ -1,0 +1,29 @@
+# 现状核查：仓库内所有文本 blob 已是 LF，本文件是防回归的护栏——
+# 避免某个贡献者的 core.autocrlf=true 把 CRLF 带进 shell 脚本，
+# 那会让 Linux 服务器上 ./mvnw、./scripts/*.sh 的 shebang 变成 "#!/usr/bin/env bash\r" 而直接启动失败。
+
+* text=auto
+
+*.sh text eol=lf
+mvnw text eol=lf
+*.py text eol=lf
+*.mjs text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Windows 脚本必须保持 CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# 二进制文件不做换行转换
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.mp3 binary
+*.wav binary
+*.webp binary
