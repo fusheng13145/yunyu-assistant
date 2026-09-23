@@ -136,7 +136,7 @@ import { useRouter } from 'vue-router'
 import { Eye, EyeOff } from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme'
 import ThemeToggle from '../components/ThemeToggle.vue'
-import { register } from '../api/auth'
+import { register, saveSession } from '../api/auth'
 
 const router = useRouter()
 const { themeMode } = useTheme()
@@ -189,11 +189,7 @@ const handleRegister = async () => {
       password: form.value.password,
     })
     // 存储登录信息（含刷新令牌与角色）
-    localStorage.setItem('token', res.token)
-    localStorage.setItem('refreshToken', res.refreshToken)
-    localStorage.setItem('userId', res.userId)
-    localStorage.setItem('username', res.username)
-    localStorage.setItem('role', res.role || 'user')
+    saveSession(res)
     // 注册成功跳转首页
     router.push('/smartrobot')
   } catch (err) {

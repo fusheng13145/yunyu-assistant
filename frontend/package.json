@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "type:check": "vue-tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,vue}\"",
-    "lint:fix": "eslint \"src/**/*.{ts,vue}\" --fix"
+    "lint:fix": "eslint \"src/**/*.{ts,vue}\" --fix",
+    "check:auth": "node ../scripts/check-auth-session.mjs"
   },
   "dependencies": {
     "lucide-vue-next": "^0.525.0",

@@ -1,5 +1,6 @@
 package com.leyon.backend.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.lang.NonNull;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
@@ -36,21 +37,21 @@ public class CorsConfig implements WebMvcConfigurer {
             "Origin",
             "X-Requested-With"
     };
+
     /**
-     * 前端访问域名列表
+     * 前端访问域名列表（v2.30 提为配置：WebSocketConfig 共用同一份，公网域名不必改码）
      */
-    private static final String[] ALLOWED_ORIGINS = {
-            "http://localhost:5173",
-            "http://localhost:3000",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:3000"
-    };
+    private final String[] allowedOrigins;
+
+    public CorsConfig(@NonNull @Value("${app.cors.allowed-origins}") String[] allowedOrigins) {
+        this.allowedOrigins = allowedOrigins;
+    }
 
     @Override
     public void addCorsMappings(@NonNull CorsRegistry registry) {
         registry.addMapping(ALL_PATH_PATTERN)
                 // 允许指定前端域名跨域
-                .allowedOrigins(ALLOWED_ORIGINS)
+                .allowedOrigins(allowedOrigins)
                 // 允许的请求方式
                 .allowedMethods(ALLOWED_METHODS)
                 // 白名单请求头（安全改进：不再使用 "*" 通配符）

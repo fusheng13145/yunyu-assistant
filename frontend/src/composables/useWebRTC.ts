@@ -1,16 +1,11 @@
 import { ref, onBeforeUnmount } from 'vue'
+import { request } from '../api/auth'
 
 /** 从后端 /api/webrtc/config 拉取 ICE 服务器配置（STUN/TURN），生产可配置 TURN 穿透对称 NAT */
 async function fetchIceServers(): Promise<RTCIceServer[]> {
   try {
-    const token = localStorage.getItem('token')
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const response = await fetch('/api/webrtc/config', { headers })
-    if (!response.ok) return []
-    const result = await response.json()
-    if (result.code !== 200 || !Array.isArray(result.data?.iceServers)) return []
-    return result.data.iceServers as RTCIceServer[]
+    const data = await request<{ iceServers?: RTCIceServer[] }>('/api/webrtc/config')
+    return Array.isArray(data?.iceServers) ? data.iceServers : []
   } catch {
     return []
   }

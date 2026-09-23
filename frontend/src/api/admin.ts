@@ -1,25 +1,7 @@
 import type { User } from '../types'
-import { getAuthHeaders } from './auth'
+import { request } from './auth'
 
 const API_BASE = '/api'
-
-interface ApiResponse<T> {
-  code: number
-  message: string
-  data: T
-}
-
-async function parseResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: '请求失败' }))
-    throw new Error(errorData.message || '请求失败')
-  }
-  const result: ApiResponse<T> = await response.json()
-  if (result.code !== 200) {
-    throw new Error(result.message || '请求失败')
-  }
-  return result.data
-}
 
 /** 平台用量总览 */
 export interface AdminOverview {
@@ -31,11 +13,8 @@ export interface AdminOverview {
   auditLogCount: number
 }
 
-export async function fetchOverview(): Promise<AdminOverview> {
-  const response = await fetch(`${API_BASE}/admin/overview`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<AdminOverview>(response)
+export function fetchOverview(): Promise<AdminOverview> {
+  return request<AdminOverview>(`${API_BASE}/admin/overview`)
 }
 
 /** 审计日志条目（与后端 AuditLog 实体对齐） */
@@ -58,12 +37,9 @@ export interface AdminAuditLogPage {
   pageSize: number
 }
 
-export async function fetchAuditLogs(page: number, pageSize: number): Promise<AdminAuditLogPage> {
+export function fetchAuditLogs(page: number, pageSize: number): Promise<AdminAuditLogPage> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
-  const response = await fetch(`${API_BASE}/admin/audit-logs?${params.toString()}`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<AdminAuditLogPage>(response)
+  return request<AdminAuditLogPage>(`${API_BASE}/admin/audit-logs?${params.toString()}`)
 }
 
 /** 用户列表分页 */
@@ -74,15 +50,12 @@ export interface AdminUserPage {
   pageSize: number
 }
 
-export async function fetchUsers(page: number, pageSize: number, keyword?: string): Promise<AdminUserPage> {
+export function fetchUsers(page: number, pageSize: number, keyword?: string): Promise<AdminUserPage> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
   if (keyword && keyword.trim()) {
     params.set('keyword', keyword.trim())
   }
-  const response = await fetch(`${API_BASE}/admin/users?${params.toString()}`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<AdminUserPage>(response)
+  return request<AdminUserPage>(`${API_BASE}/admin/users?${params.toString()}`)
 }
 
 /** 单表归档状态（数据归档 Tab） */
@@ -112,19 +85,12 @@ export interface ArchiveRunResult {
   finishedAt: string
 }
 
-export async function fetchArchiveOverview(): Promise<ArchiveOverview> {
-  const response = await fetch(`${API_BASE}/admin/archive/overview`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<ArchiveOverview>(response)
+export function fetchArchiveOverview(): Promise<ArchiveOverview> {
+  return request<ArchiveOverview>(`${API_BASE}/admin/archive/overview`)
 }
 
-export async function runArchive(): Promise<ArchiveRunResult> {
-  const response = await fetch(`${API_BASE}/admin/archive/run`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<ArchiveRunResult>(response)
+export function runArchive(): Promise<ArchiveRunResult> {
+  return request<ArchiveRunResult>(`${API_BASE}/admin/archive/run`, { method: 'POST' })
 }
 
 /** 配额配置（与后端 Quota 实体对齐；dailyCallSecLimit 为 Long，其余整型） */
@@ -140,18 +106,12 @@ export interface AdminQuota {
 }
 
 /** 环境变量兜底配额：scopeType / scopeId 为 null，表示"未单独配置的 org/user 生效的就是这份" */
-export async function fetchQuotaDefaults(): Promise<AdminQuota> {
-  const response = await fetch(`${API_BASE}/admin/quotas/defaults`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<AdminQuota>(response)
+export function fetchQuotaDefaults(): Promise<AdminQuota> {
+  return request<AdminQuota>(`${API_BASE}/admin/quotas/defaults`)
 }
 
-export async function fetchQuotas(): Promise<AdminQuota[]> {
-  const response = await fetch(`${API_BASE}/admin/quotas`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<AdminQuota[]>(response)
+export function fetchQuotas(): Promise<AdminQuota[]> {
+  return request<AdminQuota[]>(`${API_BASE}/admin/quotas`)
 }
 
 /** UPSERT 入参：省略的维度后端不修改；新建配置行时后端先用环境变量兜底值补齐四项 */
@@ -165,10 +125,5 @@ export interface QuotaUpsertPayload {
 }
 
 export async function upsertQuota(payload: QuotaUpsertPayload): Promise<void> {
-  const response = await fetch(`${API_BASE}/admin/quotas`, {
-    method: 'PUT',
-    headers: getAuthHeaders(),
-    body: JSON.stringify(payload),
-  })
-  return parseResponse<void>(response)
+  await request<void>(`${API_BASE}/admin/quotas`, { method: 'PUT', body: JSON.stringify(payload) })
 }

@@ -21,6 +21,11 @@
       "description": "Redis 共享状态开关，默认 false。true 时限流、令牌黑名单、登录锁定写入 Redis（多实例共享），false 时降级为单实例内存实现。"
     },
     {
+      "name": "app.cors.allowed-origins",
+      "type": "java.util.List<java.lang.String>",
+      "description": "前端来源白名单（逗号分隔），默认本地 Vite/Node 端口。HTTP 跨域与 WebSocket 握手共用；公网部署必须加入站点域名，否则 /ws 握手 403。"
+    },
+    {
       "name": "app.webrtc.ice-servers",
       "type": "java.lang.String",
       "description": "WebRTC ICE 服务器配置（JSON 数组字符串），默认 []。为空时前端回退默认 Google STUN；生产建议配置 TURN 以穿透对称 NAT。"

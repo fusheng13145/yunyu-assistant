@@ -1,6 +1,9 @@
 # 服务基础配置
 server:
   port: ${SERVER_PORT:8080}
+  # 监听地址（v2.30 提为变量，默认仍为全部网卡＝Boot 原行为）：
+  # 单机反代部署可设 127.0.0.1，让"8080 只在机器内部"从依赖安全组变成由内核保证
+  address: ${SERVER_ADDRESS:0.0.0.0}
   error:
     whitelabel:
       enabled: false
@@ -77,6 +80,11 @@ app:
   # Redis 共享状态开关：true 时限流/令牌黑名单/登录锁定写入 Redis（多实例共享），false 时降级单实例内存实现
   redis:
     enabled: ${REDIS_ENABLED:false}
+  # 前端来源白名单（v2.30 提为变量，默认值＝此前硬编码的本地端口清单）
+  # HTTP 跨域与 WebSocket 握手共用同一份：浏览器发起 WS 握手必定携带 Origin，
+  # 站点换成公网域名后若不加进这里，聊天/语音链路会在握手阶段直接 403（冒烟脚本第 7 节会抓到）
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000}
   # WebRTC ICE 服务器配置（JSON 数组，如 [{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]）
   # 未配置时前端回退默认 Google STUN；生产建议配置 TURN 穿透对称 NAT（见手册 6.6）
   webrtc:
@@ -183,6 +191,15 @@ app:
 # v2.29：/actuator 不在 /api/** 拦截器覆盖范围内（免鉴权），故默认只回 UP/DOWN，
 # 不外泄数据库/磁盘明细；需要明细时由内网侧临时置 when-authorized 或在反代层封掉 /actuator
 management:
+  server:
+    # 默认与业务同端口（Boot 原行为）。公网实例建议设为独立端口（如 9080），
+    # 然后安全组完全不放行该端口 ⇒ /actuator 连"免鉴权可读"的暴露面都不存在
+    port: ${MANAGEMENT_SERVER_PORT:${SERVER_PORT:8080}}
+    # 管理端口监听地址。⚠️ Boot 在**端口与业务不同**时只用 management.server.address，
+    # 不继承 server.address（null 即绑 0.0.0.0）——故此处显式回落到 SERVER_ADDRESS，
+    # 否则"SERVER_ADDRESS=127.0.0.1 + 独立管理端口"反而把 /actuator 开到全网卡，比不分离更糟。
+    # 同端口时该项被 Boot 忽略（走业务连接器），无副作用。
+    address: ${MANAGEMENT_SERVER_ADDRESS:${SERVER_ADDRESS:0.0.0.0}}
   endpoints:
     web:
       exposure:

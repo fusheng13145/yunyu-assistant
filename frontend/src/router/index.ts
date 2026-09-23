@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getToken, isTokenExpired, isTokenFresh, renewToken } from '../api/auth'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -67,8 +68,13 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to, _from, next) => {
-  const token = localStorage.getItem('token')
+router.beforeEach(async (to, _from, next) => {
+  // 访问令牌已过期或临期时先换发：否则进页面后所有请求集体 401，用户看到"莫名报错"
+  if (to.meta.requiresAuth && getToken() && !isTokenFresh(getToken())) {
+    await renewToken()
+  }
+  // 换发失败（refresh 令牌也过期）等同未登录，不能放行受保护路由
+  const token = isTokenExpired(getToken()) ? null : getToken()
   const role = localStorage.getItem('role') || 'user'
 
   if (to.meta.requiresAuth && !token) {

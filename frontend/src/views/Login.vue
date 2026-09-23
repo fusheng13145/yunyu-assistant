@@ -101,13 +101,14 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Eye, EyeOff } from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme'
 import ThemeToggle from '../components/ThemeToggle.vue'
-import { login } from '../api/auth'
+import { login, saveSession } from '../api/auth'
 
 // 路由 & 主题
+const route = useRoute()
 const router = useRouter()
 const { themeMode } = useTheme()
 
@@ -123,6 +124,11 @@ const form = ref({
 // 状态控制
 const loading = ref(false)
 const errorMsg = ref('')
+
+// 会话彻底失效时由 api/auth 跳转至此（/login?reason=expired），给一句人话而不是空白表单
+if (route.query.reason === 'expired') {
+  errorMsg.value = '登录状态已过期，请重新登录'
+}
 
 // 表单是否可提交
 const canSubmit = computed(() => {
@@ -144,11 +150,7 @@ const handleLogin = async () => {
       password: form.value.password,
     })
     // 本地存储登录信息（含刷新令牌与角色，用于令牌续期与权限控制）
-    localStorage.setItem('token', res.token)
-    localStorage.setItem('refreshToken', res.refreshToken)
-    localStorage.setItem('userId', res.userId)
-    localStorage.setItem('username', res.username)
-    localStorage.setItem('role', res.role || 'user')
+    saveSession(res)
     // 跳转至助手主页
     router.push('/smartrobot')
   } catch (err) {

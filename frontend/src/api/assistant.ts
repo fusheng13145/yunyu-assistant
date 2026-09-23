@@ -1,25 +1,7 @@
 import type { Assistant, CreateAssistantData, UpdateAssistantData, VoiceInfo, ModelInfo, ToolInfo } from '../types'
-import { getAuthHeaders } from './auth'
+import { request } from './auth'
 
 const API_BASE = '/api'
-
-interface ApiResponse<T> {
-  code: number
-  message: string
-  data: T
-}
-
-async function parseResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: '请求失败' }))
-    throw new Error(errorData.message || '请求失败')
-  }
-  const result: ApiResponse<T> = await response.json()
-  if (result.code !== 200) {
-    throw new Error(result.message || '请求失败')
-  }
-  return result.data
-}
 
 /** 分页查询助手列表（支持关键词搜索名称/描述） */
 export interface AssistantPage {
@@ -29,68 +11,39 @@ export interface AssistantPage {
   pageSize: number
 }
 
-export async function fetchAssistantsPage(page: number, pageSize: number, keyword?: string): Promise<AssistantPage> {
+export function fetchAssistantsPage(page: number, pageSize: number, keyword?: string): Promise<AssistantPage> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
   if (keyword && keyword.trim()) {
     params.set('keyword', keyword.trim())
   }
-  const response = await fetch(`${API_BASE}/assistants/page?${params.toString()}`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<AssistantPage>(response)
+  return request<AssistantPage>(`${API_BASE}/assistants/page?${params.toString()}`)
 }
 
-export async function fetchAssistant(id: string): Promise<Assistant> {
-  const response = await fetch(`${API_BASE}/assistants/${id}`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<Assistant>(response)
+export function fetchAssistant(id: string): Promise<Assistant> {
+  return request<Assistant>(`${API_BASE}/assistants/${id}`)
 }
 
-export async function createAssistant(data: CreateAssistantData): Promise<Assistant> {
-  const response = await fetch(`${API_BASE}/assistants`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify(data),
-  })
-  return parseResponse<Assistant>(response)
+export function createAssistant(data: CreateAssistantData): Promise<Assistant> {
+  return request<Assistant>(`${API_BASE}/assistants`, { method: 'POST', body: JSON.stringify(data) })
 }
 
 export async function updateAssistant(data: UpdateAssistantData): Promise<void> {
-  const response = await fetch(`${API_BASE}/assistants`, {
-    method: 'PUT',
-    headers: getAuthHeaders(),
-    body: JSON.stringify(data),
-  })
-  await parseResponse<void>(response)
+  await request<void>(`${API_BASE}/assistants`, { method: 'PUT', body: JSON.stringify(data) })
 }
 
 export async function deleteAssistant(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/assistants/${id}`, {
-    method: 'DELETE',
-    headers: getAuthHeaders(),
-  })
-  await parseResponse<void>(response)
+  await request<void>(`${API_BASE}/assistants/${id}`, { method: 'DELETE' })
 }
 
-export async function fetchVoices(): Promise<VoiceInfo[]> {
-  const response = await fetch(`${API_BASE}/voices`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<VoiceInfo[]>(response)
+export function fetchVoices(): Promise<VoiceInfo[]> {
+  return request<VoiceInfo[]>(`${API_BASE}/voices`)
 }
 
-export async function fetchModels(): Promise<ModelInfo[]> {
-  const response = await fetch(`${API_BASE}/models`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<ModelInfo[]>(response)
+export function fetchModels(): Promise<ModelInfo[]> {
+  return request<ModelInfo[]>(`${API_BASE}/models`)
 }
 
 /** 当前实际注册（配置已就绪）的 AI 工具列表，供助手"可用工具"白名单勾选 */
-export async function fetchTools(): Promise<ToolInfo[]> {
-  const response = await fetch(`${API_BASE}/tools`, {
-    headers: getAuthHeaders(),
-  })
-  return parseResponse<ToolInfo[]>(response)
+export function fetchTools(): Promise<ToolInfo[]> {
+  return request<ToolInfo[]>(`${API_BASE}/tools`)
 }

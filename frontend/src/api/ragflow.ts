@@ -1,5 +1,5 @@
 import type { KnowledgeBase } from '../types'
-import { getAuthHeaders } from './auth'
+import { authFetch } from './auth'
 
 interface RAGFlowPaginatedData {
   docs?: RAGFlowDocument[]
@@ -48,16 +48,11 @@ class RagflowApiError extends Error {
 const PROXY_BASE = '/api/ragflow'
 
 /**
- * 通过后端代理发起请求（统一处理认证头，不再需要前端传递 RAGFlow apiKey）
+ * 通过后端代理发起请求（统一走 authFetch 的鉴权与静默续期，不再需要前端传递 RAGFlow apiKey）
+ * 响应体是 RAGFlow 原始格式（code=0 表示成功），故不复用 api/auth 的 parseResponse
  */
 async function proxyFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...getAuthHeaders(),
-      ...(options.headers as Record<string, string> || {}),
-    },
-  })
+  const response = await authFetch(url, options)
 
   if (!response.ok) {
     throw new RagflowApiError(`请求失败: ${response.status}`, response.status)
@@ -77,9 +72,7 @@ export class RagflowApi {
    * 用于获取服务地址等非敏感配置
    */
   static async getConfig(): Promise<{ endpoint: string }> {
-    const response = await fetch(`${PROXY_BASE}/config`, {
-      headers: getAuthHeaders(),
-    })
+    const response = await authFetch(`${PROXY_BASE}/config`)
     if (!response.ok) throw new RagflowApiError(`获取配置失败: ${response.status}`)
     const result = await response.json()
     return result.data as { endpoint: string }
@@ -161,16 +154,10 @@ export class RagflowApi {
     const formData = new FormData()
     formData.append('file', file)
 
-    const response = await fetch(
+    // multipart 不手动设置 Content-Type，让浏览器自动带 boundary（authFetch 对 FormData body 会跳过 JSON 头）
+    const response = await authFetch(
       `${PROXY_BASE}/datasets/${datasetId}/documents`,
-      {
-        method: 'POST',
-        headers: {
-          // 不手动设置 Content-Type，让浏览器自动设置 multipart boundary
-          Authorization: getAuthHeaders().Authorization || '',
-        },
-        body: formData,
-      }
+      { method: 'POST', body: formData }
     )
 
     if (!response.ok) {
@@ -206,9 +193,8 @@ export class RagflowApi {
 
   /** 检索效果测试（F5.5） */
   static async testRetrieval(question: string, datasetIds: string[]): Promise<Array<{ content: string; similarity: number; document: string }>> {
-    const response = await fetch(`${PROXY_BASE}/retrieval-test`, {
+    const response = await authFetch(`${PROXY_BASE}/retrieval-test`, {
       method: 'POST',
-      headers: getAuthHeaders(),
       body: JSON.stringify({ question, datasetIds }),
     })
     if (!response.ok) throw new RagflowApiError(`检索测试失败: ${response.status}`, response.status)

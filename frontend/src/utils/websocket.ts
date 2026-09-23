@@ -1,3 +1,5 @@
+import { ensureFreshToken } from '../api/auth'
+
 interface WebSocketHandlers {
   onMessage?: (event: MessageEvent) => void
   onOpen?: (event: Event) => void
@@ -13,7 +15,6 @@ const MAX_RECONNECT_ATTEMPTS = 5
 
 export function useWebSocket(url: string, handlers: WebSocketHandlers = {}) {
   let ws: WebSocket | null = null
-  const token = localStorage.getItem('token')
   let authSent = false
   let manuallyClosed = false
   let reconnectAttempts = 0
@@ -35,7 +36,10 @@ export function useWebSocket(url: string, handlers: WebSocketHandlers = {}) {
     }
   }
 
-  const connect = () => {
+  const connect = async () => {
+    // 令牌在每次建链/重连时重取：页面存活期跨过一次静默续期后，重连不能再携带旧令牌
+    const token = await ensureFreshToken()
+    if (manuallyClosed) return
     ws = new WebSocket(url)
     authSent = false
 

@@ -1112,7 +1112,7 @@ import { useWebSocket } from '../utils/websocket'
 import { useWebRTC } from '../composables/useWebRTC'
 import { uploadRecording } from '../api/callRecord'
 import { fetchAssistantsPage, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels, fetchTools } from '../api/assistant'
-import { logout } from '../api/auth'
+import { logout, clearSession } from '../api/auth'
 import { RagflowApi } from '../api/ragflow'
 import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, VoiceInfo, ModelInfo, ToolInfo } from '../types'
 
@@ -1778,10 +1778,7 @@ const handleLogout = () => {
   logout(refreshToken).catch(() => {
     // 网络异常不阻塞本地登出
   })
-  localStorage.removeItem('token')
-  localStorage.removeItem('refreshToken')
-  localStorage.removeItem('userId')
-  localStorage.removeItem('username')
+  clearSession()
   router.push('/login')
 }
 
