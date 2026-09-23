@@ -19,6 +19,11 @@ if not defined JWT_SECRET     set "JWT_SECRET=dev-jwt-secret-key-0123456789abcde
 if not defined JWT_EXPIRATION set "JWT_EXPIRATION=86400000"
 if not defined SERVER_PORT    set "SERVER_PORT=8080"
 
+REM ---- LLM (v2.29: no longer defaulted in application.yaml; dev placeholder keeps local startup working) ----
+REM ---- NOTE: .env is NOT auto-loaded by the JVM; export vars yourself (see README "配置说明") ----
+if not defined OPENAI_API_KEY   set "OPENAI_API_KEY=dev-placeholder-llm-key"
+if not defined MAPPER_LOG_LEVEL set "MAPPER_LOG_LEVEL=DEBUG"
+
 echo.
 echo [Yunyu] Starting backend on port %SERVER_PORT% ...
 echo.

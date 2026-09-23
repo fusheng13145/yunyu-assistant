@@ -175,6 +175,28 @@ class ChatWebSocketHandlerTest {
     }
 
     @Test
+    void chat_blankContent_rejectedWithoutModelCall() throws Exception {
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"   \"}"));
+
+        assertThat(sentMessages().stream().map(m -> m.path("type").asText())).contains("error");
+        verify(chatService, never()).chatStream(anyString());
+    }
+
+    @Test
+    void chat_oversizedContent_rejectedBeforeQuotaCheck() throws Exception {
+        // 配额按条数计量，单条长度上限是成本收口；超长消息不应再触达配额聚合与模型
+        String oversized = "啊".repeat(ChatService.MAX_INPUT_CHARS + 1);
+
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"" + oversized + "\"}"));
+
+        List<JsonNode> messages = sentMessages();
+        assertThat(messages.stream().anyMatch(m -> "error".equals(m.path("type").asText())
+                && m.path("data").asText().contains(String.valueOf(ChatService.MAX_INPUT_CHARS)))).isTrue();
+        verify(quotaService, never()).checkSendMessage(anyString());
+        verify(chatService, never()).chatStream(anyString());
+    }
+
+    @Test
     void selectedKbIds_areIntersectedWithVisibleDatasets() {
         when(knowledgeBaseService.retainVisibleDatasetIds(eq(List.of("d1", "d2")), eq("u1")))
                 .thenReturn(List.of("d1"));

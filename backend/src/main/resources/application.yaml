@@ -40,10 +40,11 @@ spring:
       schema-locations: classpath:index.sql
       # 生产环境建议关闭，仅开发启用
       continue-on-error: false
-  # Spring AI 大模型配置（生产必须注入真实 API Key/Base URL；默认值为占位，保证无 Key 时系统仍可启动，LLM 调用将降级）
+  # Spring AI 大模型配置（v2.29 起 OPENAI_API_KEY 无默认值：未注入即启动失败）
+  # 理由：此前占位默认值让"忘配 Key"变成能启动、但对话静默降级的半瘫实例；起不来比半瘫更容易被发现
   ai:
     openai:
-      api-key: ${OPENAI_API_KEY:dev-placeholder-llm-key}
+      api-key: ${OPENAI_API_KEY}
       base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
       chat:
         options:
@@ -58,7 +59,9 @@ mybatis-plus:
   type-aliases-package: com.leyon.backend.entity
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # SQL 日志走 SLF4J 由 logging.level.com.leyon.backend.mapper 控制（StdOutImpl 会无条件打 stdout，
+    # 既绕过级别开关、也进不了 LOG_FILE，公网实例无法关掉）
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
   global-config:
     db-config:
       # 主键策略：ASSIGN_ID（用户输入）
@@ -177,6 +180,8 @@ app:
     speaker: ${TTS_SPEAKER:longxiaochun}
 
 # Actuator 健康检查与运行指标（F9.4）
+# v2.29：/actuator 不在 /api/** 拦截器覆盖范围内（免鉴权），故默认只回 UP/DOWN，
+# 不外泄数据库/磁盘明细；需要明细时由内网侧临时置 when-authorized 或在反代层封掉 /actuator
 management:
   endpoints:
     web:
@@ -184,16 +189,22 @@ management:
         include: health,info,metrics
   endpoint:
     health:
-      show-details: always
+      show-details: ${HEALTH_SHOW_DETAILS:never}
 
-# 日志级别（开发环境调试）
+# 日志（v2.29 公网部署前置）：
+# - mapper 默认 INFO ⇒ 不打 SQL（SQL 只在 MAPPER_LOG_LEVEL=DEBUG 时输出，见上方 log-impl）
+# - 本地开发由 start-backend.bat 显式设 MAPPER_LOG_LEVEL=DEBUG 恢复调试口径
+# - LOG_FILE 非空时同时落文件（Boot 内置轮转：按天 + 单文件 10MB、保留 7 天、历史 gz；为空时 Boot 的
+#   LogFile.get() 判空返回 null ⇒ 仅控制台）；可用 logging.logback.rollingpolicy.* 覆盖
 logging:
+  file:
+    name: ${LOG_FILE:}
   level:
     root: INFO
     com:
       leyon:
         backend:
-          mapper: DEBUG
+          mapper: ${MAPPER_LOG_LEVEL:INFO}
     org:
       springframework:
         ai: INFO

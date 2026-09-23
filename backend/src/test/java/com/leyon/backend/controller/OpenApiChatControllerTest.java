@@ -8,6 +8,7 @@ import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.Session;
 import com.leyon.backend.interceptor.OpenApiAuthInterceptor;
 import com.leyon.backend.service.AssistantService;
+import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
 import com.leyon.backend.service.OrgService;
@@ -125,6 +126,19 @@ class OpenApiChatControllerTest {
                 .assertNext(ev -> assertThat((String) ev.data().get("error")).contains("配额"))
                 .expectComplete()
                 .verify();
+    }
+
+    @Test
+    void chat_oversizedMessage_returnsErrorEventBeforeQuota() {
+        // 与文本 WS 同源的(CONTENT.length 上限：配额按条数计量，单条不限长即可打穿成本
+        String oversized = "啊".repeat(ChatService.MAX_INPUT_CHARS + 1);
+        Flux<ServerSentEvent<Map<String, Object>>> flux =
+                controller.chat(Map.of("assistantId", "a1", "message", oversized), request);
+        StepVerifier.create(flux)
+                .assertNext(ev -> assertThat((String) ev.data().get("error")).contains("过长"))
+                .expectComplete()
+                .verify();
+        org.mockito.Mockito.verify(quotaService, org.mockito.Mockito.never()).checkSendMessage(any());
     }
 
     @Test

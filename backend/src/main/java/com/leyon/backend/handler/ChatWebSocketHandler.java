@@ -318,8 +318,20 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
      */
     private void handleChat(@NonNull WebSocketSession session, ChatService chatService, JsonNode node) {
         String sessionId = session.getId();
-        String content = node.get(FIELD_CONTENT).asText();
+        JsonNode contentNode = node.get(FIELD_CONTENT);
+        String content = contentNode == null ? null : contentNode.asText();
         String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
+
+        // 输入形态校验先于配额校验：畸形/超长消息不该消耗一次数据库聚合
+        if (!StringUtils.hasText(content)) {
+            sendMessage(session, MSG_TYPE_ERROR, "消息内容不能为空");
+            return;
+        }
+        if (content.length() > ChatService.MAX_INPUT_CHARS) {
+            sendMessage(session, MSG_TYPE_ERROR,
+                    "消息过长（最多 " + ChatService.MAX_INPUT_CHARS + " 字），请精简后重发");
+            return;
+        }
 
         // P2-10 消息配额拦截：单日消息量超限时回错误消息，不发起流式（WS 场景不抛 HTTP 异常）
         if (userId != null) {

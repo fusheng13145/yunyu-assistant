@@ -1,3 +1,17 @@
+-- ============================================================
+-- 云谕助手 —— 全新环境建库脚本（仅新环境！）
+--
+-- ⚠️ 本文件会 DROP 整个库：已部署环境禁止执行，
+--    请改用 scripts/db-migrate.sh 应用 db/migrations/ 下的增量脚本。
+-- ⚠️ 本文件只建表、不灌数据；演示账号与示例对话已移到 db/seed-demo.sql（生产禁跑）。
+--    此前演示账号（zhangsan/lisi/wangwu/admin）与明文可猜的 bcrypt 口令随建库进入生产，
+--    等于给公网实例留了一批已知口令的账号，故 v2.29 起拆离。
+--
+-- 新环境初始化：
+--   mysql -uroot -p < backend/src/main/resources/index.sql
+--   （如要演示数据）mysql -uroot -p yunyu_assistant < backend/src/main/resources/db/seed-demo.sql
+-- ============================================================
+
 -- ----------------------------
 -- 数据库: yunyu_assistant
 -- ----------------------------
@@ -38,20 +52,17 @@ CREATE TABLE `assistants` (
     `temperature` DECIMAL(2,1) DEFAULT NULL COMMENT '温度 0-2',
     `max_tokens` INT DEFAULT NULL COMMENT '最大输出 Token 数',
     `knowledge_ids` JSON DEFAULT NULL COMMENT '关联知识库ID列表（JSON 数组）',
+    `tools` VARCHAR(500) DEFAULT NULL COMMENT '可用工具白名单（JSON 数组，空=全部已注册工具，v2.28）',
     `user_id` VARCHAR(36) NOT NULL COMMENT '所属用户ID',
+    `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
     PRIMARY KEY (`id`),
     KEY `idx_assistant_user_id` (`user_id`),
+    KEY `idx_assistant_org_id` (`org_id`),
     KEY `idx_assistant_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='助手表';
-
--- ----------------------------
--- 助手可用工具白名单（v2.28 按助手裁剪 AI 能力）
--- 存 JSON 数组字符串（如 ["get_weather","hangup"]）；NULL / 空数组 = 全部已注册工具可用（既有助手零迁移即行为不变）
--- ----------------------------
-ALTER TABLE `assistants` ADD COLUMN `tools` VARCHAR(500) DEFAULT NULL COMMENT '可用工具白名单（JSON 数组，空=全部已注册工具）' AFTER `knowledge_ids`;
 
 -- ----------------------------
 -- 知识库表: knowledgebases
@@ -64,11 +75,13 @@ CREATE TABLE `knowledgebases` (
     `dataset_id` VARCHAR(64) DEFAULT NULL COMMENT 'RAGFlow 数据集ID（外部键）',
     `content` TEXT DEFAULT NULL COMMENT '知识库内容',
     `user_id` VARCHAR(36) NOT NULL COMMENT '所属用户ID',
+    `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
     PRIMARY KEY (`id`),
-    KEY `idx_kb_user_dataset` (`user_id`, `dataset_id`)
+    KEY `idx_kb_user_dataset` (`user_id`, `dataset_id`),
+    KEY `idx_kb_org_id` (`org_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库表';
 
 -- ----------------------------
@@ -79,6 +92,7 @@ CREATE TABLE `sessions` (
     `id` VARCHAR(36) NOT NULL COMMENT '会话UUID',
     `user_id` VARCHAR(36) NOT NULL COMMENT '归属用户ID',
     `assistant_id` VARCHAR(36) NOT NULL COMMENT '关联助手ID',
+    `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）',
     `title` VARCHAR(100) NOT NULL DEFAULT '新对话' COMMENT '会话标题',
     `is_pinned` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否置顶 0:否 1:是',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -86,7 +100,8 @@ CREATE TABLE `sessions` (
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
     PRIMARY KEY (`id`),
     KEY `idx_session_user_assistant` (`user_id`, `assistant_id`),
-    KEY `idx_session_user_updated` (`user_id`, `updated_at`)
+    KEY `idx_session_user_updated` (`user_id`, `updated_at`),
+    KEY `idx_session_org_id` (`org_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会话表';
 
 -- ----------------------------
@@ -122,6 +137,7 @@ DROP TABLE IF EXISTS `call_records`;
 CREATE TABLE `call_records` (
     `id` VARCHAR(36) NOT NULL COMMENT '通话记录UUID',
     `user_id` VARCHAR(36) NOT NULL COMMENT '归属用户ID',
+    `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）',
     `assistant_id` VARCHAR(36) NOT NULL COMMENT '助手ID',
     `status` TINYINT(1) DEFAULT 1 COMMENT '状态 0:失败 1:进行中 2:正常结束 3:中断',
     `duration_sec` INT DEFAULT 0 COMMENT '通话时长（秒）',
@@ -134,7 +150,8 @@ CREATE TABLE `call_records` (
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
     PRIMARY KEY (`id`),
     KEY `idx_cr_user_time` (`user_id`, `started_at`),
-    KEY `idx_cr_assistant_id` (`assistant_id`)
+    KEY `idx_cr_assistant_id` (`assistant_id`),
+    KEY `idx_cr_org_id` (`org_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通话记录表';
 
 -- ----------------------------
@@ -255,22 +272,6 @@ CREATE TABLE `org_members` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='组织成员表';
 
 -- ----------------------------
--- 业务表增加组织的可选归属（P2-10 多租户与商业化前置）
--- org_id 为空表示个人数据（仍按 user_id 隔离）；非空表示组织数据（按组织角色矩阵控制）
--- ----------------------------
-ALTER TABLE `assistants` ADD COLUMN `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）' AFTER `user_id`;
-ALTER TABLE `assistants` ADD KEY `idx_assistant_org_id` (`org_id`);
-
-ALTER TABLE `knowledgebases` ADD COLUMN `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）' AFTER `user_id`;
-ALTER TABLE `knowledgebases` ADD KEY `idx_kb_org_id` (`org_id`);
-
-ALTER TABLE `sessions` ADD COLUMN `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）' AFTER `assistant_id`;
-ALTER TABLE `sessions` ADD KEY `idx_session_org_id` (`org_id`);
-
-ALTER TABLE `call_records` ADD COLUMN `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）' AFTER `user_id`;
-ALTER TABLE `call_records` ADD KEY `idx_cr_org_id` (`org_id`);
-
--- ----------------------------
 -- 配额表: quotas（P2-10 用量配额与账单统计）
 -- scope_type: org(组织级,优先) / user(用户级,无组织时兜底)；无记录时用环境变量默认值
 -- ----------------------------
@@ -351,49 +352,19 @@ CREATE TABLE `webhook_deliveries` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Webhook 投递记录表';
 
 -- ----------------------------
--- 插入用户数据
+-- 迁移登记表: schema_migrations（v2.29 增量迁移机制）
+-- scripts/db-migrate.sh 按文件名顺序应用 db/migrations/*.sql，并把已应用版本登记于此表
+-- 新库由本文件建表后仍需跑一次 db-migrate.sh（迁移脚本自带存在性守卫，重复应用为 no-op）
 -- ----------------------------
-INSERT INTO `users` (`id`, `username`, `nickname`, `password`, `avatar`, `email`, `phone`, `role`)
-VALUES
-('user_001', 'zhangsan', '张三', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOsWWIrbu2gXT9OmdE6OmgNFj/bq', 'https://avatar.test.com/001.png', 'zhangsan@test.com', '13800138000', 'user'),
-('user_002', 'lisi', '李四', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOsWWIrbu2gXT9OmdE6OmgNFj/bq', 'https://avatar.test.com/002.png', 'lisi@test.com', '13800138001', 'user'),
-('user_003', 'wangwu', '王五', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOsWWIrbu2gXT9OmdE6OmgNFj/bq', NULL, 'wangwu@test.com', NULL, 'user'),
-('user_admin', 'admin', '管理员', '$2a$10$LCqDIIEwadZOzoHvV5N2cuKcmuH6QSA0ug3obZRFn8iDGPpXstN.S', NULL, 'admin@test.com', NULL, 'admin');
+DROP TABLE IF EXISTS `schema_migrations`;
+CREATE TABLE `schema_migrations` (
+    `version` VARCHAR(128) NOT NULL COMMENT '迁移文件名（不含扩展名）',
+    `applied_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '应用时间',
+    PRIMARY KEY (`version`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='已应用增量迁移登记表';
 
--- ----------------------------
--- 插入助手数据
--- ----------------------------
-INSERT INTO `assistants` (`id`, `name`, `description`, `personality`, `voice`, `user_id`)
-VALUES
-('assist_001', '撰写文案助手', '擅长文案创作、润色、公文撰写', '你是专业文案助手，语言简洁正式，逻辑清晰', 'female_01', 'user_001'),
-('assist_002', '编程答疑助手', '专注Java、Python后端问题解答', '你是资深开发工程师，解答技术问题通俗易懂', 'male_01', 'user_001'),
-('assist_003', '生活闲聊助手', '日常聊天、情感陪伴', '性格温和，语气亲切，耐心回应用户问题', 'female_02', 'user_002'),
-('assist_004', '学习辅导助手', '学科知识点讲解、习题解答', '严谨认真，分步讲解知识点', 'male_02', 'user_003');
-
--- ----------------------------
--- 插入知识库数据
--- ----------------------------
-INSERT INTO `knowledgebases` (`id`, `name`, `description`, `content`, `user_id`)
-VALUES
-('kb_001', '公文写作模板库', '常用通知、报告、总结模板合集', '1. 通知模板：标题+正文+落款\n2. 工作总结模板：工作内容+问题+计划', 'user_001'),
-('kb_002', 'Java基础笔记', 'Java语法、面向对象、集合框架笔记', 'Java 面向对象三大特性：封装、继承、多态。集合分为单列集合与双列集合。', 'user_001'),
-('kb_003', '日常美食菜谱', '家常菜简单做法大全', '番茄炒蛋：番茄切块，鸡蛋炒熟，混合翻炒加盐即可。', 'user_002'),
-('kb_004', '高中数学公式', '常用数学公式汇总', '三角函数公式、数列公式、不等式公式整理', 'user_003');
-
--- ----------------------------
--- 插入记录数据
--- ----------------------------
-INSERT INTO `records` (`id`, `assistant_id`, `role`, `message`, `cost_time`)
-VALUES
--- 撰写文案助手 对话
-('record_001', 'assist_001', 0, '帮我写一篇简短的工作通知', 0),
-('record_002', 'assist_001', 1, '各位同事：本周周五下午三点召开部门例会，请准时参加。特此通知。', 680),
--- 编程答疑助手 对话
-('record_003', 'assist_002', 0, 'Java List 和 Set 有什么区别？', 0),
-('record_004', 'assist_002', 1, 'List 有序可重复，Set 无序不可重复。常见实现类分别为ArrayList、HashSet。', 520),
--- 生活闲聊助手 对话
-('record_005', 'assist_003', 0, '有什么简单的家常菜推荐？', 0),
-('record_006', 'assist_003', 1, '推荐番茄炒蛋、清炒时蔬，做法简单又美味。', 410),
--- 学习辅导助手 对话
-('record_007', 'assist_004', 0, '三角函数基本公式有哪些？', 0),
-('record_008', 'assist_004', 1, '正弦、余弦、正切基础关系：tanα = sinα / cosα，还有两角和差公式等。', 730);
+-- ============================================================
+-- 表结构到此为止。此后的 schema 变更请新增 db/migrations/NNNN_简述.sql
+-- （用 yunyu_add_column / yunyu_add_index 守卫，可重复执行），
+-- 不要在本文件追加 ALTER：本文件只服务新环境，已部署库只能靠 migrations 演进。
+-- ============================================================

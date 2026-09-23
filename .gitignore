@@ -22,3 +22,7 @@ Thumbs.db
 
 # 日志
 *.log
+
+# 本地验证临时产物与数据库备份（备份含密码哈希，禁止入库）
+.scratch/
+backups/

@@ -112,6 +112,17 @@ class QuotaServiceTest {
     }
 
     @Test
+    void getDefaultQuota_exposesEnvFallbackWithoutScope() {
+        Quota defaults = quotaService.getDefaultQuota();
+        assertThat(defaults.getScopeType()).isNull();
+        assertThat(defaults.getScopeId()).isNull();
+        assertThat(defaults.getAssistantLimit()).isEqualTo(50);
+        assertThat(defaults.getDailyCallLimit()).isEqualTo(20);
+        assertThat(defaults.getDailyCallSecLimit()).isEqualTo(3600L);
+        assertThat(defaults.getDailyMsgLimit()).isEqualTo(500);
+    }
+
+    @Test
     void checkCreateAssistant_exceededThrows() {
         when(assistantMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(50L);
         assertThatThrownBy(() -> quotaService.checkCreateAssistant("u1"))

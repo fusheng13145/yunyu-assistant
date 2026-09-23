@@ -106,6 +106,10 @@ public class OpenApiChatController {
         if (!StringUtils.hasText(message)) {
             return Flux.just(toErrorEvent("message 不能为空"));
         }
+        // 单条长度上限与文本 WS 同源（ChatService.MAX_INPUT_CHARS）：配额按条数计量，不限长则一条即可打穿成本
+        if (message.length() > ChatService.MAX_INPUT_CHARS) {
+            return Flux.just(toErrorEvent("message 过长（最多 " + ChatService.MAX_INPUT_CHARS + " 字）"));
+        }
         // 配额校验（计入第三方属主身份）
         try {
             quotaService.checkSendMessage(userId);

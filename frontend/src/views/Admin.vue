@@ -29,7 +29,7 @@
         </div>
       </section>
 
-      <!-- 审计日志 / 用户列表 / 数据归档 Tabs -->
+      <!-- 审计日志 / 用户列表 / 数据归档 / 配额管理 Tabs -->
       <div class="flex items-center gap-2 mb-4">
         <button
           @click="activeTab = 'audit'"
@@ -51,6 +51,13 @@
           :class="activeTab === 'archive' ? 'geek-btn-primary' : 'geek-btn-ghost'"
         >
           数据归档
+        </button>
+        <button
+          @click="activeTab = 'quotas'"
+          class="geek-btn geek-btn-sm"
+          :class="activeTab === 'quotas' ? 'geek-btn-primary' : 'geek-btn-ghost'"
+        >
+          配额管理
         </button>
       </div>
 
@@ -149,7 +156,7 @@
       </section>
 
       <!-- 用户列表表格 -->
-      <section v-else class="geek-card rounded-xl overflow-hidden">
+      <section v-else-if="activeTab === 'users'" class="geek-card rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b geek-divider">
           <input
             v-model="userKeyword"
@@ -201,6 +208,141 @@
           </div>
         </div>
       </section>
+
+      <!-- 配额管理面板 -->
+      <section v-else-if="activeTab === 'quotas'" class="flex flex-col gap-4">
+        <!-- 兜底配额与生效规则 -->
+        <div class="geek-card rounded-xl p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium" style="color: var(--geek-text)">未单独配置时生效的兜底配额</span>
+            <span class="text-xs mono" style="color: var(--geek-text-muted)">来源：APP_QUOTA_* 环境变量</span>
+          </div>
+          <div v-if="quotaDefaults" class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div v-for="field in quotaFields" :key="field.key" class="rounded-md px-3 py-2" style="background: var(--geek-bg-subtle)">
+              <div class="text-xs" style="color: var(--geek-text-muted)">{{ field.label }}</div>
+              <div class="text-lg font-bold tabular-nums mt-0.5" style="color: var(--geek-text)">
+                {{ quotaDefaults[field.key] ?? '未设' }} <span class="text-xs font-normal">{{ field.unit }}</span>
+              </div>
+            </div>
+          </div>
+          <span v-else class="text-xs" style="color: var(--geek-text-muted)">兜底配额加载中…</span>
+          <p class="text-xs leading-relaxed mt-3" style="color: var(--geek-text-secondary)">
+            生效顺序：组织配置 → 用户配置 → 上述兜底值。加入组织的用户按<b>组织</b>配额计算用量，对其单独配的用户行不生效；
+            用量与剩余额度在「用量账单」页只读展示。
+          </p>
+          <p class="text-xs leading-relaxed mt-1.5" style="color: var(--geek-warning)">
+            兜底值改动需改环境变量并重启；对外开放注册前建议先把「单日消息量」「单日通话时长」压到可接受的成本区间。
+          </p>
+        </div>
+
+        <!-- 已配置作用域 -->
+        <div class="geek-card rounded-xl overflow-hidden">
+          <div class="px-4 py-3 border-b geek-divider text-sm font-medium" style="color: var(--geek-text)">
+            已配置作用域（{{ quotas.length }}）
+          </div>
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b geek-divider" style="background: var(--geek-bg-subtle)">
+                <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">作用域</th>
+                <th v-for="field in quotaFields" :key="field.key" class="text-right px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">{{ field.label }}（{{ field.unit }}）</th>
+                <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">更新时间</th>
+                <th class="text-center px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="q in quotas" :key="q.id" class="border-b geek-divider">
+                <td class="px-4 py-2.5">
+                  <span
+                    class="text-xs px-1.5 py-0.5 rounded-sm mr-2" :style="q.scopeType === 'org'
+                      ? { background: 'var(--geek-tag-purple)', color: '#fff' }
+                      : { background: 'var(--geek-input-bg)', color: 'var(--geek-text-secondary)' }"
+                  >
+                    {{ q.scopeType === 'org' ? '组织' : '用户' }}
+                  </span>
+                  <span class="mono text-xs" style="color: var(--geek-text-secondary)" :title="q.scopeId">{{ scopeLabel(q) }}</span>
+                </td>
+                <td v-for="field in quotaFields" :key="field.key" class="px-4 py-2.5 text-right tabular-nums" style="color: var(--geek-text)">
+                  {{ q[field.key] ?? '-' }}
+                </td>
+                <td class="px-4 py-2.5 text-xs" style="color: var(--geek-text-muted)">{{ formatTime(q.updatedAt) }}</td>
+                <td class="px-4 py-2.5 text-center">
+                  <button @click="startEditQuota(q)" class="geek-btn geek-btn-ghost geek-btn-sm">编辑</button>
+                </td>
+              </tr>
+              <tr v-if="quotas.length === 0">
+                <td :colspan="quotaFields.length + 3" class="px-4 py-10 text-center text-sm" style="color: var(--geek-text-muted)">
+                  尚无配置行：所有作用域均使用上方兜底值
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 新建 / 编辑配置行 -->
+        <div class="geek-card rounded-xl p-4">
+          <div class="text-sm font-medium mb-3" style="color: var(--geek-text)">
+            {{ quotaEditingId ? '编辑配额配置' : '新建配额配置' }}
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs mb-1" style="color: var(--geek-text-muted)">作用域类型</label>
+              <select v-model="quotaForm.scopeType" class="geek-input w-full px-3 py-1.5 rounded-md text-sm">
+                <option value="user">用户（user）</option>
+                <option value="org">组织（org）</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs mb-1" style="color: var(--geek-text-muted)">
+                {{ quotaForm.scopeType === 'org' ? '组织 ID' : '用户' }}
+              </label>
+              <select
+                v-if="quotaForm.scopeType === 'user'"
+                v-model="quotaForm.scopeId"
+                class="geek-input w-full px-3 py-1.5 rounded-md text-sm"
+              >
+                <option value="">请选择用户</option>
+                <option v-for="u in quotaUserOptions" :key="u.id" :value="u.id">{{ u.username }}{{ u.nickname ? `（${u.nickname}）` : '' }}</option>
+              </select>
+              <input
+                v-else
+                v-model="quotaForm.scopeId"
+                type="text"
+                placeholder="组织 UUID"
+                class="geek-input w-full px-3 py-1.5 rounded-md text-sm mono"
+              />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+            <div v-for="field in quotaFields" :key="field.key">
+              <label class="block text-xs mb-1" style="color: var(--geek-text-muted)">{{ field.label }}（{{ field.unit }}）</label>
+              <input
+                v-model="quotaForm[field.key]"
+                type="number"
+                min="0"
+                step="1"
+                :placeholder="quotaDefaults ? `兜底 ${quotaDefaults[field.key] ?? '未设'}` : '兜底值'"
+                class="geek-input w-full px-3 py-1.5 rounded-md text-sm tabular-nums"
+              />
+            </div>
+          </div>
+          <p class="text-xs mt-2" style="color: var(--geek-text-muted)">
+            留空表示该项不修改（新建时后端先用兜底值补齐，避免配置行留空值）；填 0 表示直接封禁该维度。
+          </p>
+          <div class="flex items-center gap-3 mt-3">
+            <button
+              @click="onSaveQuota"
+              :disabled="quotaSaving"
+              class="geek-btn geek-btn-primary geek-btn-sm"
+              :class="{ 'opacity-40 cursor-not-allowed': quotaSaving }"
+            >
+              {{ quotaSaving ? '保存中…' : (quotaEditingId ? '保存修改' : '创建配置') }}
+            </button>
+            <button v-if="quotaEditingId" @click="resetQuotaForm" class="geek-btn geek-btn-ghost geek-btn-sm">取消编辑</button>
+            <span v-if="quotaError" class="text-xs" style="color: var(--geek-error)">{{ quotaError }}</span>
+            <span v-else-if="quotaSaved" class="text-xs" style="color: var(--geek-success)">已保存并生效（次日零点重置日维度用量）</span>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 </template>
@@ -213,7 +355,7 @@ import {
 } from 'lucide-vue-next'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { useTheme } from '../composables/useTheme'
-import { fetchOverview, fetchAuditLogs, fetchUsers, fetchArchiveOverview, runArchive, type AdminOverview, type AdminAuditLog, type ArchiveOverview, type ArchiveRunResult } from '../api/admin'
+import { fetchOverview, fetchAuditLogs, fetchUsers, fetchArchiveOverview, runArchive, fetchQuotas, fetchQuotaDefaults, upsertQuota, type AdminOverview, type AdminAuditLog, type ArchiveOverview, type ArchiveRunResult, type AdminQuota, type QuotaUpsertPayload } from '../api/admin'
 import type { User } from '../types'
 
 const { themeMode, setTheme } = useTheme()
@@ -233,7 +375,7 @@ const overviewCards = computed(() => [
 ])
 
 // Tabs
-const activeTab = ref<'audit' | 'users' | 'archive'>('audit')
+const activeTab = ref<'audit' | 'users' | 'archive' | 'quotas'>('audit')
 
 // 数据归档
 const archiveOverview = ref<ArchiveOverview | null>(null)
@@ -267,6 +409,114 @@ const onRunArchive = async () => {
   } finally {
     archiveRunning.value = false
   }
+}
+
+// 配额管理
+const QUOTA_FIELDS = [
+  { key: 'assistantLimit', label: '助手数量', unit: '个' },
+  { key: 'dailyCallLimit', label: '单日通话次数', unit: '次' },
+  { key: 'dailyCallSecLimit', label: '单日通话时长', unit: '秒' },
+  { key: 'dailyMsgLimit', label: '单日消息量', unit: '条' },
+] as const
+
+type QuotaFieldKey = (typeof QUOTA_FIELDS)[number]['key']
+type QuotaFormModel = { scopeType: 'user' | 'org'; scopeId: string } & Record<QuotaFieldKey, string>
+
+const quotaFields = QUOTA_FIELDS
+const emptyQuotaForm = (): QuotaFormModel => ({
+  scopeType: 'user',
+  scopeId: '',
+  assistantLimit: '',
+  dailyCallLimit: '',
+  dailyCallSecLimit: '',
+  dailyMsgLimit: '',
+})
+
+const quotas = ref<AdminQuota[]>([])
+const quotaDefaults = ref<AdminQuota | null>(null)
+const quotaUserOptions = ref<User[]>([])
+const quotaForm = ref<QuotaFormModel>(emptyQuotaForm())
+const quotaEditingId = ref<string | null>(null)
+const quotaSaving = ref(false)
+const quotaError = ref('')
+const quotaSaved = ref(false)
+
+/** 配置行 + 兜底值 + 用户下拉一起取；用户仅取前 200 条（小范围试验量级足够，组织按 UUID 手填） */
+const loadQuotas = async () => {
+  try {
+    const [list, defaults, userPage] = await Promise.all([
+      fetchQuotas(),
+      fetchQuotaDefaults(),
+      fetchUsers(1, 200),
+    ])
+    quotas.value = list
+    quotaDefaults.value = defaults
+    quotaUserOptions.value = userPage.list
+  } catch (error) {
+    console.error('加载配额配置失败:', error)
+  }
+}
+
+const resetQuotaForm = () => {
+  quotaForm.value = emptyQuotaForm()
+  quotaEditingId.value = null
+  quotaError.value = ''
+  quotaSaved.value = false
+}
+
+const startEditQuota = (q: AdminQuota) => {
+  quotaEditingId.value = `${q.scopeType}:${q.scopeId}`
+  quotaForm.value = {
+    scopeType: q.scopeType === 'org' ? 'org' : 'user',
+    scopeId: q.scopeId,
+    assistantLimit: q.assistantLimit == null ? '' : String(q.assistantLimit),
+    dailyCallLimit: q.dailyCallLimit == null ? '' : String(q.dailyCallLimit),
+    dailyCallSecLimit: q.dailyCallSecLimit == null ? '' : String(q.dailyCallSecLimit),
+    dailyMsgLimit: q.dailyMsgLimit == null ? '' : String(q.dailyMsgLimit),
+  }
+  quotaError.value = ''
+  quotaSaved.value = false
+}
+
+const onSaveQuota = async () => {
+  quotaError.value = ''
+  quotaSaved.value = false
+  const scopeType = quotaForm.value.scopeType
+  const scopeId = quotaForm.value.scopeId.trim()
+  if (!scopeId) {
+    quotaError.value = scopeType === 'org' ? '请填写组织 ID' : '请选择用户'
+    return
+  }
+  const payload: QuotaUpsertPayload = { scopeType, scopeId }
+  for (const field of quotaFields) {
+    const raw = quotaForm.value[field.key].trim()
+    if (raw === '') continue // 留空 = 不修改该维度（后端 UPSERT 忽略缺省字段）
+    const n = Number(raw)
+    if (!Number.isInteger(n) || n < 0) {
+      quotaError.value = `${field.label}需为不小于 0 的整数`
+      return
+    }
+    payload[field.key] = n
+  }
+  quotaSaving.value = true
+  try {
+    await upsertQuota(payload)
+    quotaSaved.value = true
+    quotaEditingId.value = `${scopeType}:${scopeId}`
+    await loadQuotas()
+  } catch (error) {
+    quotaError.value = error instanceof Error ? error.message : '配额保存失败'
+  } finally {
+    quotaSaving.value = false
+  }
+}
+
+const scopeLabel = (q: AdminQuota) => {
+  if (q.scopeType === 'user') {
+    const matched = quotaUserOptions.value.find(u => u.id === q.scopeId)
+    if (matched) return `${matched.username}（${matched.nickname || '无昵称'}）`
+  }
+  return `${q.scopeId.slice(0, 8)}…`
 }
 
 // 审计日志分页
@@ -321,6 +571,7 @@ onMounted(async () => {
     loadAuditLogs(),
     loadUsers(),
     loadArchiveOverview(),
+    loadQuotas(),
   ])
 })
 </script>

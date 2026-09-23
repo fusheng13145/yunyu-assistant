@@ -82,6 +82,13 @@ public class QuotaService {
                 .last("LIMIT 1"));
     }
 
+    /**
+     * 环境变量兜底配额（管理端展示用）：quotas 表无对应作用域记录时，所有用户实际生效的就是这份
+     */
+    public Quota getDefaultQuota() {
+        return buildDefault(null, null);
+    }
+
     private Quota buildDefault(String scopeType, String scopeId) {
         Quota q = new Quota();
         q.setScopeType(scopeType);

@@ -37,6 +37,12 @@ public class ChatService {
     /** 挂断工具名 */
     private static final String TOOL_HANGUP = "hangup";
 
+    /**
+     * 单条用户输入的最大字符数（v2.29）：配额按条数计量，单条不限长则一条超长输入即可打穿成本。
+     * 刻意低于 Tomcat 默认入站文本帧上限 8KB（中文 UTF-8 三字节，2000 字≈6KB），让超长输入是业务错误而非连接被容器掐断。
+     */
+    public static final int MAX_INPUT_CHARS = 2000;
+
     private final ModelAdapter modelAdapter;
     private final KnowledgeProvider knowledgeProvider;
     private final ObjectMapper objectMapper;

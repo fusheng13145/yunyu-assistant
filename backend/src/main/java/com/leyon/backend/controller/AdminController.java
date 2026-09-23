@@ -19,6 +19,7 @@ import com.leyon.backend.mapper.UserMapper;
 import com.leyon.backend.service.AuditLogService;
 import com.leyon.backend.service.ArchiveResult;
 import com.leyon.backend.service.DataArchiveService;
+import com.leyon.backend.service.QuotaService;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -42,6 +43,7 @@ public class AdminController {
     private final RecordMapper recordMapper;
     private final SessionMapper sessionMapper;
     private final QuotaMapper quotaMapper;
+    private final QuotaService quotaService;
     private final AuditLogService auditLogService;
     private final DataArchiveService dataArchiveService;
 
@@ -51,6 +53,7 @@ public class AdminController {
                            RecordMapper recordMapper,
                            SessionMapper sessionMapper,
                            QuotaMapper quotaMapper,
+                           QuotaService quotaService,
                            AuditLogService auditLogService,
                            DataArchiveService dataArchiveService) {
         this.userMapper = userMapper;
@@ -59,6 +62,7 @@ public class AdminController {
         this.recordMapper = recordMapper;
         this.sessionMapper = sessionMapper;
         this.quotaMapper = quotaMapper;
+        this.quotaService = quotaService;
         this.auditLogService = auditLogService;
         this.dataArchiveService = dataArchiveService;
     }
@@ -173,6 +177,14 @@ public class AdminController {
     }
 
     /**
+     * 环境变量兜底配额（v2.29）：quotas 表无记录的 org/user 生效的就是这份，供管理端展示
+     */
+    @GetMapping("/quotas/defaults")
+    public ApiResponse<Quota> quotaDefaults() {
+        return ApiResponse.success(quotaService.getDefaultQuota());
+    }
+
+    /**
      * 配置/更新配额（P2-10）：按 scope_type + scope_id UPSERT；某项为空则不修改该维度
      */
     @Audit(action = "QUOTA_UPDATE", targetType = "quota")
@@ -190,7 +202,8 @@ public class AdminController {
                 .eq(Quota::getScopeId, quota.getScopeId())
                 .last("LIMIT 1"));
         if (exist == null) {
-            exist = new Quota();
+            // 新建行以环境变量兜底四项打底：留 NULL 会在 getEffective 的超限比较中拆箱 NPE（局部更新语义只对已存在行生效）
+            exist = quotaService.getDefaultQuota();
             exist.setScopeType(quota.getScopeType());
             exist.setScopeId(quota.getScopeId());
             quotaMapper.insert(exist);

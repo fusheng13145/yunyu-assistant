@@ -126,3 +126,49 @@ export async function runArchive(): Promise<ArchiveRunResult> {
   })
   return parseResponse<ArchiveRunResult>(response)
 }
+
+/** 配额配置（与后端 Quota 实体对齐；dailyCallSecLimit 为 Long，其余整型） */
+export interface AdminQuota {
+  id?: string
+  scopeType: string
+  scopeId: string
+  assistantLimit: number | null
+  dailyCallLimit: number | null
+  dailyCallSecLimit: number | null
+  dailyMsgLimit: number | null
+  updatedAt?: string
+}
+
+/** 环境变量兜底配额：scopeType / scopeId 为 null，表示"未单独配置的 org/user 生效的就是这份" */
+export async function fetchQuotaDefaults(): Promise<AdminQuota> {
+  const response = await fetch(`${API_BASE}/admin/quotas/defaults`, {
+    headers: getAuthHeaders(),
+  })
+  return parseResponse<AdminQuota>(response)
+}
+
+export async function fetchQuotas(): Promise<AdminQuota[]> {
+  const response = await fetch(`${API_BASE}/admin/quotas`, {
+    headers: getAuthHeaders(),
+  })
+  return parseResponse<AdminQuota[]>(response)
+}
+
+/** UPSERT 入参：省略的维度后端不修改；新建配置行时后端先用环境变量兜底值补齐四项 */
+export interface QuotaUpsertPayload {
+  scopeType: string
+  scopeId: string
+  assistantLimit?: number | null
+  dailyCallLimit?: number | null
+  dailyCallSecLimit?: number | null
+  dailyMsgLimit?: number | null
+}
+
+export async function upsertQuota(payload: QuotaUpsertPayload): Promise<void> {
+  const response = await fetch(`${API_BASE}/admin/quotas`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  })
+  return parseResponse<void>(response)
+}
