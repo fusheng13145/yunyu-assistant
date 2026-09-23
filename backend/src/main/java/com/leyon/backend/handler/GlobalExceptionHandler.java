@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.common.ForbiddenException;
@@ -33,6 +34,8 @@ public class GlobalExceptionHandler {
     private static final String VALIDATE_FAIL_MSG = "参数校验失败";
     /** 系统内部错误提示文案 */
     private static final String SERVER_ERROR_MSG = "服务器内部错误，请稍后重试";
+    /** 资源不存在提示文案 */
+    private static final String NOT_FOUND_MSG = "请求的资源不存在";
 
     /**
      * 处理用量配额超限异常（P2-10 配额拦截）
@@ -118,6 +121,18 @@ public class GlobalExceptionHandler {
         }
         log.warn("参数校验失败：{}", errorMap);
         return ApiResponse.paramError(VALIDATE_FAIL_MSG, errorMap);
+    }
+
+    /**
+     * 处理未匹配到任何映射的请求（Spring 6 由静态资源处理器抛出，如 /favicon.ico、拼错的 URL、
+     * 或业务端口上访问管理端点）。少了这个声明，它会落进下方的 Exception 兜底而被降级成 500：
+     * 浏览器每次探测都写一条带栈 ERROR 日志，404 流量还被计入服务端错误率
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiResponse<Void> handleNoResource(NoResourceFoundException e) {
+        log.warn("请求资源不存在：{} {}", e.getHttpMethod(), e.getResourcePath());
+        return ApiResponse.result(404, NOT_FOUND_MSG);
     }
 
     /**

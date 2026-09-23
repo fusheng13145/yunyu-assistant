@@ -2,6 +2,10 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 
+// 本地后端地址：默认仍是 8080（Boot 原行为）。
+// 8080 被占用或多实例并行时用 VITE_PROXY_TARGET 覆盖，不改代码。
+const backend = process.env.VITE_PROXY_TARGET || 'http://localhost:8080'
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [vue()],
@@ -24,21 +28,21 @@ export default defineConfig({
     proxy: {
       // 后端 HTTP 接口代理
       '/api': {
-        target: 'http://localhost:8080',
+        target: backend,
         changeOrigin: true,
         timeout: 30000, // 超时 30s，适配大文件/长接口
       },
 
       // 普通 WebSocket 代理
       '/ws': {
-        target: 'ws://localhost:8080',
+        target: backend.replace(/^http/, 'ws'),
         ws: true,
         changeOrigin: true
       },
 
       // 语音通话 WebSocket 代理
       '/ws-voice': {
-        target: 'ws://localhost:8080',
+        target: backend.replace(/^http/, 'ws'),
         ws: true,
         changeOrigin: true
       }

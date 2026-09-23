@@ -155,7 +155,8 @@ section '1. 运维探针与暴露面（actuator）'
 if [ "$STATUS" = "200" ] && [ "$(jget status)" = "UP" ]; then
     ok 'GET /actuator/health → UP（DB / Redis 指示器全绿）'
 else
-    bad 'GET /actuator/health' "$(detail)"
+    # 明细被 HEALTH_SHOW_DETAILS=never 隐藏（公网实例不应把依赖地址外泄），故只指路不看值
+    bad 'GET /actuator/health' "$(detail)；哪个依赖红了看启动日志，不用改 show-details"
 fi
 mgmt_req '/actuator/metrics'
 if [ "$STATUS" = "200" ]; then ok 'GET /actuator/metrics 已暴露（容量与告警取数点）'; else bad 'GET /actuator/metrics' "$(detail)"; fi
@@ -165,6 +166,12 @@ else bad 'GET /actuator/env 应 404' "实际 HTTP $STATUS —— 检查 manageme
 mgmt_req '/actuator/mappings'
 if [ "$STATUS" = "404" ]; then ok 'GET /actuator/mappings 未暴露（404：路由表不外泄）'
 else bad 'GET /actuator/mappings 应 404' "实际 HTTP $STATUS"; fi
+# 未匹配路径必须是 404，不能被全局兜底处理器降级成 500（v2.31 真实首跑发现：
+# Spring 6 的 NoResourceFoundException 落进 Exception.class 兜底 ⇒ 浏览器每次请求
+# /favicon.ico 都写一条带栈 ERROR 日志、并被计入服务端错误率）
+req GET '/smoke-not-a-real-path'
+if [ "$STATUS" = "404" ] && [ "$(jget code)" = "404" ]; then ok '未匹配路径 → 404（HTTP 与业务 code 一致，未被降级成 500）'
+else bad '未匹配路径应 404' "$(detail)"; fi
 # 独立管理端口（v2.30 MANAGEMENT_SERVER_PORT）分离断言：分离后业务端口不应再挂 actuator。
 # 注意管理端口的监听地址不继承 server.address，须同时配 MANAGEMENT_SERVER_ADDRESS（见手册 5.7 第⑤条）
 if [ "$MGMT_BASE" != "$BASE" ]; then
@@ -194,7 +201,9 @@ else
     if api_ok "POST /api/auth/register（一次性账号 $USER_NAME）"; then
         TOKEN="$(jget data.token)"; REFRESH_TOKEN="$(jget data.refreshToken)"
     else
-        echo "注册失败，后续检查无法继续（若为 429，等 1 分钟再跑：限流按 IP 计 5 次/分钟）。"
+        echo "注册失败，后续检查无法继续：$(detail)"
+        echo "  429 ⇒ 限流按 IP 计 5 次/分钟，等 1 分钟再跑"
+        echo "  400/请求处理失败 ⇒ 多半是数据库连不上或凭据不对（看 /actuator/health 与启动日志的 Access denied / Communications link failure）"
         exit 2
     fi
 fi

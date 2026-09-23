@@ -195,11 +195,14 @@ management:
     # 默认与业务同端口（Boot 原行为）。公网实例建议设为独立端口（如 9080），
     # 然后安全组完全不放行该端口 ⇒ /actuator 连"免鉴权可读"的暴露面都不存在
     port: ${MANAGEMENT_SERVER_PORT:${SERVER_PORT:8080}}
-    # 管理端口监听地址。⚠️ Boot 在**端口与业务不同**时只用 management.server.address，
-    # 不继承 server.address（null 即绑 0.0.0.0）——故此处显式回落到 SERVER_ADDRESS，
-    # 否则"SERVER_ADDRESS=127.0.0.1 + 独立管理端口"反而把 /actuator 开到全网卡，比不分离更糟。
-    # 同端口时该项被 Boot 忽略（走业务连接器），无副作用。
-    address: ${MANAGEMENT_SERVER_ADDRESS:${SERVER_ADDRESS:0.0.0.0}}
+    # 管理端口监听地址＝**本文件不给默认值**（v2.31 真实首跑实测的两个坑）：
+    # - 给它写"回落到 SERVER_ADDRESS、末端再兜底 0.0.0.0"这类默认值 ⇒ 与业务同端口时 Boot 直接抛
+    #   "Management-specific server address cannot be configured as the management server is
+    #   not listening on a separate port"，整个应用起不来（末端非 null ⇒ 该键永远有值）
+    # - 想让默认值取 SpEL 的 null 也不行：yaml 占位符的默认值不求值 SpEL，字面量 "#{null}" 会被当主机名解析报 UnknownHost
+    # 故只保留环境变量 MANAGEMENT_SERVER_ADDRESS（Boot 松绑定到 management.server.address），
+    # 不设即保持 Boot 原行为；"独立端口时不继承 server.address"这一坑由 ManagementAddressGuard
+    # 在启动时断言（未显式设监听地址即拒绝启动），另见手册 5.3 与 6.1
   endpoints:
     web:
       exposure:
