@@ -1,14 +1,21 @@
 package com.leyon.backend.handler;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.lang.NonNull;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import com.leyon.backend.common.ApiResponse;
@@ -17,6 +24,8 @@ import com.leyon.backend.common.QuotaExceededException;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 全局异常处理器
@@ -36,6 +45,12 @@ public class GlobalExceptionHandler {
     private static final String SERVER_ERROR_MSG = "服务器内部错误，请稍后重试";
     /** 资源不存在提示文案 */
     private static final String NOT_FOUND_MSG = "请求的资源不存在";
+    /** 请求方法不被支持提示文案 */
+    private static final String METHOD_NOT_ALLOWED_MSG = "该路径不支持此请求方法";
+    /** 请求体类型不被支持提示文案 */
+    private static final String UNSUPPORTED_TYPE_MSG = "不支持的请求内容类型";
+    /** 上传体积超限提示文案（上限由 spring.servlet.multipart 决定，故不写死数值） */
+    private static final String UPLOAD_TOO_LARGE_MSG = "上传文件超过服务端大小限制";
 
     /**
      * 处理用量配额超限异常（P2-10 配额拦截）
@@ -133,6 +148,54 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleNoResource(NoResourceFoundException e) {
         log.warn("请求资源不存在：{} {}", e.getHttpMethod(), e.getResourcePath());
         return ApiResponse.result(404, NOT_FOUND_MSG);
+    }
+
+    /**
+     * 处理"路径对但方法不对"（如对只读接口发 DELETE）。这类请求是客户端用错，
+     * 却因 DispatcherServlet 抛在参数解析阶段而落进 Exception 兜底 ⇒ 500 + 带栈 ERROR 日志。
+     * RFC 9110 要求 405 必须带 Allow 头，交由 advice 处理后 Spring 的默认实现不再兜底，需自行写出
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
+    public ApiResponse<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException e,
+                                                     HttpServletResponse response) {
+        log.warn("请求方法不被支持：{}（该路径支持: {}）", e.getMethod(), e.getSupportedHttpMethods());
+        Set<HttpMethod> supported = e.getSupportedHttpMethods();
+        if (supported != null && !supported.isEmpty()) {
+            response.setHeader(HttpHeaders.ALLOW, supported.stream().map(HttpMethod::name).collect(Collectors.joining(", ")));
+        }
+        return ApiResponse.result(405, METHOD_NOT_ALLOWED_MSG);
+    }
+
+    /**
+     * 处理请求体 Content-Type 与接口不匹配（如给 JSON 接口发 text/plain）→ 415
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    @ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+    public ApiResponse<Void> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException e) {
+        log.warn("不支持的请求 Content-Type：{}", e.getContentType());
+        return ApiResponse.result(415, UNSUPPORTED_TYPE_MSG);
+    }
+
+    /**
+     * 处理 multipart 缺少必需的文件部分（前端漏 append file、或请求被截断）→ 400
+     */
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleMissingPart(MissingServletRequestPartException e) {
+        log.warn("上传请求缺少字段：{}", e.getRequestPartName());
+        return ApiResponse.paramError("缺少上传文件：" + e.getRequestPartName());
+    }
+
+    /**
+     * 处理上传体积超过 spring.servlet.multipart 上限 → 413。
+     * 原先它按 RuntimeException 被兜成 400"请求处理失败"，用户看不出是自己文件太大
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
+    public ApiResponse<Void> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        log.warn("上传文件超过服务端上限: {}", e.getMaxUploadSize());
+        return ApiResponse.result(413, UPLOAD_TOO_LARGE_MSG);
     }
 
     /**

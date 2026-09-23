@@ -26,6 +26,11 @@
       "description": "前端来源白名单（逗号分隔），默认本地 Vite/Node 端口。HTTP 跨域与 WebSocket 握手共用；公网部署必须加入站点域名，否则 /ws 握手 403。"
     },
     {
+      "name": "app.ws.unauthenticated-idle-ms",
+      "type": "java.lang.Long",
+      "description": "未认证 WebSocket 连接的存活上限（毫秒），默认 30000。/ws/* 与 /ws-voice/* 允许免令牌握手，Tomcat 服务端会话又无空闲回收，故由 UnauthenticatedSocketReaper 定时关闭超期未认证的连接；认证成功后即摘除登记。"
+    },
+    {
       "name": "app.webrtc.ice-servers",
       "type": "java.lang.String",
       "description": "WebRTC ICE 服务器配置（JSON 数组字符串），默认 []。为空时前端回退默认 Google STUN；生产建议配置 TURN 以穿透对称 NAT。"

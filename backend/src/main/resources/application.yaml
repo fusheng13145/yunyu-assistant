@@ -85,6 +85,12 @@ app:
   # 站点换成公网域名后若不加进这里，聊天/语音链路会在握手阶段直接 403（冒烟脚本第 7 节会抓到）
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000}
+  # 未认证 WebSocket 连接的存活上限（v2.32）
+  # /ws/* 与 /ws-voice/* 允许免令牌握手（认证推迟到首条 auth 消息），而 Tomcat 服务端会话没有空闲回收
+  # （setMaxIdleTimeout 于服务端是空操作，实测免令牌连接可存活 400 秒以上），故由应用层定时关闭超期未认证的连接。
+  # 只影响始终没认证的连接，认证成功的连接会立即摘除登记。
+  ws:
+    unauthenticated-idle-ms: ${WS_UNAUTHENTICATED_IDLE_MS:30000}
   # WebRTC ICE 服务器配置（JSON 数组，如 [{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]）
   # 未配置时前端回退默认 Google STUN；生产建议配置 TURN 穿透对称 NAT（见手册 6.6）
   webrtc:

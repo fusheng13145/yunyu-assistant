@@ -160,7 +160,7 @@ public class AuthController {
         String authHeader = request.getHeader("Authorization");
         if (StringUtils.hasText(authHeader) && authHeader.startsWith("Bearer ")) {
             String accessToken = authHeader.substring(7);
-            if (jwtUtil.validateToken(accessToken)) {
+            if (jwtUtil.validateAccessToken(accessToken)) {
                 String jti = jwtUtil.getJtiFromToken(accessToken);
                 if (jti != null) {
                     tokenBlacklistService.blacklist(jti, 7 * 24 * 3600_000L);
@@ -204,12 +204,13 @@ public class AuthController {
 
     /**
      * 从 Authorization 头解析用户ID（供放行路径使用）
+     * 只接受 access 令牌：refresh 令牌出现在这里说明客户端用错了凭据，不能当登录态用
      */
     private String resolveUserIdFromHeader(HttpServletRequest request) {
         String authHeader = request.getHeader("Authorization");
         if (StringUtils.hasText(authHeader) && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7);
-            if (jwtUtil.validateToken(token)) {
+            if (jwtUtil.validateAccessToken(token)) {
                 return jwtUtil.getUserIdFromToken(token);
             }
         }

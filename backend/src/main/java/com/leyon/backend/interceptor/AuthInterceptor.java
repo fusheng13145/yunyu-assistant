@@ -78,8 +78,8 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
             // 截取真实Token
             String token = authHeader.substring(BEARER_PREFIX_LENGTH);
-            // 校验Token有效性
-            if (jwtUtil.validateToken(token)) {
+            // 校验Token有效性（含类型：只有 access 令牌可当会话凭据，见 JwtUtil#validateAccessToken）
+            if (jwtUtil.validateAccessToken(token)) {
                 // 解析用户ID存入请求域，供后续业务使用
                 String userId = jwtUtil.getUserIdFromToken(token);
                 request.setAttribute("userId", userId);

@@ -19,6 +19,7 @@ import com.leyon.backend.service.QuotaService;
 import com.leyon.backend.service.RecordService;
 import com.leyon.backend.service.RustPBXService;
 import com.leyon.backend.service.WebhookService;
+import com.leyon.backend.task.UnauthenticatedSocketReaper;
 import com.leyon.backend.tool.ToolRegistry;
 import com.leyon.backend.util.JwtUtil;
 import org.slf4j.Logger;
@@ -102,6 +103,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
     private final JwtUtil jwtUtil;
+    private final UnauthenticatedSocketReaper socketReaper;
 
     // 会话缓存
     /** 会话ID -> 语音网关会话ID */
@@ -133,7 +135,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                                  WebhookService webhookService,
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
-                                 JwtUtil jwtUtil) {
+                                 JwtUtil jwtUtil,
+                                 UnauthenticatedSocketReaper socketReaper) {
         this.rustPBXService = rustPBXService;
         this.assistantService = assistantService;
         this.modelAdapter = modelAdapter;
@@ -147,6 +150,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
         this.jwtUtil = jwtUtil;
+        this.socketReaper = socketReaper;
     }
 
     // 连接建立
@@ -154,9 +158,12 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(@NonNull WebSocketSession session) {
         String sessionId = session.getId();
         // 安全改进：不再直接发送 connected，等待首条 auth 消息认证
+        // 本路径允许免令牌握手，未认证连接需有存活上限（见 UnauthenticatedSocketReaper）
+        socketReaper.watch(session);
         String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
         if (userId != null && !userId.isBlank()) {
             // 握手阶段已通过拦截器认证，直接标记为已认证
+            socketReaper.release(sessionId);
             authenticatedSessions.put(sessionId, true);
             sendMessage(session, MSG_TYPE_CONNECTED, null);
             logger.info("语音信令连接建立（握手阶段已认证），会话ID:{}", sessionId);
@@ -210,8 +217,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             return;
         }
 
-        // 使用 JwtUtil 进行严格的 Token 验证（与 ChatWebSocketHandler 保持一致）
-        if (!jwtUtil.validateToken(token)) {
+        // 使用 JwtUtil 进行严格的 Token 验证（与 ChatWebSocketHandler 保持一致：只接受 access 令牌）
+        if (!jwtUtil.validateAccessToken(token)) {
             sendMessage(session, MSG_TYPE_ERROR, "认证失败：无效的 Token");
             closeSession(session);
             return;
@@ -219,6 +226,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
 
         String userId = jwtUtil.getUserIdFromToken(token);
         session.getAttributes().put(SESSION_ATTR_USER_ID, userId);
+        socketReaper.release(sessionId);
         authenticatedSessions.put(sessionId, true);
         sendMessage(session, MSG_TYPE_CONNECTED, null);
         logger.info("语音信令认证成功，会话ID:{}，用户ID:{}", sessionId, userId);
@@ -657,6 +665,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(@NonNull WebSocketSession session, @NonNull CloseStatus status) {
         String sessionId = session.getId();
         logger.info("语音信令连接断开，会话ID:{}，关闭状态:{}", sessionId, status);
+        socketReaper.release(sessionId);
         // 区分正常挂断与异常中断：非正常关闭码标记为中断
         int endStatus = isNormalClose(status) ? CallRecord.STATUS_ENDED : CallRecord.STATUS_INTERRUPTED;
         releaseSessionResource(sessionId, endStatus);

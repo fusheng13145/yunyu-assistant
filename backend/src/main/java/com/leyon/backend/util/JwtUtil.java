@@ -231,4 +231,28 @@ public class JwtUtil {
             return false;
         }
     }
+
+    /**
+     * 校验"可作为会话凭据"的令牌：签名、有效期、黑名单之外还要求 {@code type=access}
+     * <p>
+     * 只调 {@link #validateToken} 是不够的：refresh 令牌默认 7 天有效、access 只有 24 小时
+     * （{@code app.jwt.expiration} / {@code app.jwt.refresh-expiration}），
+     * 若它也通行于 {@code /api/**} 与 WebSocket，则泄露 refresh 令牌（XSS、日志、误分享）
+     * 等于拿到整个 API 的长期访问权，而不只是"换发新令牌"这一项能力；
+     * 而且 access 过期后前端会静默续期，任何按 access 短周期失效的设计都会被悄悄绕过。
+     *
+     * @param token JWT令牌
+     * @return true-是可用的 access 令牌
+     */
+    public boolean validateAccessToken(String token) {
+        try {
+            Claims claims = getClaimsByToken(token);
+            if (!TOKEN_TYPE_ACCESS.equals(claims.get(CLAIM_TOKEN_TYPE, String.class))) {
+                return false;
+            }
+            return !tokenBlacklistService.isBlacklisted(claims.getId());
+        } catch (Exception e) {
+            return false;
+        }
+    }
 }

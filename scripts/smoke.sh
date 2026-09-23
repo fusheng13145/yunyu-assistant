@@ -34,7 +34,8 @@ TIMEOUT="${TIMEOUT:-10}"
 KEEP="${KEEP:-0}"
 
 BODY_FILE="$(mktemp)"
-trap 'rm -f "$BODY_FILE"' EXIT
+HDR_FILE="$(mktemp)"
+trap 'rm -f "$BODY_FILE" "$HDR_FILE"' EXIT
 
 PASS=0
 FAIL=0
@@ -86,6 +87,21 @@ mgmt_req() {
     STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' "$MGMT_BASE$1" 2>/dev/null)" || STATUS="000"
     BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)" || BODY=""
 }
+
+# req_ct <METHOD> <PATH> <TOKEN> <CONTENT_TYPE> <BODY> → STATUS / BODY / HDR
+# 与 req 的差别只有 Content-Type：第 7.5 节要故意发错它，看服务端是否按 4xx 拒绝而不是 500
+req_ct() {
+    local method="$1" path="$2" token="${3:-}" ctype="${4:-}" data="${5:-}"
+    local args=(-sS --max-time "$TIMEOUT" -X "$method" -o "$BODY_FILE" -D "$HDR_FILE" -w '%{http_code}')
+    [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
+    [ -n "$ctype" ] && args+=(-H "Content-Type: $ctype")
+    [ -n "$data" ] && args+=(--data-binary "$data")
+    STATUS="$(curl "${args[@]}" "$BASE$path" 2>/dev/null)" || STATUS="000"
+    BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)" || BODY=""
+}
+
+# 响应头取值（大小写不敏感）：hdr <名称>
+hdr() { grep -i "^$1:" "$HDR_FILE" 2>/dev/null | head -1 | tr -d '\r' | sed 's/^[^:]*: *//'; }
 
 # jget <dotted.path>：读最后一次响应里的字段（数组用数字下标）；缺失/null/False 一律输出空串
 if [ "$FLAVOR" = python ]; then
@@ -233,6 +249,13 @@ if [ -n "$REFRESH_TOKEN" ]; then
     want_status '旧 refresh 重放被拒（黑名单生效）' 200 400
 fi
 
+# refresh 令牌默认 7 天有效（access 只有 app.jwt.expiration 那么长），若它能当会话凭据，
+# 泄露 refresh 就等于泄露整个 API；前端的静默续期还会把这类误用悄悄掩盖掉
+if [ -n "${REFRESH_TOKEN:-}" ]; then
+    req GET /api/assistants "$REFRESH_TOKEN"
+    want_status 'refresh 令牌不能当会话凭据用于 /api/**（v2.32）' 401 401
+fi
+
 req GET /api/admin/overview "$TOKEN"
 want_status '普通账号访问管理端 → 403' 403 403
 
@@ -350,6 +373,33 @@ if [ -n "${SMOKE_ORIGIN:-}" ]; then
 else
     skip '带站点 Origin 握手' '未提供 SMOKE_ORIGIN；正式部署必须带，否则 CORS_ALLOWED_ORIGINS 漏配无人发现'
 fi
+
+# ---------- 7.5 请求形状错误：客户端用错不能记成服务端故障 ----------
+# v2.32 实测背景：修前这几类请求全落进 GlobalExceptionHandler 的 Exception 兜底 ⇒ 500 + 带栈 ERROR 日志，
+# 于是 404/405 级别的流量被计入服务端错误率，爬虫每探测一次就多刷一条日志。
+# 405 由 DispatcherServlet 在 handler mapping 阶段抛出，早于鉴权拦截器与数据库，四项里只有它不受库是否可用影响。
+section '7.5 请求形状错误（客户端用错不该变成服务端 500）'
+req_ct DELETE /api/models '' ''
+if [ "$STATUS" = "405" ]; then
+    if printf '%s' "$(hdr Allow)" | grep -qi 'GET'; then ok '未支持的方法 → 405，且带 Allow 头（RFC 9110 要求）'
+    else bad '405 未带 Allow 头' "$(detail)"; fi
+else
+    want_status '未支持的方法 → 405' 405 -
+fi
+req_ct POST /api/assistants "$TOKEN" 'text/plain' '{"name":'
+want_status '给 JSON 接口发 text/plain → 415' 415 415
+req POST /api/assistants "$TOKEN" '{"name":'
+case "$STATUS" in
+    4*) ok "畸形 JSON → HTTP $STATUS（未炸成 500）" ;;
+    *)  bad '畸形 JSON' "$(detail) ⇒ 缺 HttpMessageNotReadable 级别的处理，被兜底成 5xx" ;;
+esac
+# multipart 缺 file 部分：前端漏 append、或请求被代理截断时的真实形状
+STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' -X POST \
+          -H "Authorization: Bearer $TOKEN" -F 'note=without-file' \
+          "$BASE/api/call-records/smoke-probe/recording" 2>/dev/null)" || STATUS="000"
+BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)"
+want_status '上传缺 file 字段 → 400 且点名缺哪个字段' 400 400
+skip '上传超体积 → 413' '需要 54MB 真实上行流量，冒烟不做；已在 .scratch/probe_chain.sh 实测线上形状'
 
 # ---------- 8. 管理端只读 ----------
 if [ -n "${SMOKE_ADMIN_USER:-}" ]; then

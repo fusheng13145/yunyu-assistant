@@ -26,7 +26,7 @@ import static org.mockito.Mockito.when;
 /**
  * 认证接口单元测试
  * 覆盖：/api/auth/** 为拦截器放行路径时需自行从 Authorization 头解析用户、无令牌时拒绝、
- * 注册密码长度规则、刷新令牌的字段契约与账号存在性校验
+ * 请求头凭据只认 access 令牌（C-63）、注册密码长度规则、刷新令牌的字段契约与账号存在性校验
  *
  * @author leyon
  */
@@ -52,10 +52,10 @@ class AuthControllerTest {
 
     @Test
     void changePassword_resolvesUserFromAuthorizationHeader() {
-        // 拦截器未注入 userId（放行路径），令牌有效
+        // 拦截器未注入 userId（放行路径），头里带的是有效 access 令牌
         when(request.getAttribute("userId")).thenReturn(null);
         when(request.getHeader("Authorization")).thenReturn("Bearer access-token");
-        when(jwtUtil.validateToken("access-token")).thenReturn(true);
+        when(jwtUtil.validateAccessToken("access-token")).thenReturn(true);
         when(jwtUtil.getUserIdFromToken("access-token")).thenReturn("u-1");
         when(userService.changePassword("u-1", "Old1234", "New12345")).thenReturn(true);
 
@@ -69,13 +69,35 @@ class AuthControllerTest {
     void changePassword_withoutValidToken_isRejected() {
         when(request.getAttribute("userId")).thenReturn(null);
         when(request.getHeader("Authorization")).thenReturn("Bearer expired-token");
-        when(jwtUtil.validateToken("expired-token")).thenReturn(false);
+        when(jwtUtil.validateAccessToken("expired-token")).thenReturn(false);
 
         ApiResponse<Void> result = authController.changePassword(body, request);
 
         assertThat(result.getCode()).isEqualTo(400);
         assertThat(result.getMessage()).isEqualTo("未登录");
         verify(userService, never()).changePassword(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void logout_blacklistsValidAccessToken() {
+        when(request.getHeader("Authorization")).thenReturn("Bearer access-token");
+        when(jwtUtil.validateAccessToken("access-token")).thenReturn(true);
+        when(jwtUtil.getJtiFromToken("access-token")).thenReturn("jti-1");
+
+        authController.logout(null, request);
+
+        verify(tokenBlacklistService).blacklist(eq("jti-1"), anyLong());
+    }
+
+    @Test
+    void logout_ignoresRefreshTokenPresentedAsBearer() {
+        // C-63：请求头只认 access 令牌；refresh 令牌须经 body.refreshToken 字段撤销，不能在这里误命中
+        when(request.getHeader("Authorization")).thenReturn("Bearer refresh-token");
+        when(jwtUtil.validateAccessToken("refresh-token")).thenReturn(false);
+
+        authController.logout(null, request);
+
+        verify(tokenBlacklistService, never()).blacklist(anyString(), anyLong());
     }
 
     @Test

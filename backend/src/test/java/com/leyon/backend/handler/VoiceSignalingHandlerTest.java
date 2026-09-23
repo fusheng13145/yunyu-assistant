@@ -12,6 +12,7 @@ import com.leyon.backend.service.QuotaService;
 import com.leyon.backend.service.RecordService;
 import com.leyon.backend.service.RustPBXService;
 import com.leyon.backend.service.WebhookService;
+import com.leyon.backend.task.UnauthenticatedSocketReaper;
 import com.leyon.backend.tool.ToolRegistry;
 import com.leyon.backend.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,6 +74,8 @@ class VoiceSignalingHandlerTest {
     @Mock
     private JwtUtil jwtUtil;
     @Mock
+    private UnauthenticatedSocketReaper socketReaper;
+    @Mock
     private WebSocketSession session;
 
     private VoiceSignalingHandler handler;
@@ -82,7 +85,7 @@ class VoiceSignalingHandlerTest {
     void setUp() throws Exception {
         handler = new VoiceSignalingHandler(rustPBXService, assistantService, modelAdapter, knowledgeProvider,
                 recordService, callRecordService, orgService, quotaService, knowledgeBaseService,
-                webhookService, new ObjectMapper(), toolRegistry, jwtUtil);
+                webhookService, new ObjectMapper(), toolRegistry, jwtUtil, socketReaper);
         when(session.getId()).thenReturn("ws-1");
         when(session.isOpen()).thenReturn(true);
         when(session.getAttributes()).thenReturn(attributes);

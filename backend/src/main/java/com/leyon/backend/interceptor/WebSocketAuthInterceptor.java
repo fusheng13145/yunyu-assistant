@@ -46,8 +46,8 @@ public class WebSocketAuthInterceptor implements HandshakeInterceptor {
     public boolean beforeHandshake(@NonNull ServerHttpRequest request, @NonNull ServerHttpResponse response,
                                    @NonNull WebSocketHandler wsHandler, @NonNull Map<String, Object> attributes) {
         String token = extractToken(request);
-        // Token 为空时允许握手（延迟到首条消息认证），Token 存在则立即校验
-        if (token != null && !token.isBlank() && !jwtUtil.validateToken(token)) {
+        // Token 为空时允许握手（延迟到首条消息认证），Token 存在则立即校验；同样只接受 access 令牌
+        if (token != null && !token.isBlank() && !jwtUtil.validateAccessToken(token)) {
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
         }
