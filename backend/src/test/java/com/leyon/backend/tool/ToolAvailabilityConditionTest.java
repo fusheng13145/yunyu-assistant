@@ -9,7 +9,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 工具启用条件单元测试
- * 覆盖 RequiresProperty 的两种语义：密钥型（配置非空即启用）、开关型（配置值须等于 expected）
+ * 覆盖 RequiresProperty 的两种声明写法："key"（配置非空白即启用）与 "key=value"（值须相等，忽略大小写），
+ * 以及组合工具（deep_research）同时依赖多组配置的门控
  * 目的：确认"未配置外部依赖的工具不会出现在模型可选工具列表里"
  *
  * @author leyon
@@ -89,10 +90,43 @@ class ToolAvailabilityConditionTest {
                 .withPropertyValues("app.webfetch.enabled=false", "app.webfetch.max-bytes=2000")
                 .run(context -> assertThat(context).doesNotHaveBean(ToolCallback.class));
 
-        // expected 比较忽略大小写
+        // "key=value" 的比较忽略大小写
         runner(WebFetchTool.class)
                 .withPropertyValues("app.webfetch.enabled=TRUE", "app.webfetch.max-bytes=2000")
                 .run(context -> assertThat(toolNames(context)).containsExactly("fetch_webpage"));
+    }
+
+    @Test
+    void deepResearchNeedsSearchConfigAndWebFetchEnabled() {
+        // 网页抓取未开启：检索可用但 deep_research 不注册（避免暴露一个只能返回摘要的半残能力）
+        runner(SearchTool.class, WebFetchTool.class, DeepResearchTool.class)
+                .withPropertyValues(
+                        "app.search.api-key=k1",
+                        "app.search.endpoint=https://s.test/search",
+                        "app.webfetch.enabled=false",
+                        "app.webfetch.max-bytes=2000",
+                        "app.research.max-sources=3")
+                .run(context -> assertThat(toolNames(context)).containsExactly("web_search"));
+
+        // 搜索缺 endpoint：只保留网页抓取工具
+        runner(SearchTool.class, WebFetchTool.class, DeepResearchTool.class)
+                .withPropertyValues(
+                        "app.search.api-key=k1",
+                        "app.search.endpoint=",
+                        "app.webfetch.enabled=true",
+                        "app.webfetch.max-bytes=2000",
+                        "app.research.max-sources=3")
+                .run(context -> assertThat(toolNames(context)).containsExactly("fetch_webpage"));
+
+        runner(SearchTool.class, WebFetchTool.class, DeepResearchTool.class)
+                .withPropertyValues(
+                        "app.search.api-key=k1",
+                        "app.search.endpoint=https://s.test/search",
+                        "app.webfetch.enabled=true",
+                        "app.webfetch.max-bytes=2000",
+                        "app.research.max-sources=3")
+                .run(context -> assertThat(toolNames(context))
+                        .containsExactlyInAnyOrder("web_search", "fetch_webpage", "deep_research"));
     }
 
     @Test

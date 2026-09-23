@@ -599,6 +599,41 @@
             </div>
           </div>
 
+          <!-- 可用工具（按助手裁剪 AI 能力） -->
+          <div class="setting-card geek-card rounded-lg p-5">
+            <div class="card-head flex items-center justify-between mb-4">
+              <h3 class="font-semibold text-geek-text">可用工具</h3>
+              <button
+                @click="saveTools"
+                :disabled="!toolsChanged"
+                class="geek-btn geek-btn-primary text-sm px-4 py-1.5"
+                :class="{ 'opacity-40 cursor-not-allowed': !toolsChanged }"
+              >
+                保存工具
+              </button>
+            </div>
+            <p class="text-xs mb-3 text-geek-text-muted">
+              不勾选任何工具即沿用全部已注册工具；列表只包含配置已就绪的工具（缺 Key 的工具不会出现在模型可选集合中）
+            </p>
+            <div v-if="availableTools.length === 0" class="text-sm text-geek-text-muted">
+              当前没有任何可用工具
+            </div>
+            <div v-else class="space-y-2.5">
+              <label
+                v-for="tool in availableTools"
+                :key="tool.name"
+                class="flex items-start gap-2.5 cursor-pointer"
+                :title="tool.description"
+              >
+                <input v-model="settingsTools" type="checkbox" :value="tool.name" class="mt-0.5" />
+                <span class="text-sm">
+                  <span class="font-mono text-geek-text">{{ tool.name }}</span>
+                  <span class="block text-xs text-geek-text-muted leading-snug">{{ tool.description }}</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
           <!-- 知识库配置 -->
           <div class="setting-card geek-card rounded-lg p-5">
             <div class="card-head flex items-center justify-between mb-4">
@@ -1076,10 +1111,10 @@ import { exportChatToMarkdown, exportChatToJson } from '../utils/exportChat'
 import { useWebSocket } from '../utils/websocket'
 import { useWebRTC } from '../composables/useWebRTC'
 import { uploadRecording } from '../api/callRecord'
-import { fetchAssistantsPage, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels } from '../api/assistant'
+import { fetchAssistantsPage, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels, fetchTools } from '../api/assistant'
 import { logout } from '../api/auth'
 import { RagflowApi } from '../api/ragflow'
-import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, VoiceInfo, ModelInfo } from '../types'
+import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, VoiceInfo, ModelInfo, ToolInfo } from '../types'
 
 // 主题与路由
 const { themeMode, setTheme } = useTheme()
@@ -1418,7 +1453,7 @@ const doDelete = async () => {
 }
 
 // 设置弹窗
-const openSettingsModal = (bot: Assistant) => {
+const openSettingsModal = async (bot: Assistant) => {
   settingsAssistant.value = bot
   personalityText.value = bot.personality || '这是一个默认的智能助手，擅长解答用户问题，提供准确、有用的信息。'
   originalPersonality.value = personalityText.value
@@ -1426,9 +1461,69 @@ const openSettingsModal = (bot: Assistant) => {
   settingsModelName.value = bot.modelName || ''
   settingsTemperature.value = bot.temperature ?? 0.7
   settingsMaxTokens.value = bot.maxTokens ?? 1024
+  settingsTools.value = normalizeToolNames(bot.tools)
+  originalTools.value = [...settingsTools.value]
   showSettings.value = true
+  await loadTools()
 }
 const closeSettingsModal = () => showSettings.value = false
+
+// AI 工具白名单（不勾选 = 全部已注册工具，与后端 resolveToolCallbacks 的空集语义一致）
+const availableTools = ref<ToolInfo[]>([])
+const settingsTools = ref<string[]>([])
+const originalTools = ref<string[]>([])
+
+const toolsChanged = computed(() =>
+  [...settingsTools.value].sort().join(',') !== [...originalTools.value].sort().join(',')
+)
+
+// 工具字典只在打开设置面板时按需拉取（列表项即后端实际注册结果，未配置 Key 的工具不会出现）
+const loadTools = async () => {
+  if (availableTools.value.length > 0) return
+  try {
+    availableTools.value = await fetchTools()
+  } catch (error) {
+    console.error('获取工具列表失败:', error)
+  }
+}
+
+// 规范化 tools（后端可能返回 JSON 字符串或数组）
+const normalizeToolNames = (tools?: string[] | string): string[] => {
+  if (!tools) return []
+  if (Array.isArray(tools)) return tools
+  try {
+    const parsed = JSON.parse(tools)
+    return Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    return []
+  }
+}
+
+// 保存可用工具白名单
+const saveTools = async () => {
+  const bot = settingsAssistant.value
+  if (!bot?.id) return
+  try {
+    await updateAssistant({
+      id: bot.id,
+      name: bot.name,
+      description: bot.description,
+      personality: bot.personality,
+      voice: bot.voice,
+      knowledgeIds: normalizeKnowledgeIds(bot.knowledgeIds),
+      tools: [...settingsTools.value],
+    })
+    bot.tools = [...settingsTools.value]
+    if (selectedAssistant.value?.id === bot.id) {
+      selectedAssistant.value.tools = [...settingsTools.value]
+    }
+    originalTools.value = [...settingsTools.value]
+    // 工具集在 WS 连接建立时快照（人设可热更新，工具不行），故保存后需重进会话生效
+    showNotification('可用工具已保存，重新进入该助手（或下一次语音通话）后生效', 'success')
+  } catch (error) {
+    showNotification(`可用工具保存失败：${(error as Error).message}`, 'error')
+  }
+}
 
 // 保存音色
 const saveVoice = async () => {

@@ -34,7 +34,7 @@ import java.util.function.Function;
  * @author leyon
  */
 @Component
-@RequiresProperty(value = "app.webfetch.enabled", expected = "true")
+@RequiresProperty("app.webfetch.enabled=true")
 public class WebFetchTool {
 
     /** 单次读取的最大字节数（超出即截断，防止大文件占满内存与上下文） */
@@ -47,7 +47,6 @@ public class WebFetchTool {
     private RestTemplate restTemplate;
 
     public WebFetchTool() {
-        // 关闭跨协议自动跳转，并对 3xx 直接拒绝，保证"实际请求的地址"就是"通过校验的地址"
         // 关闭跨协议自动跳转，并对 3xx 直接拒绝，保证"实际请求的地址"就是"通过校验的地址"
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
             @Override

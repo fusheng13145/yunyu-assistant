@@ -21,6 +21,8 @@ export interface Assistant {
   maxTokens?: number
   /** 关联知识库ID列表（后端为 JSON 字符串时前端自行解析） */
   knowledgeIds?: string[] | string
+  /** 可用工具白名单（空=全部已注册工具；后端为 JSON 字符串时前端自行解析） */
+  tools?: string[] | string
   userId: string
   createdAt: string
   updatedAt: string
@@ -140,10 +142,18 @@ export interface CreateAssistantData {
   temperature?: number
   maxTokens?: number
   knowledgeIds?: string[]
+  /** 可用工具白名单（不传或空数组=全部已注册工具） */
+  tools?: string[]
 }
 
 export interface UpdateAssistantData extends CreateAssistantData {
   id: string
+}
+
+/** AI 工具字典项（后端按运行时注册结果下发） */
+export interface ToolInfo {
+  name: string
+  description: string
 }
 
 export interface LoginData {

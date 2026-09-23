@@ -1,4 +1,4 @@
-import type { Assistant, CreateAssistantData, UpdateAssistantData, VoiceInfo, ModelInfo } from '../types'
+import type { Assistant, CreateAssistantData, UpdateAssistantData, VoiceInfo, ModelInfo, ToolInfo } from '../types'
 import { getAuthHeaders } from './auth'
 
 const API_BASE = '/api'
@@ -85,4 +85,12 @@ export async function fetchModels(): Promise<ModelInfo[]> {
     headers: getAuthHeaders(),
   })
   return parseResponse<ModelInfo[]>(response)
+}
+
+/** 当前实际注册（配置已就绪）的 AI 工具列表，供助手"可用工具"白名单勾选 */
+export async function fetchTools(): Promise<ToolInfo[]> {
+  const response = await fetch(`${API_BASE}/tools`, {
+    headers: getAuthHeaders(),
+  })
+  return parseResponse<ToolInfo[]>(response)
 }

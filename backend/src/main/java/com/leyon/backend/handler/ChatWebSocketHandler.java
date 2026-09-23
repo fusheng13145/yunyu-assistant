@@ -212,10 +212,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         List<String> knowledgeIds = retainVisibleKnowledgeIds(
                 parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
 
-        // 初始化聊天实例
+        // 初始化聊天实例（工具集按助手白名单裁剪，白名单为空即全部可用）
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
-                assistant.getPersonality(), knowledgeIds, toolRegistry.getAllToolCallbacks()
+                assistant.getPersonality(), knowledgeIds,
+                toolRegistry.resolveToolCallbacks(assistant.getToolList())
         );
         // 应用助手级模型参数（覆盖全局默认）
         chatService.setModelParams(assistant.getModelName(), assistant.getTemperature(), assistant.getMaxTokens());

@@ -77,7 +77,7 @@ class OpenApiChatControllerTest {
                 sessionService, recordService, webhookService, modelAdapter, knowledgeProvider, new ObjectMapper(), toolRegistry);
         request = org.mockito.Mockito.mock(HttpServletRequest.class);
         lenient().when(request.getAttribute(OpenApiAuthInterceptor.ATTR_USER_ID)).thenReturn("u-owner");
-        lenient().when(toolRegistry.getAllToolCallbacks()).thenReturn(List.of());
+        lenient().when(toolRegistry.resolveToolCallbacks(any())).thenReturn(List.of());
         lenient().when(recordService.listBySessionIdLimit(any(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(List.of());
     }
 

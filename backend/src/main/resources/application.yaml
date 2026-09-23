@@ -133,7 +133,7 @@ app:
   ragflow:
     api-key: ${RAGFLOW_API_KEY:}
     endpoint: ${RAGFLOW_ENDPOINT:}
-  # 全网搜索服务（未配置 api-key/endpoint 时该工具不注册）
+  # 全网搜索服务（未配置 api-key/endpoint 时 web_search 不注册；deep_research 还需下方 webfetch 开启）
   search:
     api-key: ${SEARCH_API_KEY:}
     endpoint: ${SEARCH_ENDPOINT:}
@@ -155,6 +155,10 @@ app:
     enabled: ${WEBFETCH_ENABLED:false}
     # 单次抓取响应体读取上限（字节），超出即截断
     max-bytes: ${WEBFETCH_MAX_BYTES:200000}
+  # 深度研究工具（检索 + 多篇正文抓取；需 search 与 webfetch 同时就绪才注册）
+  research:
+    # 默认抓取网页数（模型可用 maxSources 覆盖，钳制 1-5）
+    max-sources: ${RESEARCH_MAX_SOURCES:3}
   # WebSocket 语音服务（未配置时语音功能降级）
   rustpbx:
     endpoint: ${RUSTPBX_ENDPOINT:}

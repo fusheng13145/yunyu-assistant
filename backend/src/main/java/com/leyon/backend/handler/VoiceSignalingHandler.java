@@ -321,10 +321,11 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         // 从服务端持久化的 knowledge_ids 加载知识库关联（与通话者可见数据集求交）
         List<String> knowledgeIds = retainVisibleKnowledgeIds(parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
 
-        // 初始化对话服务（使用新的抽象接口依赖）
+        // 初始化对话服务（使用新的抽象接口依赖；工具集按助手白名单裁剪，语音助手若需 LLM 主动挂断须保留 hangup）
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
-                assistant.getPersonality(), knowledgeIds, toolRegistry.getAllToolCallbacks()
+                assistant.getPersonality(), knowledgeIds,
+                toolRegistry.resolveToolCallbacks(assistant.getToolList())
         );
         // 注册挂断监听器：LLM 调用 hangup 工具时主动挂断通话
         chatService.setHangupListener(reason -> handleLlmHangup(session, reason));

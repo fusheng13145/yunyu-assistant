@@ -48,6 +48,12 @@ CREATE TABLE `assistants` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='助手表';
 
 -- ----------------------------
+-- 助手可用工具白名单（v2.28 按助手裁剪 AI 能力）
+-- 存 JSON 数组字符串（如 ["get_weather","hangup"]）；NULL / 空数组 = 全部已注册工具可用（既有助手零迁移即行为不变）
+-- ----------------------------
+ALTER TABLE `assistants` ADD COLUMN `tools` VARCHAR(500) DEFAULT NULL COMMENT '可用工具白名单（JSON 数组，空=全部已注册工具）' AFTER `knowledge_ids`;
+
+-- ----------------------------
 -- 知识库表: knowledgebases
 -- --------------------------
 DROP TABLE IF EXISTS `knowledgebases`;

@@ -80,6 +80,13 @@ public class Assistant {
     private String knowledgeIds;
 
     /**
+     * 助手可用工具白名单（JSON 数组字符串，如 ["get_weather","hangup"]）
+     * 空 = 全部已注册工具可用；数据库存储为字符串，JSON 对外表现为数组
+     */
+    @JsonIgnore
+    private String tools;
+
+    /**
      * 归属用户ID
      */
     private String userId;
@@ -223,6 +230,43 @@ public class Assistant {
                     : JSON_MAPPER.writeValueAsString(ids);
         } catch (Exception e) {
             this.knowledgeIds = "[]";
+        }
+    }
+
+    /** MyBatis-Plus 映射 DB 使用（对外 JSON 隐藏） */
+    @JsonIgnore
+    public String getTools() {
+        return tools;
+    }
+
+    @JsonIgnore
+    public void setTools(String tools) {
+        this.tools = tools;
+    }
+
+    /** JSON 对外暴露 tools 为数组（空数组=未裁剪，服务端按"全部可用工具"处理） */
+    @JsonProperty("tools")
+    public List<String> getToolList() {
+        if (tools == null || tools.isBlank()) {
+            return List.of();
+        }
+        try {
+            return JSON_MAPPER.readValue(tools, new TypeReference<>() {
+            });
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /** JSON 反序列化：接收数组，转存为 JSON 字符串（空数组存为 "[]" 以确保可更新） */
+    @JsonProperty("tools")
+    public void setToolList(List<String> toolNames) {
+        try {
+            this.tools = (toolNames == null || toolNames.isEmpty())
+                    ? "[]"
+                    : JSON_MAPPER.writeValueAsString(toolNames);
+        } catch (Exception e) {
+            this.tools = "[]";
         }
     }
 

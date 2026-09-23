@@ -143,12 +143,12 @@
     {
       "name": "app.search.api-key",
       "type": "java.lang.String",
-      "description": "全网搜索服务(BochaAI)访问密钥，未配置时 web_search 工具不注册（模型不可见）。"
+      "description": "全网搜索服务(BochaAI)访问密钥，未配置时 web_search 工具不注册（模型不可见）；deep_research 另需 app.webfetch.enabled=true。"
     },
     {
       "name": "app.search.endpoint",
       "type": "java.lang.String",
-      "description": "全网搜索服务接口地址，未配置时 web_search 工具不注册（模型不可见）。"
+      "description": "全网搜索服务接口地址，未配置时 web_search 工具不注册（模型不可见）；deep_research 另需 app.webfetch.enabled=true。"
     },
     {
       "name": "app.weather.api-key",
@@ -188,12 +188,17 @@
     {
       "name": "app.webfetch.enabled",
       "type": "java.lang.Boolean",
-      "description": "网页正文读取工具（fetch_webpage）开关，默认 false。该工具无需第三方密钥但会让服务端出网访问模型给出的公网地址（已做 SSRF 校验与禁重定向），须显式开启。"
+      "description": "网页正文读取工具（fetch_webpage）开关，默认 false。该工具无需第三方密钥但会让服务端出网访问模型给出的公网地址（已做 SSRF 校验与禁重定向），须显式开启；同时是 deep_research 的注册前提之一。"
     },
     {
       "name": "app.webfetch.max-bytes",
       "type": "java.lang.Integer",
       "description": "单次网页抓取响应体读取上限，单位：字节，默认 200000；超出即截断。"
+    },
+    {
+      "name": "app.research.max-sources",
+      "type": "java.lang.Integer",
+      "description": "deep_research 默认抓取的网页数，默认 3（模型可用入参 maxSources 覆盖，服务端钳制 1-5）。该工具需 app.search.* 与 app.webfetch.enabled=true 同时就绪才注册。"
     },
     {
       "name": "app.rustpbx.endpoint",

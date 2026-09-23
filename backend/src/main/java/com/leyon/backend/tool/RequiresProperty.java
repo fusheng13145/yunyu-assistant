@@ -22,12 +22,11 @@ import java.lang.annotation.Target;
 public @interface RequiresProperty {
 
     /**
-     * 依赖的配置项（全部就绪才启用），如 app.image.api-key
+     * 依赖的配置项（全部就绪才启用），两种写法可混用：
+     * <ul>
+     *   <li>{@code app.image.api-key} —— 配置存在且非空白即就绪</li>
+     *   <li>{@code app.webfetch.enabled=true} —— 配置值须等于该值（忽略大小写，用于开关型配置）</li>
+     * </ul>
      */
     String[] value();
-
-    /**
-     * 期望值：为空表示"配置存在且非空白即就绪"；非空表示配置值须等于该值（忽略大小写）
-     */
-    String expected() default "";
 }

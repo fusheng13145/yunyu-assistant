@@ -14,7 +14,9 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.RestClientException;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -42,7 +44,7 @@ public class SearchTool {
     /** 默认返回结果条数 */
     private static final int DEFAULT_MAX_RESULT = 5;
 
-    private final RestTemplate restTemplate;
+    private RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
     public SearchTool(ObjectMapper objectMapper) {
@@ -75,11 +77,31 @@ public class SearchTool {
      * @return 拼接后的搜索结果 / 错误提示
      */
     public String search(SearchRequest request) {
-        // 基础参数校验
         if (request == null || request.getQuery() == null || request.getQuery().isBlank()) {
             return "搜索失败：搜索关键词不能为空";
         }
+        SearchOutcome outcome = searchHits(request.getQuery(), request.getMaxResults());
+        if (outcome.error() != null) {
+            return outcome.error();
+        }
+        if (outcome.hits().isEmpty()) {
+            return "未查询到相关内容";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (SearchHit hit : outcome.hits()) {
+            sb.append(hit.title()).append(": ").append(hit.snippet()).append("\n");
+        }
+        return sb.toString();
+    }
 
+    /**
+     * 执行搜索并返回结构化命中列表，供 {@link DeepResearchTool} 等组合工具复用（不再重复发起 HTTP 组装逻辑）
+     *
+     * @param query      搜索关键词
+     * @param maxResults 最大返回条数（为空取默认值）
+     * @return 结构化结果：失败时 error 为面向模型的提示文案
+     */
+    public SearchOutcome searchHits(String query, Integer maxResults) {
         try {
             // 构建请求头
             HttpHeaders headers = new HttpHeaders();
@@ -87,39 +109,65 @@ public class SearchTool {
             headers.setBearerAuth(apiKey);
 
             // 结果条数容错处理
-            int resultCount = request.getMaxResults() != null ? request.getMaxResults() : DEFAULT_MAX_RESULT;
+            int resultCount = maxResults != null ? maxResults : DEFAULT_MAX_RESULT;
 
             // 构建请求体
             Map<String, Object> body = new HashMap<>();
-            body.put("query", request.getQuery());
+            body.put("query", query);
             body.put("count", resultCount);
 
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
             String response = restTemplate.postForObject(endpoint, entity, String.class);
             if (response == null) {
-                return "搜索失败：接口返回数据为空";
+                return SearchOutcome.failure("搜索失败：接口返回数据为空");
             }
 
             // 解析响应 JSON
             JsonNode root = objectMapper.readTree(response);
             JsonNode results = root.path("data").path("webPages").path("value");
-            if (!results.isArray() || results.isEmpty()) {
-                return "未查询到相关内容";
+            if (!results.isArray()) {
+                return SearchOutcome.failure("未查询到相关内容");
             }
-
-            // 拼接结果文本
-            StringBuilder sb = new StringBuilder();
+            List<SearchHit> hits = new ArrayList<>();
             for (JsonNode item : results) {
-                String title = item.path("name").asText("");
-                String content = item.path("snippet").asText("");
-                sb.append(title).append(": ").append(content).append("\n");
+                hits.add(new SearchHit(
+                        item.path("name").asText(""),
+                        item.path("snippet").asText(""),
+                        item.path("url").asText("")));
             }
-            return sb.toString();
+            return SearchOutcome.success(hits);
 
         } catch (RestClientException e) {
-            return "搜索请求异常：接口调用失败";
+            return SearchOutcome.failure("搜索请求异常：接口调用失败");
         } catch (Exception e) {
-            return "搜索解析异常：结果解析失败";
+            return SearchOutcome.failure("搜索解析异常：结果解析失败");
+        }
+    }
+
+    /**
+     * 单条搜索命中
+     *
+     * @param title   标题
+     * @param snippet 摘要片段
+     * @param url     原文地址（组合工具据此抓取正文）
+     */
+    public record SearchHit(String title, String snippet, String url) {
+    }
+
+    /**
+     * 搜索结构化结果
+     *
+     * @param hits  命中列表（成功时非 null）
+     * @param error 失败文案（成功时为 null）
+     */
+    public record SearchOutcome(List<SearchHit> hits, String error) {
+
+        static SearchOutcome success(List<SearchHit> hits) {
+            return new SearchOutcome(hits, null);
+        }
+
+        static SearchOutcome failure(String error) {
+            return new SearchOutcome(List.of(), error);
         }
     }
 

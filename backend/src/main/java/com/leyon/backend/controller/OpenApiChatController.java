@@ -145,7 +145,8 @@ public class OpenApiChatController {
         List<String> knowledgeIds = parseKnowledgeIds(assistant.getKnowledgeIds());
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
-                assistant.getPersonality(), knowledgeIds, toolRegistry.getAllToolCallbacks()
+                assistant.getPersonality(), knowledgeIds,
+                toolRegistry.resolveToolCallbacks(assistant.getToolList())
         );
         chatService.setModelParams(assistant.getModelName(), assistant.getTemperature(), assistant.getMaxTokens());
         List<Record> history = recordService.listBySessionIdLimit(bizSessionId, HISTORY_LIMIT);

@@ -15,6 +15,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>注册表按 List&lt;ToolCallback&gt; 自动收集容器内全部工具，无需在此登记；
  * 工具名重复属配置错误，启动即失败（避免后注册者静默覆盖先注册者）。
+ * 三条对话链路统一走 {@link #resolveToolCallbacks(java.util.Collection)} 取工具，
+ * 以便按助手白名单裁剪能力。
  *
  * @author leyon
  */
@@ -60,5 +62,38 @@ public class ToolRegistry {
      */
     public Set<String> getToolNames() {
         return Collections.unmodifiableSet(tools.keySet());
+    }
+
+    /**
+     * 按助手的工具白名单解析工具列表（v2.28 支持按助手裁剪能力）
+     *
+     * <p>语义约定：白名单为空（未配置）= 全部可用工具，保证既有助手行零迁移即行为不变；
+     * 显式列表 = 精确集合，其中未注册的工具名（如服务商 Key 被撤下、名称写错）忽略并记 WARN，
+     * 全部无效时该助手无工具可用——不回落"全部可用"，避免配置错误反而放大权限。
+     *
+     * @param allowedNames 白名单工具名集合，可为 null/空
+     * @return 供 ChatService 注入的工具列表
+     */
+    public List<ToolCallback> resolveToolCallbacks(Collection<String> allowedNames) {
+        if (allowedNames == null || allowedNames.isEmpty()) {
+            return getAllToolCallbacks();
+        }
+        List<ToolCallback> picked = new ArrayList<>();
+        List<String> unknown = new ArrayList<>();
+        for (String name : allowedNames) {
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            ToolCallback tool = tools.get(name.trim());
+            if (tool == null) {
+                unknown.add(name.trim());
+            } else if (!picked.contains(tool)) {
+                picked.add(tool);
+            }
+        }
+        if (!unknown.isEmpty()) {
+            log.warn("助手工具白名单含未注册的工具名（已忽略）：{}，当前可用工具：{}", unknown, getToolNames());
+        }
+        return picked;
     }
 }
