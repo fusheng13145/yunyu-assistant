@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
+import org.springframework.util.AntPathMatcher;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.io.IOException;
@@ -20,8 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 接口速率限制拦截器
- * 防止登录/注册接口被暴力破解
+ * 接口速率限制拦截器（v2.35 扩面为两档）
+ * 认证桶：login/register/refresh/password 共用 5 次/分钟/IP（防凭证爆破）
+ * 高成本桶：OpenAPI 对话/外呼、RAGFlow 检索试验、录音上传/下载共用 30 次/分钟/IP（防额度与带宽滥用）
  * 配置 app.redis.enabled=true 时使用 Redis 固定窗口计数（多实例共享）；否则使用内存滑动窗口（单实例）
  * Redis 故障时自动降级内存实现
  *
@@ -33,7 +35,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     private static final Logger log = LoggerFactory.getLogger(RateLimitInterceptor.class);
 
     /**
-     * 请求记录：IP → 请求时间戳队列（毫秒）
+     * 请求记录：IP+档位 → 请求时间戳队列（毫秒）
      * 使用 ConcurrentHashMap 保证线程安全（内存降级实现）
      */
     private final Map<String, LinkedList<Long>> requestRecords = new ConcurrentHashMap<>();
@@ -70,17 +72,41 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     private static final long WINDOW_MS = 60_000L;
 
     /**
-     * 单个 IP 在时间窗口内允许的最大请求次数
+     * 限流分档（v2.35 扩面）：
+     * AUTH＝凭证获取/变更端点共用一个 5 次/分钟 的桶（与 v2.35 前"login+register 共桶"口径一致，
+     * 新增 refresh/password 只是并入同桶，不摊薄既有爆破防护）；
+     * EXPENSIVE＝消耗外部额度或带宽的端点共用 30 次/分钟 的桶（正常单用户远达不到）。
+     * 同一 IP 同一档共享计数；档与档互不干扰。
      */
-    private static final int MAX_REQUESTS_PER_WINDOW = 5;
+    private enum Tier {
+        AUTH(5, "/api/auth/login", "/api/auth/register", "/api/auth/refresh", "/api/auth/password"),
+        EXPENSIVE(30, "/api/open/chat", "/api/open/call", "/api/ragflow/retrieval-test",
+                "/api/call-records/*/recording");
 
-    /**
-     * 需要限流的接口路径前缀（认证相关接口）
-     */
-    private static final String[] RATE_LIMIT_PATHS = {
-            "/api/auth/login",
-            "/api/auth/register"
-    };
+        /** 时间窗口内允许的最大请求次数 */
+        private final int capacity;
+        /** Ant 风格路径模式（无通配符的即精确匹配） */
+        private final String[] patterns;
+
+        Tier(int capacity, String... patterns) {
+            this.capacity = capacity;
+            this.patterns = patterns;
+        }
+
+        /** 判定 URI 属于哪一档；不属于任何档（普通业务路径）返回 null */
+        private static Tier resolve(String uri) {
+            for (Tier tier : values()) {
+                for (String pattern : tier.patterns) {
+                    if (PATH_MATCHER.match(pattern, uri)) {
+                        return tier;
+                    }
+                }
+            }
+            return null;
+        }
+    }
+
+    private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
     /**
      * 跨域预检请求方法（放行，不计数）
@@ -125,36 +151,22 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        // 仅对指定路径进行速率限制
+        // 仅对分档内的路径进行速率限制（v2.35：认证桶 + 高成本桶）
         String requestUri = request.getRequestURI();
-        if (!shouldRateLimit(requestUri)) {
+        Tier tier = Tier.resolve(requestUri);
+        if (tier == null) {
             return true;
         }
 
-        // 获取客户端真实IP（优先 X-Forwarded-For，其次 RemoteAddr）
-        String clientIp = getClientIp(request);
+        // 获取客户端真实IP（优先 X-Forwarded-For，其次 RemoteAddr），桶按 IP+档位 计
+        String bucketKey = getClientIp(request) + "|" + tier.name();
 
         // 检查是否超出速率限制（Redis 优先，失败降级内存）
-        if (isRateLimited(clientIp, requestUri, response)) {
+        if (isRateLimited(bucketKey, tier, response)) {
             return false;
         }
 
         return true;
-    }
-
-    /**
-     * 判断当前请求路径是否需要速率限制
-     *
-     * @param uri 请求 URI
-     * @return 是否需要限流
-     */
-    private boolean shouldRateLimit(String uri) {
-        for (String path : RATE_LIMIT_PATHS) {
-            if (path.equals(uri)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -176,30 +188,31 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     /**
      * 执行速率限制检查：Redis 固定窗口优先，异常时降级内存滑动窗口
      *
-     * @param clientIp 客户端 IP
-     * @param response 响应对象（用于设置429响应头）
+     * @param bucketKey IP+档位 组合键
+     * @param tier      命中的限流档
+     * @param response  响应对象（用于设置429响应头）
      * @return true-已限流需拦截，false-未超限可放行
      */
-    private boolean isRateLimited(String clientIp, String requestUri, HttpServletResponse response) throws IOException {
-        Boolean redisLimited = redisRateLimit(clientIp, requestUri, response);
+    private boolean isRateLimited(String bucketKey, Tier tier, HttpServletResponse response) throws IOException {
+        Boolean redisLimited = redisRateLimit(bucketKey, tier, response);
         if (redisLimited != null) {
             return redisLimited;
         }
-        return memoryRateLimit(clientIp, response);
+        return memoryRateLimit(bucketKey, tier, response);
     }
 
     /** Redis 固定窗口限流；返回 null 表示未启用/失败需降级内存 */
-    private Boolean redisRateLimit(String clientIp, String requestUri, HttpServletResponse response) throws IOException {
+    private Boolean redisRateLimit(String bucketKey, Tier tier, HttpServletResponse response) throws IOException {
         if (!redisEnabled || redisTemplate == null) {
             return null;
         }
         try {
-            String key = KEY_PREFIX + clientIp + ":" + requestUri;
+            String key = KEY_PREFIX + bucketKey;
             Long count = redisTemplate.opsForValue().increment(key);
             if (count != null && count == 1L) {
                 redisTemplate.expire(key, WINDOW_MS, TimeUnit.MILLISECONDS);
             }
-            if (count != null && count > MAX_REQUESTS_PER_WINDOW) {
+            if (count != null && count > tier.capacity) {
                 writeRateLimitResponse(response);
                 return true;
             }
@@ -213,7 +226,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     /**
      * 内存滑动窗口限流（单实例降级实现）
      */
-    private boolean memoryRateLimit(String clientIp, HttpServletResponse response) throws IOException {
+    private boolean memoryRateLimit(String bucketKey, Tier tier, HttpServletResponse response) throws IOException {
         long now = System.currentTimeMillis();
 
         // 惰性全量清理：每隔 CLEANUP_INTERVAL_MS 扫描一次，移除长时间无请求的过期 IP 条目
@@ -222,9 +235,9 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             lastCleanupTime = now;
         }
 
-        // 获取或创建该 IP 的请求记录队列
+        // 获取或创建该 IP+档位 的请求记录队列
         LinkedList<Long> timestamps = requestRecords.computeIfAbsent(
-                clientIp, k -> new LinkedList<>()
+                bucketKey, k -> new LinkedList<>()
         );
 
         synchronized (timestamps) {
@@ -241,7 +254,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             }
 
             // 检查是否超过限制
-            if (timestamps.size() >= MAX_REQUESTS_PER_WINDOW) {
+            if (timestamps.size() >= tier.capacity) {
                 // 计算剩余等待时间（秒）
                 long oldestInWindow = timestamps.getFirst();
                 long retryAfterSeconds = Math.max(1, (oldestInWindow + WINDOW_MS - now + 999) / 1000);

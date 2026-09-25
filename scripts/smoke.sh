@@ -141,7 +141,7 @@ detail() {
 
 # api_ok <描述>：HTTP 200 且业务 code==200；命中登录类限流记为 SKIP（属正常保护，非故障）
 api_ok() {
-    if [ "$STATUS" = "429" ]; then skip "$1" '触发限流（登录/注册 5 次/分钟），稍后重试'; return 1; fi
+    if [ "$STATUS" = "429" ]; then skip "$1" '触发限流（AUTH 桶 5 次/分钟 或 EXPENSIVE 桶 30 次/分钟），稍后重试'; return 1; fi
     if [ "$STATUS" != "200" ]; then bad "$1" "$(detail)"; return 1; fi
     if [ "$(jget code)" != "200" ]; then bad "$1" "$(detail)"; return 1; fi
     ok "$1"
@@ -429,6 +429,30 @@ else
     skip '管理端接口' '未提供 SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS'
 fi
 
+# ---------- 8.5 限流桶 — 高成本接口（EXPENSIVE 30 次/分钟） ----------
+# v2.35 起 429 从 SKIP 变成断言：限流扩面后"能触发 429"本身就是被测行为。
+# 打录音下载（路径变量 + 纯本地）而非检索测试：后者每次真调外部 RAGFlow，白烧额度。
+# 拦截器在 preHandle 计数、认证在其后 ⇒ 404 同样计入桶，不必先造一条录音。
+section '8.5 限流桶 — 高成本接口'
+NON429=0
+EXP_429=0
+i=0
+while [ "$i" -lt 31 ]; do
+    i=$((i + 1))
+    req GET '/api/call-records/smoke-rate-probe/recording' "$TOKEN"
+    if [ "$STATUS" = "429" ]; then EXP_429=1; break; fi
+    NON429=$((NON429 + 1))
+done
+if [ "$EXP_429" = "1" ]; then
+    if [ "$NON429" -ge 31 ]; then
+        bad 'EXPENSIVE 桶容量应为 30/分钟' '放行 '"$NON429"' 次才见 429，超出容量'
+    else
+        ok "EXPENSIVE 桶生效：放行 $NON429 次后第 $((NON429 + 1)) 次返回 429"
+    fi
+else
+    bad 'EXPENSIVE 桶未生效' '连续 31 次请求高成本接口未见 429（检查 RateLimitInterceptor 的 Tier 与 AppConfig 注册）'
+fi
+
 # ---------- 9. 登出与服务端失效 ----------
 section '9. 登出与令牌失效'
 if [ "$KEEP" = "1" ]; then
@@ -445,6 +469,43 @@ req GET /api/assistants "$TOKEN"
 want_status '登出后原 access 令牌访问业务接口 → 401' 401 401
 req GET /api/auth/me "$TOKEN"
 want_status '登出后放行路径 /api/auth/me 同样失效（黑名单不只管拦截器）' 200 400
+
+# ---------- 10. 限流桶 — 认证（AUTH 5 次/分钟，login/refresh/password 共用） ----------
+# 本区段故意打错误口令，跑完后 1 分钟内再冒烟会在 §2 登录处触发 429——
+# api_ok 已把 429 记成 SKIP（保护生效，不算故障），无需处理。
+# 放在 §9 之后：此时业务断言已全部做完，错误凭据不会再干扰前序区段。
+section '10. 限流桶 — 认证'
+AUTH_429=0
+LOGIN_TRIES=0
+i=0
+while [ "$i" -lt 8 ] && [ "$AUTH_429" = "0" ]; do
+    i=$((i + 1))
+    req POST /api/auth/login '' "$(json username 'smoke-no-such-user' password 'wrong-password-123')"
+    LOGIN_TRIES=$((LOGIN_TRIES + 1))
+    case "$STATUS" in
+        429) AUTH_429=1 ;;
+        401) ;;
+        *) bad '错误口令登录应 401' "$(detail)" ;;
+    esac
+done
+if [ "$AUTH_429" = "1" ]; then
+    if [ "$LOGIN_TRIES" -ge 9 ]; then
+        bad 'AUTH 桶容量应为 5/分钟' '放行 '"$LOGIN_TRIES"' 次才见 429，超出容量'
+    else
+        ok "AUTH 桶生效：$LOGIN_TRIES 次（含前序区段已用量）后返回 429"
+    fi
+else
+    bad 'AUTH 桶未生效' '8 次错误口令登录未见 429（§8 管理员登录已消耗 1 次，5 次容量下第 5～8 次必触发）'
+fi
+# 共用同桶的直接证据：login 打满后，refresh 这条从未被请求过的路径也应 429。
+# 若两桶独立，refresh 会走到业务层对乱码令牌报 401——429/401 的区分度就是本断言的价值。
+# 仅在确认已见 429 后才断言（上一项 bad 时桶状态不可知，重复判同一件事只会有两条噪声）
+if [ "$AUTH_429" = "1" ]; then
+    req POST /api/auth/refresh '' "$(json refreshToken 'smoke-not-a-real-token')"
+    want_status 'refresh 与 login 共用同桶（429 而非 401）' 429 -
+else
+    skip 'refresh 与 login 共用同桶' 'AUTH 桶未确认打满'
+fi
 
 # ---------- 汇总 ----------
 printf '\n----------------------------------------\n'

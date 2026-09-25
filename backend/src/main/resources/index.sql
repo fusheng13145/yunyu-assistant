@@ -291,6 +291,25 @@ CREATE TABLE `quotas` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='配额表';
 
 -- ----------------------------
+-- 单日配额用量表: quota_daily_usage（v2.35 配额原子扣减账本）
+-- 拦截判定读写的唯一落点：UPDATE ... SET used=used+1 WHERE ... AND used < limit
+-- 与 quotas 不同：本表按日生长，不参与管理端编辑；展示口径仍从业务表数（手册 2.11）
+-- ----------------------------
+DROP TABLE IF EXISTS `quota_daily_usage`;
+CREATE TABLE `quota_daily_usage` (
+    `id` VARCHAR(36) NOT NULL COMMENT '用量行UUID',
+    `scope_type` VARCHAR(8) NOT NULL COMMENT '作用域类型 org:组织 user:用户（与 quotas 同口径）',
+    `scope_id` VARCHAR(36) NOT NULL COMMENT '作用域ID（org_id 或 user_id）',
+    `usage_date` DATE NOT NULL COMMENT '统计日（按 JVM LocalDate.now() 的本地日切，与展示口径一致）',
+    `metric` VARCHAR(32) NOT NULL COMMENT '指标：daily_msg(消息条数) / daily_call(通话次数)',
+    `used` INT NOT NULL DEFAULT 0 COMMENT '当日已用量（仅由带余额条件的原子UPDATE推进）',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_usage_scope` (`scope_type`, `scope_id`, `usage_date`, `metric`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='单日配额用量表（原子扣减账本）';
+
+-- ----------------------------
 -- 第三方应用表: api_apps（P2-10 开放 OpenAPI）
 -- app_key 为明文 API Key（第三方请求头 X-API-Key 携带），scopes 逗号分隔能力
 -- ----------------------------

@@ -63,7 +63,7 @@ public class AppConfig implements WebMvcConfigurer {
      * 注册自定义拦截器
      * 拦截规则：
      * 1. AuthInterceptor：拦截所有 /api 开头接口，放行登录/注册等认证接口
-     * 2. RateLimitInterceptor：仅对登录/注册接口进行速率限制（防暴力破解）
+     * 2. RateLimitInterceptor：认证桶（登录/注册/刷新/改密）与高成本桶（OpenAPI、检索试验、录音传输）分档限流
      *
      * @param registry 拦截器注册器
      */
@@ -78,9 +78,14 @@ public class AppConfig implements WebMvcConfigurer {
                 // 排除开放 OpenAPI（由 OpenApiAuthInterceptor 以 API Key 鉴权，与 JWT 通道隔离）
                 .excludePathPatterns("/api/open/**");
 
-        // 速率限制拦截器（仅限制登录和注册接口）
+        // 速率限制拦截器（v2.35 扩面）：认证桶 4 端点 5 次/分钟 + 高成本桶 4 模式 30 次/分钟，
+        // 档位与容量在 RateLimitInterceptor.Tier 内定义；此处注册的路径模式必须覆盖 Tier 的全部端点，
+        // 否则漏注册的路径根本不会进入拦截器（Tier 判定只是第二道）。
         registry.addInterceptor(rateLimitInterceptor)
-                .addPathPatterns("/api/auth/login", "/api/auth/register");
+                .addPathPatterns(
+                        "/api/auth/login", "/api/auth/register", "/api/auth/refresh", "/api/auth/password",
+                        "/api/open/chat", "/api/open/call", "/api/ragflow/retrieval-test",
+                        "/api/call-records/*/recording");
 
         // 管理员接口鉴权拦截器（依赖 AuthInterceptor 解析的 userId，须在其之后）
         registry.addInterceptor(adminAuthInterceptor)
