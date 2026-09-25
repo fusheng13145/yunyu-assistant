@@ -2,6 +2,8 @@ package com.leyon.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -9,7 +11,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
@@ -27,6 +28,8 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
  */
 @Service
 public class KnowledgeService implements KnowledgeProvider {
+
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeService.class);
 
     /** RAGFlow 接口密钥 */
     @Value("${app.ragflow.api-key}")
@@ -75,7 +78,8 @@ public class KnowledgeService implements KnowledgeProvider {
      *
      * @param question   用户提问
      * @param datasetIds 数据集ID列表
-     * @return 结构化命中结果，异常/无数据返回空结果
+     * @return 结构化命中结果；外部故障/畸形响应返回 {@link KnowledgeHit#failure()}（v2.39 起与"无命中"分家），
+     *         参数不合法或确实没有相关 chunk 时返回 {@link KnowledgeHit#empty()}
      */
     @Override
     public KnowledgeHit queryKnowledgeBaseWithDetail(String question, List<String> datasetIds) {
@@ -106,11 +110,20 @@ public class KnowledgeService implements KnowledgeProvider {
             ResponseEntity<String> response = restTemplate.postForEntity(requestUrl, requestEntity, String.class);
             String responseBody = response.getBody();
             if (!StringUtils.hasText(responseBody)) {
-                return KnowledgeHit.empty();
+                // 合法的"无命中"是 {"code":0,"data":{"chunks":[]}}，空响应体属异常返回
+                log.warn("知识库检索返回空响应体，本条回复不带参考上下文：endpoint={}", endpoint);
+                return KnowledgeHit.failure();
             }
 
             // 解析返回数据
             JsonNode rootNode = objectMapper.readTree(responseBody);
+            // RAGFlow 的业务错误也走 HTTP 200，必须按 code 判定，否则"密钥失效"会被当成"知识库没有相关内容"
+            JsonNode codeNode = rootNode.path("code");
+            if (codeNode.isNumber() && codeNode.asInt() != 0) {
+                log.warn("知识库检索返回业务错误，本条回复不带参考上下文：code={}，message={}",
+                        codeNode.asInt(), rootNode.path("message").asText(""));
+                return KnowledgeHit.failure();
+            }
             JsonNode chunksNode = rootNode.path("data").path("chunks");
             if (!chunksNode.isArray() || chunksNode.isEmpty()) {
                 return KnowledgeHit.empty();
@@ -134,12 +147,10 @@ public class KnowledgeService implements KnowledgeProvider {
             }
             return new KnowledgeHit(context.toString().trim(), docNames.size(), docNames);
 
-        } catch (RestClientException e) {
-            // 网络/接口调用异常，静默降级返回空
-            return KnowledgeHit.empty();
         } catch (Exception e) {
-            // 解析等其他异常，静默降级返回空
-            return KnowledgeHit.empty();
+            // 修前此处静默返回 empty()，与"知识库确实没有相关内容"同形：回答照常生成，无人知道它没有依据
+            log.warn("知识库检索失败，本条回复不带参考上下文：{}（{}）", e.getMessage(), e.getClass().getSimpleName());
+            return KnowledgeHit.failure();
         }
     }
 

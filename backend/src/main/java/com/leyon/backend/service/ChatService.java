@@ -3,6 +3,8 @@ package com.leyon.backend.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.entity.Record;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.*;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -24,6 +26,8 @@ import java.util.function.Consumer;
  * @author leyon
  */
 public class ChatService {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
     /** 工具返回结果最大长度，超长截断 */
     private static final int MAX_RESULT_LENGTH = 2000;
@@ -394,10 +398,12 @@ public class ChatService {
         endChunk.put("message", message);
         endChunk.put("costTime", costTime);
         endChunk.put("role", "assistant");
-        // 携带知识库引用信息（docCount / docName）
+        // 携带知识库引用信息（docCount / docName / failed）
+        // failed=true 表示"本轮检索失败"，与 docCount=0 的"知识库没有相关内容"是两种不同状态
         Map<String, Object> knowledgebase = new HashMap<>();
         knowledgebase.put("docCount", lastKnowledgeHit.docCount());
         knowledgebase.put("docName", lastKnowledgeHit.docNames());
+        knowledgebase.put("failed", lastKnowledgeHit.failed());
         endChunk.put("knowledgebase", knowledgebase);
         // 携带 Token 用量（供调试面板诊断）
         Map<String, Object> tokenUsage = new HashMap<>();
@@ -433,8 +439,11 @@ public class ChatService {
                     promptBuilder.append("\n\n以下是从知识库检索到的参考信息：\n").append(hit.context());
                 }
                 lastKnowledgeHit = hit;
-            } catch (Exception ignored) {
-                // 知识库查询异常，不阻断主流程
+            } catch (Exception e) {
+                // 知识库检索异常不阻断主流程，但要把本轮标记为"检索失败"，否则回答照常输出、引用为 0 篇，
+                // 与"知识库确实没有相关内容"完全同形（v2.39 吞错显性化）
+                log.warn("知识库检索异常，本条回复不带参考上下文：{}（{}）", e.getMessage(), e.getClass().getSimpleName());
+                lastKnowledgeHit = KnowledgeProvider.KnowledgeHit.failure();
             }
         }
         return promptBuilder.toString();

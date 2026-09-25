@@ -140,4 +140,48 @@ class ChatServiceTest {
         // 落库记录仅包含本轮新消息（历史不重复落库）
         assertThat(chatService.getNewRecords()).hasSize(2);
     }
+
+    // ===================== 知识库检索失败必须与"无命中"可辨（v2.39） =====================
+
+    @Test
+    void chatStream_retrievalFailureIsMarkedFailedInEndChunk() {
+        // 构造器参数顺序是 (personality, knowledgeIds, toolCallbacks)，知识库在前
+        ChatService kbChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "你是测试助手", List.of("kb-1"), List.of());
+        when(knowledgeProvider.queryKnowledgeBaseWithDetail(any(), any()))
+                .thenThrow(new RuntimeException("RAGFlow 连接超时"));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("无参考也照常回答"))))));
+
+        // 检索失败不阻断主流程，但收尾分片必须把"失败"与"没查到"区分开
+        StepVerifier.create(kbChat.chatStream("问题"))
+                .expectNextCount(1)
+                .assertNext(endChunk -> {
+                    Map<String, Object> kb = knowledgebaseOf(endChunk);
+                    assertThat(kb.get("failed")).isEqualTo(true);
+                    assertThat(kb.get("docCount")).isEqualTo(0);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void chatStream_retrievalWithoutHitsIsNotMarkedFailed() {
+        ChatService kbChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "你是测试助手", List.of("kb-1"), List.of());
+        when(knowledgeProvider.queryKnowledgeBaseWithDetail(any(), any()))
+                .thenReturn(new KnowledgeProvider.KnowledgeHit("", 0, List.of()));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("知识库确实没有相关内容"))))));
+
+        // 与上一例成对：docCount 同为 0，只有"失败"这一维不同；若两例同结果则失败标记形同虚设
+        StepVerifier.create(kbChat.chatStream("问题"))
+                .expectNextCount(1)
+                .assertNext(endChunk -> assertThat(knowledgebaseOf(endChunk).get("failed")).isEqualTo(false))
+                .verifyComplete();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> knowledgebaseOf(Map<String, Object> endChunk) {
+        return (Map<String, Object>) endChunk.get("knowledgebase");
+    }
 }

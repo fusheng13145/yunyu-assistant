@@ -16,10 +16,23 @@ public interface KnowledgeProvider {
      * @param context  拼接后的检索上下文文本
      * @param docCount 命中文档数量
      * @param docNames 命中文档名称列表
+     * @param failed   本轮检索是否**失败**；`false` 且 `docCount=0` 表示"知识库确实没有相关内容"，
+     *                 两者在修前同形（都返回 {@link #empty()}），调用方无法判断回答是否缺少依据
      */
-    record KnowledgeHit(String context, int docCount, List<String> docNames) {
+    record KnowledgeHit(String context, int docCount, List<String> docNames, boolean failed) {
+
+        /** 兼容既有三参调用点：不带失败标记即视为"检索成功但无命中" */
+        public KnowledgeHit(String context, int docCount, List<String> docNames) {
+            this(context, docCount, docNames, false);
+        }
+
         public static KnowledgeHit empty() {
-            return new KnowledgeHit("", 0, List.of());
+            return new KnowledgeHit("", 0, List.of(), false);
+        }
+
+        /** 检索未得出结论是因为外部故障，而非知识库没有答案 */
+        public static KnowledgeHit failure() {
+            return new KnowledgeHit("", 0, List.of(), true);
         }
     }
 
