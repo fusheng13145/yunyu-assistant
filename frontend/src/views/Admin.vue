@@ -59,6 +59,13 @@
         >
           配额管理
         </button>
+        <button
+          @click="activeTab = 'invites'"
+          class="geek-btn geek-btn-sm"
+          :class="activeTab === 'invites' ? 'geek-btn-primary' : 'geek-btn-ghost'"
+        >
+          邀请码
+        </button>
       </div>
 
       <!-- 数据归档面板 -->
@@ -343,6 +350,108 @@
           </div>
         </div>
       </section>
+
+      <!-- 邀请码面板（v2.37 邀请码制注册） -->
+      <section v-else-if="activeTab === 'invites'" class="flex flex-col gap-4">
+        <div class="geek-card rounded-xl p-4">
+          <div class="text-sm font-medium mb-2" style="color: var(--geek-text)">批量生成邀请码</div>
+          <p class="text-xs leading-relaxed mb-3" style="color: var(--geek-text-secondary)">
+            一个码只能注册一个账号，注册成功即作废且<b>不退还</b>（注册后的删除、封禁都不会回补码量）。
+            码值仅在生成时返回这一次，服务端不保留可回看的副本，请当场转发给新人。
+          </p>
+          <div class="flex items-end gap-3">
+            <div class="w-32">
+              <label class="block text-xs mb-1" style="color: var(--geek-text-muted)">数量（1~{{ MAX_INVITE_CODES_PER_REQUEST }}）</label>
+              <input
+                v-model="inviteCount"
+                type="number"
+                min="1"
+                :max="MAX_INVITE_CODES_PER_REQUEST"
+                class="geek-input w-full px-3 py-1.5 rounded-md text-sm tabular-nums"
+              />
+            </div>
+            <button
+              @click="onGenerateInvites"
+              :disabled="inviteGenerating"
+              class="geek-btn geek-btn-primary geek-btn-sm"
+              :class="{ 'opacity-40 cursor-not-allowed': inviteGenerating }"
+            >
+              {{ inviteGenerating ? '生成中…' : '生成' }}
+            </button>
+            <button
+              v-if="generatedCodes.length"
+              @click="copyGenerated"
+              class="geek-btn geek-btn-ghost geek-btn-sm"
+            >
+              复制本次生成的码
+            </button>
+          </div>
+          <p v-if="inviteError" class="text-xs mt-2" style="color: var(--geek-error)">{{ inviteError }}</p>
+          <p v-else-if="inviteCopied" class="text-xs mt-2" style="color: var(--geek-success)">已复制到剪贴板</p>
+          <textarea
+            v-if="generatedCodes.length"
+            ref="generatedBox"
+            readonly
+            :value="generatedCodes.join('\n')"
+            rows="4"
+            class="geek-input w-full mt-3 px-3 py-2 rounded-md text-xs mono"
+            style="resize: vertical"
+          />
+          <p class="text-xs leading-relaxed mt-3" style="color: var(--geek-warning)">
+            本面板需要已登录的管理员，而邀请码模式下注册也要码 —— 库里的<b>第一个码</b>只能按手册 5.10 直接
+            INSERT，或临时把 REGISTRATION_MODE 设为 open 注册管理员后再切回 invite。
+          </p>
+        </div>
+
+        <div class="geek-card rounded-xl overflow-hidden">
+          <div class="px-4 py-3 border-b geek-divider text-sm font-medium" style="color: var(--geek-text)">
+            邀请码台账（未使用的排前面，共 {{ inviteTotal }} 个）
+          </div>
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b geek-divider" style="background: var(--geek-bg-subtle)">
+                <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">邀请码</th>
+                <th class="text-center px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">状态</th>
+                <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">使用人</th>
+                <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">生成人</th>
+                <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">生成时间</th>
+                <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">使用时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in inviteCodes" :key="row.id" class="border-b geek-divider">
+                <td class="px-4 py-2.5 mono text-xs" style="color: var(--geek-text)">{{ row.code }}</td>
+                <td class="px-4 py-2.5 text-center">
+                  <span
+                    class="text-xs px-1.5 py-0.5 rounded-sm" :style="row.usedBy
+                      ? { background: 'var(--geek-input-bg)', color: 'var(--geek-text-muted)' }
+                      : { background: 'var(--geek-success-bg)', color: 'var(--geek-success)' }"
+                  >
+                    {{ row.usedBy ? '已使用' : '未使用' }}
+                  </span>
+                </td>
+                <td class="px-4 py-2.5 mono text-xs" style="color: var(--geek-text-secondary)" :title="row.usedBy || ''">{{ shortId(row.usedBy) }}</td>
+                <td class="px-4 py-2.5 mono text-xs" style="color: var(--geek-text-secondary)" :title="row.createdBy || ''">{{ shortId(row.createdBy) }}</td>
+                <td class="px-4 py-2.5 text-xs" style="color: var(--geek-text-muted)">{{ formatTime(row.createdAt) }}</td>
+                <td class="px-4 py-2.5 text-xs" style="color: var(--geek-text-muted)">{{ formatTime(row.usedAt) }}</td>
+              </tr>
+              <tr v-if="inviteCodes.length === 0">
+                <td colspan="6" class="px-4 py-10 text-center text-sm" style="color: var(--geek-text-muted)">
+                  尚无邀请码：邀请码模式下注册会被全部拒回，先用上方「生成」建第一批
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="inviteTotal > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t geek-divider">
+            <span class="text-xs" style="color: var(--geek-text-muted)">共 {{ inviteTotal }} 条</span>
+            <div class="flex items-center gap-2">
+              <button @click="prevInvitePage" :disabled="invitePage <= 1" class="geek-btn geek-btn-ghost geek-btn-sm" :class="{ 'opacity-40 cursor-not-allowed': invitePage <= 1 }">上一页</button>
+              <span class="text-xs" style="color: var(--geek-text-muted)">{{ invitePage }} / {{ inviteTotalPages }}</span>
+              <button @click="nextInvitePage" :disabled="invitePage >= inviteTotalPages" class="geek-btn geek-btn-ghost geek-btn-sm" :class="{ 'opacity-40 cursor-not-allowed': invitePage >= inviteTotalPages }">下一页</button>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 </template>
@@ -355,7 +464,7 @@ import {
 } from 'lucide-vue-next'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { useTheme } from '../composables/useTheme'
-import { fetchOverview, fetchAuditLogs, fetchUsers, fetchArchiveOverview, runArchive, fetchQuotas, fetchQuotaDefaults, upsertQuota, type AdminOverview, type AdminAuditLog, type ArchiveOverview, type ArchiveRunResult, type AdminQuota, type QuotaUpsertPayload } from '../api/admin'
+import { fetchOverview, fetchAuditLogs, fetchUsers, fetchArchiveOverview, runArchive, fetchQuotas, fetchQuotaDefaults, upsertQuota, fetchInviteCodes, generateInviteCodes, MAX_INVITE_CODES_PER_REQUEST, type AdminOverview, type AdminAuditLog, type ArchiveOverview, type ArchiveRunResult, type AdminQuota, type QuotaUpsertPayload, type AdminInviteCode } from '../api/admin'
 import type { User } from '../types'
 
 const { themeMode, setTheme } = useTheme()
@@ -375,7 +484,7 @@ const overviewCards = computed(() => [
 ])
 
 // Tabs
-const activeTab = ref<'audit' | 'users' | 'archive' | 'quotas'>('audit')
+const activeTab = ref<'audit' | 'users' | 'archive' | 'quotas' | 'invites'>('audit')
 
 // 数据归档
 const archiveOverview = ref<ArchiveOverview | null>(null)
@@ -557,7 +666,69 @@ const onSearchUser = () => { userPage.value = 1; loadUsers() }
 const prevUserPage = () => { if (userPage.value > 1) { userPage.value--; loadUsers() } }
 const nextUserPage = () => { if (userPage.value < userTotalPages.value) { userPage.value++; loadUsers() } }
 
-const formatTime = (value?: string) => {
+// 邀请码台账（v2.37）
+const inviteCodes = ref<AdminInviteCode[]>([])
+const invitePage = ref(1)
+const inviteTotal = ref(0)
+const inviteTotalPages = computed(() => Math.max(1, Math.ceil(inviteTotal.value / PAGE_SIZE)))
+const inviteCount = ref('5')
+const inviteGenerating = ref(false)
+const inviteError = ref('')
+const inviteCopied = ref(false)
+const generatedCodes = ref<string[]>([])
+const generatedBox = ref<HTMLTextAreaElement | null>(null)
+
+const loadInviteCodes = async () => {
+  try {
+    const result = await fetchInviteCodes(invitePage.value, PAGE_SIZE)
+    inviteCodes.value = result.list
+    inviteTotal.value = result.total
+  } catch (error) {
+    console.error('加载邀请码列表失败:', error)
+  }
+}
+const prevInvitePage = () => { if (invitePage.value > 1) { invitePage.value--; loadInviteCodes() } }
+const nextInvitePage = () => { if (invitePage.value < inviteTotalPages.value) { invitePage.value++; loadInviteCodes() } }
+
+const onGenerateInvites = async () => {
+  if (inviteGenerating.value) return
+  inviteError.value = ''
+  inviteCopied.value = false
+  const n = Number(inviteCount.value.trim())
+  // 上限交给服务端兜底判定，这里只挡明显无效值，避免把注定 400 的请求发出去
+  if (!Number.isInteger(n) || n < 1 || n > MAX_INVITE_CODES_PER_REQUEST) {
+    inviteError.value = `数量需为 1~${MAX_INVITE_CODES_PER_REQUEST} 的整数`
+    return
+  }
+  inviteGenerating.value = true
+  try {
+    const result = await generateInviteCodes(n)
+    generatedCodes.value = result.codes
+    invitePage.value = 1
+    await loadInviteCodes()
+  } catch (error) {
+    inviteError.value = error instanceof Error ? error.message : '邀请码生成失败'
+  } finally {
+    inviteGenerating.value = false
+  }
+}
+
+/** 复制本次生成的码；非安全上下文（http 访问）没有 clipboard API，退化为选中文本让用户手动复制 */
+const copyGenerated = async () => {
+  const text = generatedCodes.value.join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    inviteCopied.value = true
+  } catch {
+    inviteCopied.value = false
+    generatedBox.value?.select()
+  }
+}
+
+/** 台账里的用户列只放前缀：UUID 全展开会把表格挤成横滚，完整值在 title 上 */
+const shortId = (value?: string | null) => (value ? `${value.slice(0, 8)}…` : '-')
+
+const formatTime = (value?: string | null) => {
   if (!value) return '-'
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return value
@@ -572,6 +743,7 @@ onMounted(async () => {
     loadUsers(),
     loadArchiveOverview(),
     loadQuotas(),
+    loadInviteCodes(),
   ])
 })
 </script>

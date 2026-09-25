@@ -244,6 +244,11 @@
       "name": "app.tts.speaker",
       "type": "java.lang.String",
       "description": "语音合成默认音色名称/ID，默认 longxiaochun。助手未配置音色时使用；作为 call_option.tts.speaker 下发网关。"
+    },
+    {
+      "name": "app.registration.mode",
+      "type": "java.lang.String",
+      "description": "注册开放度，默认 invite。invite=注册必须带管理端生成的一次性邀请码（公网首阶段）；open=忽略邀请码开放注册（第二阶段）。除 open 外的取值一律按 invite 判定。"
     }
   ]
 }

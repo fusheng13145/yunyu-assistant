@@ -1,4 +1,4 @@
-import type { LoginData, RegisterData, AuthResponse } from '../types'
+import type { LoginData, RegisterData, RegisterConfig, AuthResponse } from '../types'
 
 const API_BASE = '/api'
 
@@ -174,6 +174,15 @@ export async function login(data: LoginData): Promise<AuthResponse> {
     body: JSON.stringify(data),
   })
   return parseResponse<AuthResponse>(response)
+}
+
+/**
+ * 注册开放度查询（v2.37）：注册页在挂载时读取，决定是否要求邀请码。
+ * 与 register 走同一个免鉴权前缀，因此这里不需要 token。
+ */
+export async function fetchRegisterConfig(): Promise<RegisterConfig> {
+  const response = await fetch(`${API_BASE}/auth/register-config`)
+  return parseResponse<RegisterConfig>(response)
 }
 
 export async function register(data: RegisterData): Promise<AuthResponse> {

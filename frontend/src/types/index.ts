@@ -164,6 +164,13 @@ export interface LoginData {
 export interface RegisterData {
   username: string
   password: string
+  /** 邀请码制注册模式下的必填项（v2.37）；大小写不敏感，服务端统一归一 */
+  inviteCode?: string
+}
+
+/** 注册开放度（v2.37）：注册页据此决定要不要显示邀请码输入框，避免与后端判定漂移 */
+export interface RegisterConfig {
+  inviteRequired: boolean
 }
 
 export interface AuthResponse {

@@ -29,6 +29,9 @@ class UserServiceLoginLockTest {
     @Mock
     private UserMapper userMapper;
 
+    @Mock
+    private InviteCodeService inviteCodeService;
+
     @Test
     void fifthFailureLocksAndSixthLoginRejected() throws Exception {
         LoginAttemptService attemptService = new LoginAttemptService();
@@ -44,7 +47,7 @@ class UserServiceLoginLockTest {
         user.setUsername("alice");
         user.setPassword(encoder.encode("correct123"));
 
-        UserService userService = new UserService(userMapper, jwtUtil, attemptService);
+        UserService userService = new UserService(userMapper, jwtUtil, attemptService, inviteCodeService);
         when(userMapper.selectOne(any())).thenReturn(user);
 
         // 5 次错误密码
@@ -75,7 +78,7 @@ class UserServiceLoginLockTest {
         user.setUsername("alice");
         user.setPassword(encoder.encode("correct123"));
 
-        UserService userService = new UserService(userMapper, jwtUtil, attemptService);
+        UserService userService = new UserService(userMapper, jwtUtil, attemptService, inviteCodeService);
         when(userMapper.selectOne(any())).thenReturn(user);
 
         // 4 次失败

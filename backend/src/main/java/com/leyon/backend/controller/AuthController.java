@@ -3,6 +3,7 @@ package com.leyon.backend.controller;
 import com.leyon.backend.annotation.Audit;
 import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.User;
+import com.leyon.backend.service.InviteCodeService;
 import com.leyon.backend.service.TokenBlacklistService;
 import com.leyon.backend.service.UserService;
 import com.leyon.backend.util.JwtUtil;
@@ -26,16 +27,30 @@ public class AuthController {
     private final UserService userService;
     private final JwtUtil jwtUtil;
     private final TokenBlacklistService tokenBlacklistService;
+    private final InviteCodeService inviteCodeService;
 
     /** 密码规则：长度 6-128 且至少含一个字母与一个数字（与前端注册校验、报错文案一致） */
     private static final Pattern PASSWORD_PATTERN = Pattern.compile(
             "^(?=.*[a-zA-Z])(?=.*\\d).{6,}$"
     );
 
-    public AuthController(UserService userService, JwtUtil jwtUtil, TokenBlacklistService tokenBlacklistService) {
+    public AuthController(UserService userService, JwtUtil jwtUtil, TokenBlacklistService tokenBlacklistService,
+                          InviteCodeService inviteCodeService) {
         this.userService = userService;
         this.jwtUtil = jwtUtil;
         this.tokenBlacklistService = tokenBlacklistService;
+        this.inviteCodeService = inviteCodeService;
+    }
+
+    /**
+     * 注册前置配置：前端注册页据此决定是否显示邀请码输入框
+     * 与注册链路共用 {@link InviteCodeService#inviteRequired()}，避免"表单要填但后端不校验"的漂移
+     */
+    @GetMapping("/register-config")
+    public ApiResponse<Map<String, Object>> registerConfig() {
+        Map<String, Object> data = new java.util.HashMap<>();
+        data.put("inviteRequired", inviteCodeService.inviteRequired());
+        return ApiResponse.success(data);
     }
 
     /**
@@ -68,7 +83,7 @@ public class AuthController {
             return ApiResponse.paramError("密码必须至少包含一个字母和一个数字，长度不少于6位");
         }
 
-        User user = userService.register(username, password);
+        User user = userService.register(username, password, body.get("inviteCode"));
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
         String refreshToken = jwtUtil.generateRefreshToken(user.getId(), user.getUsername());
         Map<String, String> result = new java.util.HashMap<>();

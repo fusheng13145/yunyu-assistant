@@ -16,7 +16,9 @@ import com.leyon.backend.mapper.UserMapper;
 import com.leyon.backend.service.AuditLogService;
 import com.leyon.backend.service.ArchiveResult;
 import com.leyon.backend.service.DataArchiveService;
+import com.leyon.backend.service.InviteCodeService;
 import com.leyon.backend.service.QuotaService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -40,7 +43,8 @@ import static org.mockito.Mockito.when;
 /**
  * 管理端接口单元测试（v2.30：AdminController 此前零覆盖）
  * 覆盖：用量总览聚合、审计/用户列表的分页钳制、LIMIT 不污染 count、用户密码脱敏、
- * 归档结果映射、配额兜底展示与 UPSERT 两条分支（新建行以默认值打底 vs 已存在行字段级局部更新）
+ * 归档结果映射、配额兜底展示与 UPSERT 两条分支（新建行以默认值打底 vs 已存在行字段级局部更新）、
+ * 邀请码批量生成的参数校验与操作人归属（v2.37）
  *
  * @author leyon
  */
@@ -62,6 +66,8 @@ class AdminControllerTest {
     @Mock
     private QuotaService quotaService;
     @Mock
+    private InviteCodeService inviteCodeService;
+    @Mock
     private AuditLogService auditLogService;
     @Mock
     private DataArchiveService dataArchiveService;
@@ -74,7 +80,7 @@ class AdminControllerTest {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), User.class);
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Quota.class);
         controller = new AdminController(userMapper, assistantMapper, callRecordMapper, recordMapper,
-                sessionMapper, quotaMapper, quotaService, auditLogService, dataArchiveService);
+                sessionMapper, quotaMapper, quotaService, inviteCodeService, auditLogService, dataArchiveService);
     }
 
     private Quota defaults() {
@@ -360,5 +366,62 @@ class AdminControllerTest {
         verify(quotaMapper).updateById(patch.capture());
         assertThat(patch.getValue().getId()).isEqualTo("q-2");
         assertThat(patch.getValue().getAssistantLimit()).isNull();
+    }
+
+    // ===================== 邀请码（v2.37）=====================
+
+    private HttpServletRequest adminRequest() {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/admin/invite-codes");
+        // AuthInterceptor 认证通过后写入的请求属性，管理端操作人取自这里
+        request.setAttribute("userId", "admin-1");
+        return request;
+    }
+
+    @Test
+    void generateInviteCodes_rejectsNonNumericCount() {
+        assertThat(controller.generateInviteCodes(null, adminRequest()).getCode()).isEqualTo(400);
+        assertThat(controller.generateInviteCodes(Map.of(), adminRequest()).getCode()).isEqualTo(400);
+        assertThat(controller.generateInviteCodes(Map.of("count", "5"), adminRequest()).getCode()).isEqualTo(400);
+
+        verify(inviteCodeService, never()).generate(anyInt(), any());
+    }
+
+    /**
+     * 越界数量必须在控制器层挡掉：MAX_GENERATE_PER_REQUEST 是单次批量上限，
+     * 放行 0 会生成空列表，放行超大值让管理端一次刷出海量行
+     */
+    @Test
+    void generateInviteCodes_rejectsCountOutsideBatchLimit() {
+        for (int count : new int[] { 0, -1, InviteCodeService.MAX_GENERATE_PER_REQUEST + 1 }) {
+            assertThat(controller.generateInviteCodes(Map.of("count", count), adminRequest()).getCode())
+                    .as("count=" + count).isEqualTo(400);
+        }
+        verify(inviteCodeService, never()).generate(anyInt(), any());
+
+        controller.generateInviteCodes(Map.of("count", 1), adminRequest());
+        controller.generateInviteCodes(Map.of("count", InviteCodeService.MAX_GENERATE_PER_REQUEST), adminRequest());
+        verify(inviteCodeService).generate(1, "admin-1");
+        verify(inviteCodeService).generate(InviteCodeService.MAX_GENERATE_PER_REQUEST, "admin-1");
+    }
+
+    @Test
+    void generateInviteCodes_returnsCodesAndAttributesOperator() {
+        when(inviteCodeService.generate(2, "admin-1")).thenReturn(List.of("AAAA1111BBBB", "CCCC2222DDDD"));
+
+        ApiResponse<Map<String, Object>> result =
+                controller.generateInviteCodes(Map.of("count", 2), adminRequest());
+
+        assertThat(result.getCode()).isEqualTo(200);
+        assertThat(result.getData().get("codes")).asList().containsExactly("AAAA1111BBBB", "CCCC2222DDDD");
+    }
+
+    @Test
+    void inviteCodes_delegatesPagingToService() {
+        when(inviteCodeService.listPage(3, 20)).thenReturn(Map.of("total", 41));
+
+        ApiResponse<Map<String, Object>> result = controller.inviteCodes(3, 20);
+
+        assertThat(result.getData()).containsEntry("total", 41);
+        verify(inviteCodeService).listPage(3, 20);
     }
 }

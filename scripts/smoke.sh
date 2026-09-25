@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# 云谕助手 —— 接口冒烟（v2.36）
+# 云谕助手 —— 接口冒烟（v2.37）
 #
 # 用途：对"已经跑起来"的实例打一遍关键 HTTP 链路。单测只能证明方法行为，
 #       拦截器顺序、序列化、路由、限流与握手这些只有真进程才暴露的问题靠这里。
@@ -20,6 +20,8 @@
 #   SMOKE_USER      已存在的用户名；留空则注册一次性账号
 #   SMOKE_PASS      配合 SMOKE_USER；留空则用随机口令
 #   SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS   提供时才跑第 8 节管理端只读检查
+#   SMOKE_INVITE_CODE  邀请码注册模式（REGISTRATION_MODE=invite，默认）下自建一次性账号所需的码；
+#                      未提供但有管理员凭据时，脚本会自己调 /api/admin/invite-codes 发一个并用掉
 #   SMOKE_ORIGIN    正式部署的站点来源（如 https://yunyu.example.com）；用于校验 WS 跨域白名单
 #   SMOKE_MODEL     创建助手使用的模型 id，默认 qwen-turbo
 #   KEEP=1          保留本次创建的助手与会话
@@ -93,9 +95,10 @@ fi
 send_body() { printf '%s' "${1%$'\r'}" > "$DATA_FILE"; }
 
 # req <METHOD> <PATH> [TOKEN] [JSON_BODY] → STATUS / BODY
+# -D 顺手留响应头：429 的 Retry-After 只有从这里能读到（req_auth 的 pacing 依赖它）
 req() {
     local method="$1" path="$2" token="${3:-}" data="${4:-}"
-    local args=(-sS --max-time "$TIMEOUT" -X "$method" -o "$BODY_FILE" -w '%{http_code}'
+    local args=(-sS --max-time "$TIMEOUT" -X "$method" -o "$BODY_FILE" -D "$HDR_FILE" -w '%{http_code}'
                 -H 'Accept: application/json')
     [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
     if [ -n "$data" ]; then
@@ -104,6 +107,23 @@ req() {
     fi
     STATUS="$(curl "${args[@]}" "$BASE$path" 2>/dev/null)" || STATUS="000"
     BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)" || BODY=""
+}
+
+# req_auth <同 req 参数>：认证类请求（login/register/refresh 共用 AUTH 桶 5 次/分钟）
+# AUTH 桶是 60 秒滑动窗口（RateLimitInterceptor 记时间戳队列），不是固定窗口 ⇒ 只能等最旧那次出窗。
+# 冒烟在邀请码模式下要发 6～7 次认证请求，超出的会被 429 吞掉——被吞掉的断言等于没跑，
+# 所以这里按服务端给的 Retry-After 等到腾出名额后重打一次（最多等 2 个窗口）。
+req_auth() {
+    req "$@"
+    local tries=0 wait_s
+    while [ "$STATUS" = "429" ] && [ "$tries" -lt 2 ]; do
+        tries=$((tries + 1))
+        wait_s="$(hdr Retry-After)"
+        case "$wait_s" in (''|*[!0-9]*) wait_s=60 ;; esac
+        printf '        …AUTH 桶已满，按 Retry-After 等 %ss 后重打（第 %s 次）\n' "$wait_s" "$tries"
+        sleep "$((wait_s + 1))"
+        req "$@"
+    done
 }
 
 mgmt_req() {
@@ -231,20 +251,67 @@ want_status '无令牌访问业务接口 → 401' 401 401
 req GET /api/assistants 'not-a-jwt'
 want_status '乱码令牌 → 401' 401 401
 
+# 注册开放度（v2.37）：后面所有注册断言按这里的实况分支，不由脚本自己猜模式
+INVITE_MODE=1
+ADMIN_TOKEN=""
+req GET /api/auth/register-config
+if api_ok 'GET /api/auth/register-config（注册是否要求邀请码）'; then
+    if printf '%s' "$BODY" | grep -q '"inviteRequired":true'; then
+        INVITE_MODE=1
+    elif printf '%s' "$BODY" | grep -q '"inviteRequired":false'; then
+        INVITE_MODE=0
+    else
+        bad 'register-config 未返回 inviteRequired 布尔值' "$(detail)"
+    fi
+fi
+printf '  注册模式：%s\n' "$([ "$INVITE_MODE" = 1 ] && echo '邀请码（invite）' || echo '开放（open）')"
+
 if [ -n "${SMOKE_USER:-}" ]; then
     USER_NAME="$SMOKE_USER"
-    req POST /api/auth/login '' "$(json username "$SMOKE_USER" password "${SMOKE_PASS:-}")"
+    req_auth POST /api/auth/login '' "$(json username "$SMOKE_USER" password "${SMOKE_PASS:-}")"
     if api_ok "POST /api/auth/login（复用账号 $SMOKE_USER）"; then
         TOKEN="$(jget data.token)"; REFRESH_TOKEN="$(jget data.refreshToken)"
     fi
 else
     USER_NAME="smoke-$(date +%m%d%H%M%S)-$$"
-    req POST /api/auth/register '' "$(json username "$USER_NAME" password "Sm$RANDOM$RANDOM-x1")"
+    USER_PASS="Sm$RANDOM$RANDOM-x1"
+    if [ "$INVITE_MODE" = "1" ]; then
+        INVITE_CODE="${SMOKE_INVITE_CODE:-}"
+        # 没预置码就自己发一个：发码走管理端（不计 AUTH 桶），且这个码会被下面的正常注册用掉，
+        # 所以一次冒烟不会在台账里留下未使用行
+        if [ -z "$INVITE_CODE" ] && [ -n "${SMOKE_ADMIN_USER:-}" ]; then
+            req_auth POST /api/auth/login '' "$(json username "$SMOKE_ADMIN_USER" password "${SMOKE_ADMIN_PASS:-}")"
+            if api_ok "POST /api/auth/login（管理员发码 $SMOKE_ADMIN_USER）"; then
+                ADMIN_TOKEN="$(jget data.token)"
+                req POST /api/admin/invite-codes "$ADMIN_TOKEN" "$(json count 1)"
+                if api_ok 'POST /api/admin/invite-codes（本次冒烟自造 1 个码）'; then
+                    INVITE_CODE="$(jget data.codes.0)"
+                fi
+            fi
+        fi
+        if [ -z "$INVITE_CODE" ]; then
+            echo '邀请码模式下自建账号需要一个可用码：设 SMOKE_INVITE_CODE=<未使用的码>，'
+            echo '或提供 SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS 让脚本自己发码（库里第一个码见手册 5.10）。'
+            exit 2
+        fi
+        # 闸门实况：缺码必须被拒；且拒绝发生在领取之前 —— 下一步同码注册成功即为"码没被烧掉"的证据
+        req_auth POST /api/auth/register '' "$(json username "smoke-nocode-$$" password "$USER_PASS")"
+        want_status '邀请码模式：缺码注册 → 400（同码随后仍可用 ⇒ 判定未被提前消费）' 400 400
+        req_auth POST /api/auth/register '' "$(json username "$USER_NAME" password "$USER_PASS" inviteCode "$INVITE_CODE")"
+    else
+        req_auth POST /api/auth/register '' "$(json username "$USER_NAME" password "$USER_PASS")"
+    fi
     if api_ok "POST /api/auth/register（一次性账号 $USER_NAME）"; then
         TOKEN="$(jget data.token)"; REFRESH_TOKEN="$(jget data.refreshToken)"
+        if [ "$INVITE_MODE" = "1" ]; then
+            # 一次性：注册成功后同码换人重放必须 400（used_by 已定，不退还不覆盖）
+            req_auth POST /api/auth/register '' "$(json username "smoke-replay-$$" password "$USER_PASS" inviteCode "$INVITE_CODE")"
+            want_status '同码重放注册 → 400（一码一号，消费不可逆）' 400 400
+        fi
     else
         echo "注册失败，后续检查无法继续：$(detail)"
         echo "  429 ⇒ 限流按 IP 计 5 次/分钟，等 1 分钟再跑"
+        echo "  400 + '邀请码无效或已被使用' ⇒ 给的 SMOKE_INVITE_CODE 已用过，换一个或改由脚本发码"
         echo "  400/请求处理失败 ⇒ 多半是数据库连不上或凭据不对（看 /actuator/health 与启动日志的 Access denied / Communications link failure）"
         exit 2
     fi
@@ -261,7 +328,7 @@ fi
 
 if [ -n "$REFRESH_TOKEN" ]; then
     OLD_REFRESH="$REFRESH_TOKEN"
-    req POST /api/auth/refresh '' "$(json refreshToken "$OLD_REFRESH")"
+    req_auth POST /api/auth/refresh '' "$(json refreshToken "$OLD_REFRESH")"
     if api_ok 'POST /api/auth/refresh（换发新令牌）'; then
         NEW_TOKEN="$(jget data.token)"
         REFRESH_TOKEN="$(jget data.refreshToken)"
@@ -271,7 +338,7 @@ if [ -n "$REFRESH_TOKEN" ]; then
             || bad '刷新响应缺少 role' "$(detail)"
         TOKEN="$NEW_TOKEN"
     fi
-    req POST /api/auth/refresh '' "$(json refreshToken "$OLD_REFRESH")"
+    req_auth POST /api/auth/refresh '' "$(json refreshToken "$OLD_REFRESH")"
     want_status '旧 refresh 重放被拒（黑名单生效）' 200 400
 fi
 
@@ -474,15 +541,20 @@ skip '上传超体积 → 413' '需要 54MB 真实上行流量，冒烟不做；
 # ---------- 8. 管理端只读 ----------
 if [ -n "${SMOKE_ADMIN_USER:-}" ]; then
     section '8. 管理端只读检查'
-    ADMIN_TOKEN=""
-    req POST /api/auth/login '' "$(json username "$SMOKE_ADMIN_USER" password "${SMOKE_ADMIN_PASS:-}")"
-    if api_ok "POST /api/auth/login（管理员 $SMOKE_ADMIN_USER）"; then
-        ADMIN_TOKEN="$(jget data.token)"
-        [ "$(jget data.role)" = 'admin' ] && ok '登录响应 role=admin' || bad '管理员账号 role 非 admin' "$(jget data.role)"
+    # 第 2 节为发码已经登录过同一个管理员：直接复用令牌，不再占一次 AUTH 桶（容量 5 次/分钟）
+    if [ -z "$ADMIN_TOKEN" ]; then
+        req_auth POST /api/auth/login '' "$(json username "$SMOKE_ADMIN_USER" password "${SMOKE_ADMIN_PASS:-}")"
+        if api_ok "POST /api/auth/login（管理员 $SMOKE_ADMIN_USER）"; then
+            ADMIN_TOKEN="$(jget data.token)"
+            [ "$(jget data.role)" = 'admin' ] && ok '登录响应 role=admin' || bad '管理员账号 role 非 admin' "$(jget data.role)"
+        fi
+    else
+        ok '管理员令牌复用第 2 节发码时的登录会话（未重复消耗 AUTH 桶）'
     fi
     if [ -n "$ADMIN_TOKEN" ]; then
         for p in /api/admin/overview '/api/admin/users?page=1&pageSize=1' '/api/admin/audit-logs?page=1&pageSize=1' \
-                 /api/admin/quotas /api/admin/quotas/defaults /api/admin/archive/overview; do
+                 /api/admin/quotas /api/admin/quotas/defaults /api/admin/archive/overview \
+                 '/api/admin/invite-codes?page=1&pageSize=1'; do
             req GET "$p" "$ADMIN_TOKEN"
             api_ok "GET $p" || true
         done
@@ -490,6 +562,16 @@ if [ -n "${SMOKE_ADMIN_USER:-}" ]; then
         [ -n "$(jget data.assistantLimit)" ] && ok '兜底配额可直接注入管理页表单' || bad '兜底配额缺少 assistantLimit' "$(detail)"
         req GET /api/admin/users "$ADMIN_TOKEN"
         [ -z "$(jget data.list.0.password)" ] && ok '用户列表已脱敏（password 不外泄）' || bad '用户列表泄漏密码字段' 'data.list[0].password 非空'
+        # 未使用的邀请码等同"一个可注册的凭据"，台账必须在管理端鉴权之后才可见
+        req GET '/api/admin/invite-codes?page=1&pageSize=1'
+        want_status '无令牌读邀请码台账 → 401（未使用的码不对外可枚举）' 401 401
+        req GET '/api/admin/invite-codes?page=1&pageSize=1' "$ADMIN_TOKEN"
+        if [ "$STATUS" = "200" ] && printf '%s' "$BODY" | grep -q '"list"' \
+                && printf '%s' "$BODY" | grep -q '"total"'; then
+            ok '邀请码台账返回 list/total（管理页可直接分页渲染）'
+        else
+            bad '邀请码台账结构漂移' "$(detail)"
+        fi
         skip 'POST /api/admin/archive/run' '归档会物理删除源表数据，冒烟不触发'
     else
         skip '管理端接口' '管理员登录失败'
@@ -550,10 +632,17 @@ section '10. 限流桶 — 认证'
 AUTH_429=0
 AUTH_SHAPE_CHECKED=0
 LOGIN_TRIES=0
+BAD_LOGIN_BODY="$(json username 'smoke-no-such-user' password 'wrong-password-123')"
 i=0
 while [ "$i" -lt 8 ] && [ "$AUTH_429" = "0" ]; do
     i=$((i + 1))
-    req POST /api/auth/login '' "$(json username 'smoke-no-such-user' password 'wrong-password-123')"
+    # 只有第一次等桶：否则本区段可能一条 400 也收不到，形状与容量两项断言一起失去证据。
+    # 后续故意不等 —— 本节要的就是把 5 次/分钟打满。
+    if [ "$i" -eq 1 ]; then
+        req_auth POST /api/auth/login '' "$BAD_LOGIN_BODY"
+    else
+        req POST /api/auth/login '' "$BAD_LOGIN_BODY"
+    fi
     LOGIN_TRIES=$((LOGIN_TRIES + 1))
     case "$STATUS" in
         429) AUTH_429=1 ;;
@@ -581,6 +670,10 @@ if [ "$AUTH_429" = "1" ]; then
 else
     bad 'AUTH 桶未生效' '8 次错误口令登录未见 429（§8 管理员登录已消耗 1 次，5 次容量下第 5～8 次必触发）'
 fi
+# 形状断言只在真的收到 400 时才执行；若进本区段前桶已被 §2 的邀请码断言打满，第一条就是 429，
+# 少一条断言要显式登记成 SKIP，不能静默消失
+[ "$AUTH_SHAPE_CHECKED" = "1" ] \
+    || skip '错误口令响应形状' '本区段未见 400 ⇒ AUTH 桶进本节前后即 429（前序认证请求已占满 5 次/分钟）'
 # 共用同桶的直接证据：login 打满后，refresh 这条从未被请求过的路径也应 429。
 # 若两桶独立，refresh 会走到业务层对乱码令牌报 401——429/401 的区分度就是本断言的价值。
 # 仅在确认已见 429 后才断言（上一项 bad 时桶状态不可知，重复判同一件事只会有两条噪声）

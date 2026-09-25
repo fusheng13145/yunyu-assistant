@@ -85,6 +85,11 @@ app:
   # 站点换成公网域名后若不加进这里，聊天/语音链路会在握手阶段直接 403（冒烟脚本第 7 节会抓到）
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000}
+  # 注册开放度（v2.37 邀请码制注册）：invite=注册必须带管理端生成的一次性码（默认，公网首阶段），
+  # open=忽略邀请码直接开放注册（第二阶段，解锁条件见手册 6.7 决策 2：限流扩面 + 消费熔断 + 新号低配额）。
+  # 默认取严格侧：除显式 open 外的任何取值都按 invite 处理，配置写错不会变成裸奔注册。
+  registration:
+    mode: ${REGISTRATION_MODE:invite}
   # 未认证 WebSocket 连接的存活上限（v2.32）
   # /ws/* 与 /ws-voice/* 允许免令牌握手（认证推迟到首条 auth 消息），而 Tomcat 服务端会话没有空闲回收
   # （setMaxIdleTimeout 于服务端是空操作，实测免令牌连接可存活 400 秒以上），故由应用层定时关闭超期未认证的连接。

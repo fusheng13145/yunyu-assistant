@@ -19,7 +19,9 @@ import com.leyon.backend.mapper.UserMapper;
 import com.leyon.backend.service.AuditLogService;
 import com.leyon.backend.service.ArchiveResult;
 import com.leyon.backend.service.DataArchiveService;
+import com.leyon.backend.service.InviteCodeService;
 import com.leyon.backend.service.QuotaService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -44,6 +46,7 @@ public class AdminController {
     private final SessionMapper sessionMapper;
     private final QuotaMapper quotaMapper;
     private final QuotaService quotaService;
+    private final InviteCodeService inviteCodeService;
     private final AuditLogService auditLogService;
     private final DataArchiveService dataArchiveService;
 
@@ -54,6 +57,7 @@ public class AdminController {
                            SessionMapper sessionMapper,
                            QuotaMapper quotaMapper,
                            QuotaService quotaService,
+                           InviteCodeService inviteCodeService,
                            AuditLogService auditLogService,
                            DataArchiveService dataArchiveService) {
         this.userMapper = userMapper;
@@ -63,6 +67,7 @@ public class AdminController {
         this.sessionMapper = sessionMapper;
         this.quotaMapper = quotaMapper;
         this.quotaService = quotaService;
+        this.inviteCodeService = inviteCodeService;
         this.auditLogService = auditLogService;
         this.dataArchiveService = dataArchiveService;
     }
@@ -224,5 +229,40 @@ public class AdminController {
         }
         quotaMapper.updateById(update);
         return ApiResponse.success();
+    }
+
+    /**
+     * 批量生成注册邀请码（v2.37 邀请码制注册）：码值仅此一次返回，需管理员自行转发
+     */
+    @Audit(action = "INVITE_CODE_GENERATE", targetType = "invite_code")
+    @PostMapping("/invite-codes")
+    public ApiResponse<Map<String, Object>> generateInviteCodes(@RequestBody Map<String, Object> body,
+                                                                HttpServletRequest request) {
+        Object raw = body == null ? null : body.get("count");
+        int count;
+        if (raw instanceof Number number) {
+            count = number.intValue();
+        } else {
+            return ApiResponse.paramError("count 必须是数字");
+        }
+        if (count < 1 || count > InviteCodeService.MAX_GENERATE_PER_REQUEST) {
+            return ApiResponse.paramError("单次生成数量需在 1~"
+                    + InviteCodeService.MAX_GENERATE_PER_REQUEST + " 之间");
+        }
+        // userId 由 AuthInterceptor 解析后放入请求属性（/api/admin/** 必经该拦截器）
+        List<String> codes = inviteCodeService.generate(count, (String) request.getAttribute("userId"));
+        Map<String, Object> result = new HashMap<>();
+        result.put("codes", codes);
+        return ApiResponse.success(result);
+    }
+
+    /**
+     * 邀请码列表（v2.37）：未使用的排前面，供管理端核对"还有哪些码能发、哪个码被谁用了"
+     */
+    @GetMapping("/invite-codes")
+    public ApiResponse<Map<String, Object>> inviteCodes(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "pageSize", defaultValue = "10") int pageSize) {
+        return ApiResponse.success(inviteCodeService.listPage(page, pageSize));
     }
 }

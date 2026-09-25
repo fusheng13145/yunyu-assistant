@@ -2,6 +2,7 @@ package com.leyon.backend.controller;
 
 import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.User;
+import com.leyon.backend.service.InviteCodeService;
 import com.leyon.backend.service.TokenBlacklistService;
 import com.leyon.backend.service.UserService;
 import com.leyon.backend.util.JwtUtil;
@@ -41,6 +42,9 @@ class AuthControllerTest {
 
     @Mock
     private TokenBlacklistService tokenBlacklistService;
+
+    @Mock
+    private InviteCodeService inviteCodeService;
 
     @Mock
     private HttpServletRequest request;
@@ -118,7 +122,35 @@ class AuthControllerTest {
 
         assertThat(result.getCode()).isEqualTo(400);
         assertThat(result.getMessage()).contains("6");
-        verify(userService, never()).register(anyString(), anyString());
+        verify(userService, never()).register(anyString(), anyString(), any());
+    }
+
+    @Test
+    void register_passesInviteCodeThroughToService() {
+        User user = new User();
+        user.setId("u-9");
+        user.setUsername("alice");
+        user.setRole(User.ROLE_USER);
+        when(userService.register("alice", "abc12345", "CODE123")).thenReturn(user);
+        when(jwtUtil.generateToken("u-9", "alice")).thenReturn("access-token");
+        when(jwtUtil.generateRefreshToken("u-9", "alice")).thenReturn("refresh-token");
+
+        ApiResponse<Map<String, String>> result = authController.register(
+                Map.of("username", "alice", "password", "abc12345", "inviteCode", "CODE123"));
+
+        assertThat(result.getCode()).isEqualTo(200);
+        assertThat(result.getData()).containsEntry("userId", "u-9");
+        verify(userService).register("alice", "abc12345", "CODE123");
+    }
+
+    @Test
+    void registerConfig_reportsWhetherInviteCodeRequired() {
+        when(inviteCodeService.inviteRequired()).thenReturn(true);
+
+        ApiResponse<Map<String, Object>> result = authController.registerConfig();
+
+        assertThat(result.getCode()).isEqualTo(200);
+        assertThat(result.getData()).containsEntry("inviteRequired", true);
     }
 
     @Test

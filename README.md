@@ -7,7 +7,7 @@
 
 | 模块 | 能力 |
 |---|---|
-| 账号认证 | 注册 / 登录 / 修改密码 / 个人资料，JWT 无状态鉴权 + 双令牌**静默续期**（临期或 401 时单飞刷新后重放，跨标签页互不踢出，v2.30），登录限流防爆破；**会话凭据只认 access 令牌**——REST、WS 握手与首条 `auth` 帧统一校验 `type == access`，7 天寿命的 refresh 令牌不能当会话凭据使用（v2.32 C-63） |
+| 账号认证 | 注册 / 登录 / 修改密码 / 个人资料，JWT 无状态鉴权 + 双令牌**静默续期**（临期或 401 时单飞刷新后重放，跨标签页互不踢出，v2.30），登录限流防爆破；**会话凭据只认 access 令牌**——REST、WS 握手与首条 `auth` 帧统一校验 `type == access`，7 天寿命的 refresh 令牌不能当会话凭据使用（v2.32 C-63）；**注册默认需一次性邀请码**——`REGISTRATION_MODE=invite` 下注册必须带一个未使用过的码，领取由带 `used_by IS NULL` 条件的原子 UPDATE 完成（一个码只对应一个账号，并发下不超发），管理端可批量发码并查台账（v2.37） |
 | 助手管理 | 助手增删改查（软删除 + 属主校验）、人设 / 音色 / 模型参数配置、知识库绑定、人设模板、**可用工具白名单（按助手裁剪能力）** |
 | 语音通话 | WebRTC 建链、ASR 实时转写、LLM 流式回复、TTS 播报、VAD 打断（网关侧执行）、沉默追问、LLM 主动挂断、通话记录、**通话录音（本地合成上传与回放）**、弱网自动降级 |
 | 文本对话 | 流式对话、人设热更新、知识库动态切换、对话重置、工具调用可视化、Markdown 渲染 |
@@ -70,14 +70,14 @@ mysql --default-character-set=utf8mb4 -uroot -p yunyu_assistant < backend/src/ma
 ```
 
 > ⚠️ 任何时候都不要把 `index.sql`（或其片段）灌向**有数据**的实例：它的第一动作是删库。
-> 不跑 `db-migrate.sh` 的后果：实体已含新列 ⇒ 助手查询整体报 `Unknown column 'tools'`。
+> 不跑 `db-migrate.sh` 的后果：实体已含新列 ⇒ 助手查询整体报 `Unknown column 'tools'`；v2.37 起还会让注册整链报 `Table '...invite_code' doesn't exist`（闸门默认开着，却无处领取）。
 
 ### 2. 配置环境变量
 
 复制 `.env.example` 为 `.env` 并填写必填项（`.env` 已被 git 忽略，不会入库）：
 
 - 必需：`DB_USER` / `DB_PASSWORD` / `JWT_SECRET`（≥32 字节强随机值）/ `OPENAI_API_KEY`
-- 可选：`OPENAI_BASE_URL` / `RAGFLOW_*` / `RUSTPBX_ENDPOINT` / `SEARCH_*` / `WEATHER_API_KEY` / `HEALTH_SHOW_DETAILS` / `MAPPER_LOG_LEVEL` / `LOG_FILE` / `SERVER_ADDRESS` / `MANAGEMENT_SERVER_PORT` / `MANAGEMENT_SERVER_ADDRESS` / `CORS_ALLOWED_ORIGINS` 等（公网部署相关四项见手册 5.3 与 5.10）
+- 可选：`OPENAI_BASE_URL` / `RAGFLOW_*` / `RUSTPBX_ENDPOINT` / `SEARCH_*` / `WEATHER_API_KEY` / `HEALTH_SHOW_DETAILS` / `MAPPER_LOG_LEVEL` / `LOG_FILE` / `SERVER_ADDRESS` / `MANAGEMENT_SERVER_PORT` / `MANAGEMENT_SERVER_ADDRESS` / `CORS_ALLOWED_ORIGINS` / `REGISTRATION_MODE`（v2.37，默认 `invite`）等（公网部署相关四项见手册 5.3 与 5.10）
 
 > **`.env` 不会被自动读取**（项目无 dotenv 依赖，Spring / JVM / Maven 都不解析它），需显式导出：
 > `set -a && . ./.env && set +a && java -jar ...`，或 systemd 的 `EnvironmentFile=`。`start-backend.bat` 也不读 `.env`，它只在变量缺失时给一组开发默认值。
@@ -116,6 +116,7 @@ npm run dev
 |---|---|
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | MySQL 连接（`DB_USER` / `DB_PASSWORD` 必需，无默认值） |
 | `JWT_SECRET` / `JWT_EXPIRATION` | JWT 签名与有效期（Secret 必需，≥32 字节；无默认 ⇒ 缺失即启动失败） |
+| `REGISTRATION_MODE` | **（v2.37）** 注册闸门：`invite`（**默认**，注册必须带一个未使用的一次性邀请码）/ `open`（放开）。判定**只认显式 `open`**，写错值一律按 `invite`；前端注册页由 `GET /api/auth/register-config` 探测，不随前端发版变化。⚠️ `invite` 下第一个管理员会陷入"注册要码、发码要管理员"，先按手册 5.10④ 用 SQL 放第一个码 |
 | `OPENAI_API_KEY` | LLM Key（**必需，v2.29 起无占位默认**：缺失或空串即启动失败） |
 | `OPENAI_BASE_URL` / `AI_MODEL` / `AI_TEMPERATURE` | LLM endpoint 与默认模型（endpoint 默认 OpenAI 官方地址、模型默认 `deepseek-chat`，**两者不同源**：换服务商时要一起改） |
 | `RAGFLOW_API_KEY` / `RAGFLOW_ENDPOINT` | RAGFlow 知识库服务（可选，未配置时知识库调用报错） |
@@ -147,11 +148,11 @@ npm run dev
 
 - **P0 工程基建与安全加固**：✅ 会话（Session）模型落地 · ✅ refresh token + 登出黑名单 + 登录失败锁定 · ✅ 单测与 ESLint 质量基建
 - **P1 产品能力补齐**：✅ 助手列表分页与搜索 · ✅ Redis 多实例支撑 · ✅ 调试时间线可视化 · ✅ 角色体系与用户管理
-- **P2 规模运营与体验优化**：✅ 长会话消息惰性分页 + 数据归档与容量治理 · ✅ 通话录音与回放 + 弱网降级 + ICE 可配置化（TURN 部署待实施；录音所属的语音 AI 主链路待真网关复测） · ✅ 组织数据隔离 + 用量配额账单 + 开放 OpenAPI（配额**已接通管理页**：v2.29 起 `Admin.vue` 有「用量配额」Tab，此前只有后端 API）
+- **P2 规模运营与体验优化**：✅ 长会话消息惰性分页 + 数据归档与容量治理 · ✅ 通话录音与回放 + 弱网降级 + ICE 可配置化（TURN 部署待实施；录音所属的语音 AI 主链路待真网关复测） · ✅ 组织数据隔离 + 用量配额账单 + 开放 OpenAPI（配额**已接通管理页**：v2.29 起 `Admin.vue` 有「用量配额」Tab，此前只有后端 API） · ✅ **注册闸门（v2.37 邀请码制）**：`REGISTRATION_MODE` 一项决定放开与否，管理页新增「邀请码」Tab 发码与查台账；第二阶段的另两个解锁条件（消费熔断告警、新号默认低配额）**仍未做**，见手册 6.7 决策 2 与 6.6
 
 ## 健康检查
 
 - `GET /actuator/health`（**v2.29 起默认只回 `{"status":"UP"}`**，db / ping / disk 明细由 `HEALTH_SHOW_DETAILS` 控制；`/actuator` 不在鉴权拦截器覆盖范围内，公网实例须由安全组 / 反向代理封住，见手册 6.1）
 - `GET /actuator/metrics`、`GET /actuator/info`（暴露范围已在 `application.yaml` 显式限定，不含 `env` / `heapdump` 等高敏端点）
 - 后端启动成功本身即是配置完整性的检查：`DB_USER` / `DB_PASSWORD` / `JWT_SECRET` / `OPENAI_API_KEY` 缺任一项即启动失败
-- **接口级冒烟（v2.30 起，v2.31 首次对真实实例执行）**：`scripts/smoke.sh` 对**已运行的实例**打一遍 HTTP 与 WS 链路（10 节：actuator 暴露面与端口分离、未匹配路径返回 404 而非 500、401/403 与伪造令牌、**refresh 令牌不得当会话凭据（v2.32）**、注册→me→refresh 轮换、助手/会话 CRUD 写后读、配额结构、WS 握手与站点 Origin 白名单、**请求形状错误 405（带 `Allow`）/415/畸形 JSON/缺上传字段（v2.32 新增 §7.5）**、管理端只读、登出后黑名单）——单测证明方法行为，这里证明装配、拦截器、序列化与握手。用法 `BASE=... MGMT_BASE=... SMOKE_ORIGIN=... scripts/smoke.sh`，退出码 0/1/2，边界与不触碰的接口见脚本头部注释
+- **接口级冒烟（v2.30 起，v2.31 首次对真实实例执行）**：`scripts/smoke.sh` 对**已运行的实例**打一遍 HTTP 与 WS 链路（10 节：actuator 暴露面与端口分离、未匹配路径返回 404 而非 500、401/403 与伪造令牌、**refresh 令牌不得当会话凭据（v2.32）**、注册（**v2.37 邀请码闸门：缺码 → 带码注册 → 同码重放三步连断**）→me→refresh 轮换、助手/会话 CRUD 写后读、配额结构、邀请码发码与台账鉴权、WS 握手与站点 Origin 白名单、**请求形状错误 405（带 `Allow`）/415/畸形 JSON/缺上传字段（v2.32 新增 §7.5）**、管理端只读、登出后黑名单）——单测证明方法行为，这里证明装配、拦截器、序列化与握手。用法 `BASE=... MGMT_BASE=... SMOKE_ORIGIN=... scripts/smoke.sh`（邀请码模式下另需 `SMOKE_INVITE_CODE` 或 `SMOKE_ADMIN_USER`/`SMOKE_ADMIN_PASS`，二者皆无时退出码 2 并打印解法），退出码 0/1/2，边界与不触碰的接口见脚本头部注释

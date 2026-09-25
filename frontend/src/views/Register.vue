@@ -73,13 +73,28 @@
             </div>
           </div>
 
+          <div v-if="inviteRequired" class="form-group">
+            <label class="form-label">邀请码</label>
+            <input
+              v-model="form.inviteCode"
+              type="text"
+              placeholder="请输入管理员发放的一次性邀请码"
+              class="geek-input invite-code-input"
+              autocomplete="one-time-code"
+              @keyup.enter="handleRegister"
+            />
+          </div>
+
           <!-- 填写规则提示 -->
           <div class="rule-hint">
             <svg class="rule-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 12l2 2 4-4"></path>
               <circle cx="12" cy="12" r="10"></circle>
             </svg>
-            <span>用户名唯一，密码至少6位。注册成功后将自动登录。</span>
+            <span>
+              用户名唯一，密码至少6位。注册成功后将自动登录。
+              <template v-if="inviteRequired">邀请码用后即废，一个码只能注册一个账号。</template>
+            </span>
           </div>
 
           <!-- 错误提示 -->
@@ -121,8 +136,12 @@
             <line x1="12" y1="8" x2="12.01" y2="8"></line>
           </svg>
           <div class="tip-content">
-            <p class="tip-title">体验账号</p>
-            <p class="tip-desc">联系管理员获取体验账号，也可使用上方表单注册新账号。</p>
+            <p class="tip-title">{{ inviteRequired ? '邀请码注册' : '开放注册' }}</p>
+            <p class="tip-desc">
+              {{ inviteRequired
+                ? '当前需向管理员索取一次性邀请码才能注册；已注册账号仍可直接登录。'
+                : '当前可直接注册，无需邀请码。' }}
+            </p>
           </div>
         </div>
       </aside>
@@ -131,12 +150,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Eye, EyeOff } from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme'
 import ThemeToggle from '../components/ThemeToggle.vue'
-import { register, saveSession } from '../api/auth'
+import { register, saveSession, fetchRegisterConfig } from '../api/auth'
 
 const router = useRouter()
 const { themeMode } = useTheme()
@@ -145,22 +164,38 @@ const { themeMode } = useTheme()
 const showPassword = ref(false)
 const showConfirmPassword = ref(false)
 
+/**
+ * 是否需要邀请码：默认按更严格的一侧显示输入框。
+ * 拉取失败的代价是"多填一个没用的框"，反过来则是"邀请码模式下用户不知道该填什么"。
+ */
+const inviteRequired = ref(true)
+
 // 注册表单数据
 const form = ref({
   username: '',
   password: '',
   confirmPassword: '',
+  inviteCode: '',
 })
 
 // 状态标识
 const loading = ref(false)
 const errorMsg = ref('')
 
-// 表单校验：全部输入不为空才可提交
+onMounted(async () => {
+  try {
+    inviteRequired.value = (await fetchRegisterConfig()).inviteRequired
+  } catch {
+    // 查询失败保持默认（要求邀请码）：服务端仍是最终裁判，表单只是少一次提示
+  }
+})
+
+// 表单校验：必填项齐全才可提交（开放注册模式下邀请码不参与校验）
 const canSubmit = computed(() => {
   return form.value.username.trim() &&
     form.value.password.trim() &&
-    form.value.confirmPassword.trim()
+    form.value.confirmPassword.trim() &&
+    (!inviteRequired.value || form.value.inviteCode.trim())
 })
 
 /**
@@ -187,6 +222,8 @@ const handleRegister = async () => {
     const res = await register({
       username: form.value.username.trim(),
       password: form.value.password,
+      // 大小写不敏感在服务端归一，这里只去首尾空白
+      inviteCode: form.value.inviteCode.trim() || undefined,
     })
     // 存储登录信息（含刷新令牌与角色）
     saveSession(res)
@@ -309,6 +346,12 @@ const handleRegister = async () => {
   font-size: 14px;
   border-radius: var(--radius-md);
   box-sizing: border-box;
+}
+
+/* 邀请码：服务端生成的码全为大写，此处同步显示为大写以免看起来"输错了" */
+.invite-code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 /* 密码可见性切换 */

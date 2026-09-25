@@ -6,10 +6,12 @@ import com.leyon.backend.mapper.UserMapper;
 import com.leyon.backend.util.JwtUtil;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 用户业务服务
@@ -23,24 +25,32 @@ public class UserService {
     private final UserMapper userMapper;
     private final JwtUtil jwtUtil;
     private final LoginAttemptService loginAttemptService;
+    private final InviteCodeService inviteCodeService;
     private final BCryptPasswordEncoder passwordEncoder;
 
-    public UserService(UserMapper userMapper, JwtUtil jwtUtil, LoginAttemptService loginAttemptService) {
+    public UserService(UserMapper userMapper, JwtUtil jwtUtil, LoginAttemptService loginAttemptService,
+                       InviteCodeService inviteCodeService) {
         this.userMapper = userMapper;
         this.jwtUtil = jwtUtil;
         this.loginAttemptService = loginAttemptService;
+        this.inviteCodeService = inviteCodeService;
         this.passwordEncoder = new BCryptPasswordEncoder();
     }
 
     /**
-     * 用户注册
+     * 用户注册（v2.37 起受邀请码闸门约束）
+     * <p>
+     * 领取与建号在同一事务内：账号插入失败（如唯一索引竞态）时事务回滚，被领取的码随之释放，
+     * 不会出现"码烧掉、号没建出来"。用户名重复在领取之前判定，同理不烧码。
      *
-     * @param username 用户名
-     * @param password 明文密码
+     * @param username   用户名
+     * @param password   明文密码
+     * @param inviteCode 邀请码；{@code app.registration.mode=invite} 时必填且一次性
      * @return 注册成功的用户信息（已清空密码字段）
-     * @throws RuntimeException 用户名已存在时抛出异常
+     * @throws RuntimeException 用户名已存在 / 缺码 / 邀请码无效或已被使用
      */
-    public User register(String username, String password) {
+    @Transactional
+    public User register(String username, String password, String inviteCode) {
         // 基础入参校验
         if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
             throw new RuntimeException("用户名和密码不能为空");
@@ -60,6 +70,18 @@ public class UserService {
         user.setPassword(passwordEncoder.encode(password));
         // 新注册用户默认为普通用户
         user.setRole(User.ROLE_USER);
+
+        if (inviteCodeService.inviteRequired()) {
+            if (!StringUtils.hasText(inviteCode)) {
+                throw new RuntimeException("当前为邀请码注册模式，请填写邀请码");
+            }
+            // 先定 id 再领取：invite_code.used_by 记的就是这次建出来的账号，两步必须指向同一主体
+            String newUserId = UUID.randomUUID().toString().replace("-", "");
+            if (!inviteCodeService.claim(inviteCode, newUserId)) {
+                throw new RuntimeException("邀请码无效或已被使用");
+            }
+            user.setId(newUserId);
+        }
         userMapper.insert(user);
 
         // 响应脱敏，清空密码

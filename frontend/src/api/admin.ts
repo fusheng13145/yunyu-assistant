@@ -127,3 +127,36 @@ export interface QuotaUpsertPayload {
 export async function upsertQuota(payload: QuotaUpsertPayload): Promise<void> {
   await request<void>(`${API_BASE}/admin/quotas`, { method: 'PUT', body: JSON.stringify(payload) })
 }
+
+/** 邀请码条目（与后端 InviteCode 实体对齐，v2.37）；usedBy 为空即未使用 */
+export interface AdminInviteCode {
+  id: string
+  code: string
+  createdBy: string | null
+  usedBy: string | null
+  usedAt: string | null
+  createdAt: string
+}
+
+export interface AdminInviteCodePage {
+  list: AdminInviteCode[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** 单次批量生成上限，与后端 InviteCodeService.MAX_GENERATE_PER_REQUEST 同口径 */
+export const MAX_INVITE_CODES_PER_REQUEST = 50
+
+/** 批量生成邀请码：码值仅此一次返回，页面负责展示复制，服务端不留可读副本 */
+export function generateInviteCodes(count: number): Promise<{ codes: string[] }> {
+  return request<{ codes: string[] }>(`${API_BASE}/admin/invite-codes`, {
+    method: 'POST',
+    body: JSON.stringify({ count }),
+  })
+}
+
+export function fetchInviteCodes(page: number, pageSize: number): Promise<AdminInviteCodePage> {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+  return request<AdminInviteCodePage>(`${API_BASE}/admin/invite-codes?${params.toString()}`)
+}

@@ -39,6 +39,24 @@ CREATE TABLE `users` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 -- ----------------------------
+-- 注册邀请码表: invite_code（v2.37 邀请码制注册）
+-- app.registration.mode=invite 时注册必须带一个未使用的码；领取由带 used_by IS NULL 条件的
+-- 原子 UPDATE 完成（唯一键 uk_invite_code 是行锁落点），一个码只对应一个账号
+-- ----------------------------
+DROP TABLE IF EXISTS `invite_code`;
+CREATE TABLE `invite_code` (
+    `id` VARCHAR(36) NOT NULL COMMENT '邀请码UUID',
+    `code` VARCHAR(32) NOT NULL COMMENT '码本体：大写字母+数字，排除易混字符 0/O/1/I/l（人工转发场景）',
+    `created_by` VARCHAR(36) DEFAULT NULL COMMENT '生成者（管理员用户ID）',
+    `used_by` VARCHAR(36) DEFAULT NULL COMMENT '使用者（注册成功的用户ID），NULL=未使用',
+    `used_at` DATETIME DEFAULT NULL COMMENT '使用时间，NULL=未使用',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_invite_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='注册邀请码表（一次性，原子领取）';
+
+-- ----------------------------
 -- 助手表: assistants
 -- ----------------------------
 DROP TABLE IF EXISTS `assistants`;
