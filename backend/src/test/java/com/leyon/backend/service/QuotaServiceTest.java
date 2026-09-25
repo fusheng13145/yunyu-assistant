@@ -174,8 +174,21 @@ class QuotaServiceTest {
         when(quotaDailyUsageMapper.updateDailyUsage(any(), any(), any(), any(), anyInt()))
                 .thenReturn(1); // 原子扣减成功
         when(callRecordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(rec));
-        // 120s < 默认 3600s 时长上限（时长仍是只读判定，不扣减），不应抛
+        // 120s < 默认 3600s：时长判定读的是当日已结算通话记录，不写扣减账本
         quotaService.checkStartCall("u1");
+    }
+
+    @Test
+    void checkStartCall_durationExceededThrowsOnDurationMessage() {
+        CallRecord rec = new CallRecord();
+        rec.setDurationSec(3600);
+        when(quotaDailyUsageMapper.updateDailyUsage(any(), any(), any(), any(), anyInt()))
+                .thenReturn(1); // 次数额度充足，只让时长这一维越界
+        when(callRecordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(rec));
+        // 断言文案含"通话时长"：否则次数分支的拒绝也能让本例通过
+        assertThatThrownBy(() -> quotaService.checkStartCall("u1"))
+                .isInstanceOf(QuotaExceededException.class)
+                .hasMessageContaining("通话时长");
     }
 
     @Test

@@ -20,7 +20,7 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 export function useWebRTC() {
   const peerConnection = ref<RTCPeerConnection | null>(null)
   const localStream = ref<MediaStream | null>(null)
-  /** 远端音轨（AI 声音），用于合成录音 */
+  /** 远端音轨（AI 声音），与麦克风轨一起并入录音用 MediaStream（未做混音，见手册 6.6 v2.38） */
   const remoteStream = ref<MediaStream | null>(null)
   const isCallActive = ref(false)
   const isConnecting = ref(false)
@@ -48,7 +48,7 @@ export function useWebRTC() {
     peerConnection.value = new RTCPeerConnection({ iceServers: cachedIceServers })
     isConnecting.value = true
 
-    // 收集远端音轨（对端 AI 声音），供通话录音合成
+    // 收集远端音轨（对端 AI 声音），与麦克风轨一并送入通话录音
     peerConnection.value.ontrack = (event) => {
       const tracks = event.streams.length > 0 ? event.streams[0].getAudioTracks() : [event.track]
       if (!remoteStream.value) {
@@ -85,7 +85,8 @@ export function useWebRTC() {
   }
 
   /**
-   * 开始录制通话音频（本方麦克风 + 对端音轨合成，webm/opus）
+   * 开始录制通话音频（把本方麦克风轨与对端 AI 轨并入同一个 MediaStream 交给 MediaRecorder，
+   * webm/opus；项目侧未做混音，多音轨如何编码由浏览器决定，见手册 6.6 v2.38）
    * @returns 是否成功开始
    */
   const startRecording = (): boolean => {
@@ -95,11 +96,11 @@ export function useWebRTC() {
     if (remoteStream.value) tracks.push(...remoteStream.value.getAudioTracks())
     if (tracks.length === 0) return false
     try {
-      const mixStream = new MediaStream(tracks)
+      const recordStream = new MediaStream(tracks)
       const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm'
-      recorder = new MediaRecorder(mixStream, { mimeType: mime })
+      recorder = new MediaRecorder(recordStream, { mimeType: mime })
       recordingChunks = []
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) recordingChunks.push(event.data)

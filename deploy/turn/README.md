@@ -30,7 +30,9 @@ docker logs -f yunyu-turn
 
 ## 3. 生成临时凭据
 
-本项目使用 **TURN REST API（use-auth-secret）** 方案：客户端不持有长期密钥，由服务端按 `username = 过期时间戳` + HMAC(secret) 生成临时凭据，过期自动失效。无需在 `turnserver.conf` 里配置固定用户名密码。
+coturn 侧支持 **TURN REST API（`use-auth-secret`）** 方案：凭据形如 `username = 过期时间戳` + HMAC(secret)，到期由 coturn 自动拒绝，无需在 `turnserver.conf` 里配置固定用户名密码。
+
+> ⚠️ **本后端当前不做签发**（v2.38 校正，见项目手册 5.9 / 6.6）：`GET /api/webrtc/config` 只是把环境变量 `WEBRTC_ICE_SERVERS` 的静态 JSON 原样回显给已登录用户，**没有** REST 凭据签发端点、不按用户绑定、不轮换。因此下面的命令是**由运维手工执行**、把结果写进环境变量；由此带来两条必须接受的性质：① 临时凭据一旦放进静态配置就**不再"临时"**——**过期时刻一到 TURN 就静默失效**（前端不报错，只是不再产生 `relay` 候选），需要定期重新生成并重启后端；② 该 JSON 里的 `credential` 会下发给**任何已登录用户**，应按"已公开"来设定 coturn 侧配额与 ACL。要去掉这两条，就得做下方"进阶"里的真签发服务。
 
 生成单次凭据（可直接用在 `WEBRTC_ICE_SERVERS`，有效期 1 小时）：
 
@@ -42,7 +44,7 @@ echo "username=$USERNAME"
 echo "credential=$CREDENTIAL"
 ```
 
-> 进阶：生产可部署 TURN REST API 服务（如 coturn 自带 `/tmp/turn_admin` 或自建端点），把上述计算封装为 `GET /turn?expires=3600` 接口，让前端登录后动态获取，凭据与用户绑定并随会话过期 —— 这样 `WEBRTC_ICE_SERVERS` 不再写死静态凭据。
+> 进阶（**当前未实现，属语音二期**）：部署真正的 TURN REST API 凭据签发（自建端点，或经支持该能力的网关），把上述计算封装为 `GET /turn?expires=3600` 一类接口，让前端登录后动态获取、凭据与用户绑定并随会话过期 —— 这样 `WEBRTC_ICE_SERVERS` 不再写死静态凭据，上面 ①② 两条性质同时消失。
 
 ## 4. 对接云谕助手后端
 
