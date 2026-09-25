@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================
-# 云谕助手 —— 接口冒烟（v2.30）
+# 云谕助手 —— 接口冒烟（v2.36）
 #
 # 用途：对"已经跑起来"的实例打一遍关键 HTTP 链路。单测只能证明方法行为，
 #       拦截器顺序、序列化、路由、限流与握手这些只有真进程才暴露的问题靠这里。
+#
+# 前提（v2.36 真机收口后写死在这里）：请求体与 WebSocket 握手都**不经过 argv**——
+#   Git Bash 下的 curl.exe 是原生程序，argv 里的非 ASCII 会被 MSYS 按本地代码页重编码，
+#   中文到服务端就成了非法 UTF-8；而 curl 压根做不成 WS 握手（旧版 §7 因此永远 SKIP）。
 #
 # 边界（刻意为之）：
 #   - 不碰任何消耗外部额度或不可逆的接口：/api/open/**、语音链路、检索测试、POST /api/admin/archive/run 均不调用。
@@ -35,7 +39,8 @@ KEEP="${KEEP:-0}"
 
 BODY_FILE="$(mktemp)"
 HDR_FILE="$(mktemp)"
-trap 'rm -f "$BODY_FILE" "$HDR_FILE"' EXIT
+DATA_FILE="$(mktemp)"
+trap 'rm -f "$BODY_FILE" "$HDR_FILE" "$DATA_FILE"' EXIT
 
 PASS=0
 FAIL=0
@@ -55,22 +60,37 @@ elif command -v node >/dev/null 2>&1; then FLAVOR=node; INTERP=node
 else echo '缺少依赖：python3 / python / node（JSON 解析与拼装都要用）'; exit 2; fi
 printf '目标：业务 %s ｜ 管理 %s ｜ JSON 解释器 %s\n' "$BASE" "$MGMT_BASE" "$INTERP"
 
-# json <k> <v> [<k> <v>...] → 安全的 JSON 请求体（纯数字值转 JSON 数字，其余按字符串）
+# json <k> <v> [<k> <v>...] → 安全的 JSON 请求体
+#   纯整数/小数 → JSON 数字；以 [ 或 { 开头且能解析 → 原样嵌入的 JSON 结构（tools 这类数组字段，
+#   传成字符串会被服务端按 ArrayList 反序列化拒成 400）；其余 → JSON 字符串（中文按 UTF-8 输出）
+# urlenc <text> →  percent 编码，供 GET 查询参数使用
 if [ "$FLAVOR" = python ]; then
     json() { "$INTERP" -c 'import json,re,sys
-try: sys.stdout.reconfigure(encoding="utf-8")
-except Exception: pass
 a = sys.argv[1:]
 out = {}
 for k, v in zip(a[::2], a[1::2]):
-    out[k] = int(v) if re.fullmatch(r"-?\d+", v) else (float(v) if re.fullmatch(r"-?\d+\.\d+", v) else v)
-print(json.dumps(out, ensure_ascii=False))' "$@"; }
+    if re.fullmatch(r"-?\d+", v): out[k] = int(v)
+    elif re.fullmatch(r"-?\d+\.\d+", v): out[k] = float(v)
+    elif v.startswith(("[", "{")):
+        try: out[k] = json.loads(v)
+        except Exception: out[k] = v
+    else: out[k] = v
+sys.stdout.buffer.write(json.dumps(out, ensure_ascii=False).encode("utf-8"))' "$@"; }
+    urlenc() { "$INTERP" -c 'import sys,urllib.parse
+sys.stdout.buffer.write(urllib.parse.quote(sys.argv[1], safe="").encode())' "$1"; }
 else
     json() { "$INTERP" -e 'const a=process.argv.slice(1),o={};
 for(let i=0;i+1<a.length;i+=2){const v=a[i+1];
-o[a[i]]=/^-?\d+$/.test(v)?Number(v):(/^-?\d+\.\d+$/.test(v)?Number(v):v);}
-console.log(JSON.stringify(o));' "$@"; }
+let x=v;
+if(/^-?\d+$/.test(v)||/^-?\d+\.\d+$/.test(v))x=Number(v);
+else if(/^[[{]/.test(v)){try{x=JSON.parse(v)}catch(e){x=v}}
+o[a[i]]=x;}
+process.stdout.write(JSON.stringify(o));' "$@"; }
+    urlenc() { "$INTERP" -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$1"; }
 fi
+
+# send_body <JSON> → 置 DATA_FILE 为请求体文件（去掉行尾 CR）
+send_body() { printf '%s' "${1%$'\r'}" > "$DATA_FILE"; }
 
 # req <METHOD> <PATH> [TOKEN] [JSON_BODY] → STATUS / BODY
 req() {
@@ -78,7 +98,10 @@ req() {
     local args=(-sS --max-time "$TIMEOUT" -X "$method" -o "$BODY_FILE" -w '%{http_code}'
                 -H 'Accept: application/json')
     [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
-    [ -n "$data" ] && args+=(-H 'Content-Type: application/json' -d "$data")
+    if [ -n "$data" ]; then
+        send_body "$data"
+        args+=(-H 'Content-Type: application/json' --data-binary "@$DATA_FILE")
+    fi
     STATUS="$(curl "${args[@]}" "$BASE$path" 2>/dev/null)" || STATUS="000"
     BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)" || BODY=""
 }
@@ -95,7 +118,10 @@ req_ct() {
     local args=(-sS --max-time "$TIMEOUT" -X "$method" -o "$BODY_FILE" -D "$HDR_FILE" -w '%{http_code}')
     [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
     [ -n "$ctype" ] && args+=(-H "Content-Type: $ctype")
-    [ -n "$data" ] && args+=(--data-binary "$data")
+    if [ -n "$data" ]; then
+        send_body "$data"
+        args+=(--data-binary "@$DATA_FILE")
+    fi
     STATUS="$(curl "${args[@]}" "$BASE$path" 2>/dev/null)" || STATUS="000"
     BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)" || BODY=""
 }
@@ -269,7 +295,7 @@ want_status 'alg=none 自造令牌 → 401' 401 401
 section '3. 助手 CRUD'
 req POST /api/assistants "$TOKEN" "$(json name "冒烟助手 $(date +%H%M%S)" description 'scripts/smoke.sh 创建，跑完即删' \
     personality '你是一个用于部署自检的助手。' modelName "${SMOKE_MODEL:-qwen-turbo}" \
-    temperature 0.7 maxTokens 1024 voice 'Cherry' tools '[]')"
+    temperature 0.7 maxTokens 1024 voice 'Cherry' tools '["get_weather"]')"
 if api_ok 'POST /api/assistants（创建）'; then
     ASSISTANT_ID="$(jget data.id)"
     if [ -n "$ASSISTANT_ID" ]; then
@@ -284,10 +310,17 @@ fi
 if [ -n "$ASSISTANT_ID" ]; then
     req GET "/api/assistants/$ASSISTANT_ID" "$TOKEN"
     api_ok 'GET /api/assistants/{id}（本人可读）'
+    # 中文写后读：请求体经文件下发、库是 utf8mb4、出口再过一次 Jackson，三处任一编码不对这里就花
+    [ -n "$(jget data.name)" ] && [[ "$(jget data.name)" == 冒烟助手* ]] \
+        && ok '中文名称原样读回（UTF-8 进出一致，未出现 mojibake）' \
+        || bad '中文名称读回变形' "实际 $(jget data.name)"
+    # tools 列是「JSON 字符串存一列、对外暴露数组」，读回应为数组而非字符串
+    [ "$(jget data.tools.0)" = 'get_weather' ] && ok 'tools 以数组形状读回（JSON 列的双向转换生效）' \
+        || bad 'tools 未以数组读回' "实际 $(jget data.tools)"
     req GET '/api/assistants?page=1&pageSize=5' "$TOKEN"
     api_ok 'GET /api/assistants（列表）'
-    req GET '/api/assistants/page?page=1&pageSize=5&keyword=冒烟' "$TOKEN"
-    api_ok 'GET /api/assistants/page（分页 + 关键词）'
+    req GET "/api/assistants/page?page=1&pageSize=5&keyword=$(urlenc '冒烟')" "$TOKEN"
+    api_ok 'GET /api/assistants/page（分页 + 中文关键词，percent 编码）'
     req PUT /api/assistants "$TOKEN" "$(json id "$ASSISTANT_ID" name '冒烟助手-改名')"
     api_ok 'PUT /api/assistants（改名）'
     req GET "/api/assistants/$ASSISTANT_ID" "$TOKEN"
@@ -336,40 +369,77 @@ if api_ok 'GET /api/billing/usage（配额 + 用量聚合）'; then
 fi
 
 # ---------- 6. 外部依赖只探测，不消耗额度 ----------
+# v2.36 真机实况：旧写法只看"HTTP 200 且 code 200"就记 OK，而未配置时这两个接口**照样回 200**
+# （webrtc 回 iceServers:[]，ragflow 回 endpoint:""），于是首跑就出现"语音服务商凭据已配置"的假绿。
+# 改为按响应体里的配置字段判定，可达性与配置状态分成两条结论。
 section '6. 外部依赖配置探测'
-req GET /api/ragflow/config "$TOKEN"
-if [ "$STATUS" = "200" ] && [ "$(jget code)" = "200" ]; then ok 'GET /api/ragflow/config（RAGFlow 已配置）'
-else skip 'GET /api/ragflow/config' "HTTP $STATUS $(jget message)（未配置 RAGFlow 属预期）"; fi
-req GET /api/webrtc/config "$TOKEN"
-if [ "$STATUS" = "200" ] && [ "$(jget code)" = "200" ]; then ok 'GET /api/webrtc/config（语音服务商凭据已配置）'
-else skip 'GET /api/webrtc/config' "HTTP $STATUS $(jget message)（未配置语音服务商属预期）"; fi
+cfg_probe() {  # cfg_probe <路径> <配置字段> <未配置时的说明>
+    req GET "$1" "$TOKEN"
+    if [ "$STATUS" != "200" ] || [ "$(jget code)" != "200" ]; then
+        skip "$1 配置探测" "HTTP $STATUS $(jget message)（接口未开放或未配置属预期）"; return
+    fi
+    if [ -n "$(jget "$2")" ]; then ok "$1 可达且已配置（$2=$(jget "$2")）"
+    else skip "$1 配置状态" "接口可达但 $2 为空 ⇒ $3"; fi
+}
+cfg_probe /api/ragflow/config data.endpoint '知识库检索未接入（配 RAGFLOW_ENDPOINT / RAGFLOW_API_KEY）'
+cfg_probe /api/webrtc/config data.iceServers.0.urls '语音通话回退公共 STUN，TURN 转发未配（配 WEBRTC_ICE_SERVERS）；语音不进 MVP，属预期'
 
 # ---------- 7. WebSocket 握手 ----------
+# v2.36 实况：旧写法用 curl 发 Upgrade 头，真机上永远拿不到响应（curl 不做 WS 握手，
+# 连接被服务端按普通 HTTP 处理）⇒ 本节此前**从未真正验证过任何东西**，只是一直 SKIP。
+# 改为直接用解释器开 TCP 套接字手写握手请求：只读响应状态行，收完即断，不留会话。
 section '7. WebSocket 握手（只验升级链路，不做对话）'
-WS_BASE="${BASE/http/ws}"
-# 16 字节随机数 → base64（WebSocket 握手用），只用 coreutils，不依赖解释器
-b64rand() { head -c 16 /dev/urandom 2>/dev/null | base64 | tr -d '\n'; }
-ws_handshake() {  # ws_handshake <path> [origin] → 响应状态行
-    local key args=(-sS -i --http1.1 --max-time 5 -o -
-        -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13')
-    key="$(b64rand)"
-    [ -n "$key" ] && args+=(-H "Sec-WebSocket-Key: $key")
-    [ -n "${2:-}" ] && args+=(-H "Origin: $2")
-    curl "${args[@]}" "$WS_BASE$1" 2>/dev/null | head -n 1
+WS_HOSTPORT="${BASE#*://}"
+WS_HOST="${WS_HOSTPORT%%:*}"
+WS_PORT="${WS_HOSTPORT#*:}"; [ "$WS_PORT" = "$WS_HOSTPORT" ] && WS_PORT=80
+# ws_handshake <path 不含前导斜杠> [origin] → 响应状态行（失败则空）
+# 路径不带前导 '/' 是必须的：Git Bash 会把形如 /ws/x 的参数按 POSIX 路径改写
+# （变成 C:/Program Files/Git/ws/x），握手行就成了非法请求目标 ⇒ 400。斜杠在解释器里补回。
+ws_handshake() {
+    if [ "$FLAVOR" = python ]; then
+        "$INTERP" -c 'import socket,base64,os,sys
+host, port, path, origin = sys.argv[1], int(sys.argv[2]), "/" + sys.argv[3], sys.argv[4]
+try:
+    s = socket.create_connection((host, port), timeout=5)
+except Exception:
+    sys.exit(0)
+req = ("GET %s HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+       "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: %s\r\n" % (path, host, port, base64.b64encode(os.urandom(16)).decode()))
+if origin:
+    req += "Origin: %s\r\n" % origin
+s.sendall((req + "\r\n").encode())
+data = s.recv(2048)
+s.close()
+print(data.split(b"\r\n", 1)[0].decode("latin-1"))' "$WS_HOST" "$WS_PORT" "$1" "${2:-}"
+    else
+        "$INTERP" -e 'const net=require("net"),crypto=require("crypto");
+const [host,port,rawPath,origin]=process.argv.slice(1);
+const path="/"+rawPath;
+let done=false;
+const s=net.connect(Number(port),host);
+s.setTimeout(5000);
+s.on("data",d=>{if(done)return;done=true;console.log(d.toString("latin1").split("\r\n")[0]);s.destroy();});
+s.on("error",()=>{});s.on("timeout",()=>s.destroy());
+s.once("connect",()=>s.write(`GET ${path} HTTP/1.1\r\nHost: ${host}:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${crypto.randomBytes(16).toString("base64")}\r\n${origin?`Origin: ${origin}\r\n`:""}\r\n`));' "$WS_HOST" "$WS_PORT" "$1" "${2:-}"
+    fi
 }
-WS_LINE="$(ws_handshake '/ws/smoke')"
-case "$WS_LINE" in
-    *101*) ok 'GET /ws/{assistantId} 握手 101（无 Origin 时放行，令牌走首条消息认证）' ;;
-    '')    skip 'WS /ws/*' '握手无响应（代理/服务器不支持该探测）' ;;
-    *)     bad 'WS /ws/* 握手失败' "$WS_LINE —— 期望 101；404 说明路由未注册" ;;
-esac
-if [ -n "${SMOKE_ORIGIN:-}" ]; then
-    WS_LINE="$(ws_handshake '/ws/smoke' "$SMOKE_ORIGIN")"
-    case "$WS_LINE" in
-        *101*) ok "带站点 Origin（$SMOKE_ORIGIN）握手通过" ;;
-        *403*) bad '带站点 Origin 握手被拒 403' "CORS_ALLOWED_ORIGINS（app.cors.allowed-origins）未含 $SMOKE_ORIGIN —— 浏览器 WS 握手必带 Origin，聊天与语音都会断" ;;
-        *)     skip '带站点 Origin 握手' "${WS_LINE:-无响应}" ;;
+# ws_assert <描述> <path> <origin> <期望码> <不符时的说明>
+ws_assert() {
+    local line; line="$(ws_handshake "$2" "$3")"
+    case "$line" in
+        *"$4"*) ok "$1 —— HTTP${line#HTTP}" ;;
+        '')     skip "$1" '握手无响应（端口不通 / 代理不支持该探测）' ;;
+        *)      bad "$1" "期望 $4，实际 ${line:-无响应} —— $5" ;;
     esac
+}
+ws_assert '聊天路由 /ws/{assistantId} 握手' 'ws/smoke' '' 101 '404 ⇒ 路由未注册；无 Origin 时放行，令牌走首条消息认证'
+ws_assert '语音信令路由 /ws-voice/{id} 握手' 'ws-voice/smoke' '' 101 '404 ⇒ 语音路由未注册（第二阶段做语音时这条是链路前提）'
+if [ -n "${SMOKE_ORIGIN:-}" ]; then
+    ws_assert "带站点 Origin（$SMOKE_ORIGIN）握手" 'ws/smoke' "$SMOKE_ORIGIN" 101 \
+        "403 ⇒ CORS_ALLOWED_ORIGINS（app.cors.allowed-origins）未含 $SMOKE_ORIGIN —— 浏览器 WS 握手必带 Origin，聊天与语音都会断"
+    # 反向断言：白名单必须真的在拒。只验放行等于把"配置成 * 或全放行"也判成通过。
+    ws_assert '白名单外 Origin 握手被拒' 'ws/smoke' 'https://smoke-not-allowed.invalid' 403 \
+        "101 ⇒ 来源白名单未生效（可能被改成通配），跨站页面可直接连 WS"
 else
     skip '带站点 Origin 握手' '未提供 SMOKE_ORIGIN；正式部署必须带，否则 CORS_ALLOWED_ORIGINS 漏配无人发现'
 fi
@@ -444,7 +514,9 @@ while [ "$i" -lt 31 ]; do
     NON429=$((NON429 + 1))
 done
 if [ "$EXP_429" = "1" ]; then
-    if [ "$NON429" -ge 31 ]; then
+    if [ "$NON429" -eq 0 ]; then
+        skip 'EXPENSIVE 桶容量' '首个请求即 429 ⇒ 1 分钟窗口内已被上一轮打满，本轮无法判容量（等 60 秒重跑）'
+    elif [ "$NON429" -ge 31 ]; then
         bad 'EXPENSIVE 桶容量应为 30/分钟' '放行 '"$NON429"' 次才见 429，超出容量'
     else
         ok "EXPENSIVE 桶生效：放行 $NON429 次后第 $((NON429 + 1)) 次返回 429"
@@ -476,6 +548,7 @@ want_status '登出后放行路径 /api/auth/me 同样失效（黑名单不只�
 # 放在 §9 之后：此时业务断言已全部做完，错误凭据不会再干扰前序区段。
 section '10. 限流桶 — 认证'
 AUTH_429=0
+AUTH_SHAPE_CHECKED=0
 LOGIN_TRIES=0
 i=0
 while [ "$i" -lt 8 ] && [ "$AUTH_429" = "0" ]; do
@@ -484,12 +557,23 @@ while [ "$i" -lt 8 ] && [ "$AUTH_429" = "0" ]; do
     LOGIN_TRIES=$((LOGIN_TRIES + 1))
     case "$STATUS" in
         429) AUTH_429=1 ;;
-        401) ;;
-        *) bad '错误口令登录应 401' "$(detail)" ;;
+        # v2.36 真机实况：登录失败由 UserService 抛 RuntimeException，走全局兜底 ⇒ HTTP 400 + code 400，
+        # 不是 401。本项目里 401 专指"会话凭据缺失/失效"（前端据此触发静默续期/跳登录），
+        # 把凭据错误也返 401 会让登录页把自己判成"登录态过期"。断言按产品契约，不按 RFC。
+        # 形状只记一次：循环打的是同一个不变响应，重复计数会把一项断言刷成四项。
+        400) if [ "$AUTH_SHAPE_CHECKED" = "0" ]; then
+                 AUTH_SHAPE_CHECKED=1
+                 [ "$(jget message)" = '用户名或密码错误' ] \
+                     && ok '错误口令 → HTTP 400 + 反枚举文案（不区分用户名/密码，避免用户名枚举）' \
+                     || bad '错误口令响应文案漂移' "$(detail)"
+             fi ;;
+        *) bad '错误口令登录应 HTTP 400（项目兜底）' "$(detail)" ;;
     esac
 done
 if [ "$AUTH_429" = "1" ]; then
-    if [ "$LOGIN_TRIES" -ge 9 ]; then
+    if [ "$LOGIN_TRIES" -le 1 ]; then
+        skip 'AUTH 桶容量' '首个请求即 429 ⇒ 1 分钟窗口内已被上一轮（或 §2/§8 的正常认证请求）打满，本轮无法判容量'
+    elif [ "$LOGIN_TRIES" -ge 9 ]; then
         bad 'AUTH 桶容量应为 5/分钟' '放行 '"$LOGIN_TRIES"' 次才见 429，超出容量'
     else
         ok "AUTH 桶生效：$LOGIN_TRIES 次（含前序区段已用量）后返回 429"
