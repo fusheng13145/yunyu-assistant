@@ -5,22 +5,6 @@
   </div>
 
   <div v-else class="geek-body theme-transition h-screen w-full flex overflow-hidden antialiased">
-    <!-- 通知提示 -->
-    <transition name="notification">
-      <div
-        v-if="notification.show"
-        class="notification-toast"
-        :class="{
-          'toast-success': notification.type === 'success',
-          'toast-error': notification.type === 'error',
-          'toast-warning': notification.type === 'warning',
-          'toast-info': notification.type === 'info'
-        }"
-      >
-        {{ notification.message }}
-      </div>
-    </transition>
-
     <!-- 左侧边栏 -->
     <aside class="sidebar w-72 flex-shrink-0 flex flex-col bg-geek-surface border-r border-geek">
       <!-- 品牌标题区 -->
@@ -1105,6 +1089,7 @@ import ThemeToggle from '../components/ThemeToggle.vue'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { personaTemplates } from '../composables/usePersonaTemplates'
 import { useTheme } from '../composables/useTheme'
+import { useNotification } from '../composables/useNotification'
 import { useMessageSearch } from '../composables/useMessageSearch'
 import { useQuickCommands } from '../composables/useQuickCommands'
 import { exportChatToMarkdown, exportChatToJson } from '../utils/exportChat'
@@ -1114,7 +1099,7 @@ import { uploadRecording } from '../api/callRecord'
 import { fetchAssistantsPage, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels, fetchTools } from '../api/assistant'
 import { logout, clearSession } from '../api/auth'
 import { RagflowApi } from '../api/ragflow'
-import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, VoiceInfo, ModelInfo, ToolInfo } from '../types'
+import type { Assistant, DisplayMessage, KnowledgeBase, KnowledgebaseInfo, AsrDeltaData, VoiceInfo, ModelInfo, ToolInfo } from '../types'
 
 // 主题与路由
 const { themeMode, setTheme } = useTheme()
@@ -1162,16 +1147,8 @@ const inputText = ref('')
 const isTyping = ref(false)
 const messages = ref<DisplayMessage[]>([])
 
-// 全局通知
-const notification = ref({
-  show: false,
-  message: '',
-  type: 'info' as 'success' | 'error' | 'warning' | 'info',
-})
-const showNotification = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
-  notification.value = { show: true, message, type }
-  setTimeout(() => notification.value.show = false, 3000)
-}
+// 全局通知（状态与渲染收口在 App.vue 的唯一挂载点）
+const { show: showNotification } = useNotification()
 
 // 消息搜索
 const { searchQuery, isSearchActive, searchResults, searchMessages, clearSearch, openSearch } = useMessageSearch()
@@ -1327,6 +1304,7 @@ const loadAssistants = async () => {
     }
   } catch (error) {
     console.error('获取助手列表失败:', error)
+    showNotification(`助手列表加载失败：${(error as Error).message}`, 'error')
   }
 }
 
@@ -1356,6 +1334,7 @@ const loadVoices = async () => {
     voices.value = await fetchVoices()
   } catch (error) {
     console.error('获取音色列表失败:', error)
+    showNotification('音色字典加载失败，下拉里可能没有可选音色', 'error')
   }
 }
 
@@ -1390,6 +1369,7 @@ const loadModels = async () => {
     models.value = await fetchModels()
   } catch (error) {
     console.error('获取模型列表失败:', error)
+    showNotification('模型字典加载失败，下拉里可能没有可选模型', 'error')
   }
 }
 
@@ -1484,6 +1464,7 @@ const loadTools = async () => {
     availableTools.value = await fetchTools()
   } catch (error) {
     console.error('获取工具列表失败:', error)
+    showNotification('可用工具列表加载失败，工具开关可能显示不全', 'error')
   }
 }
 
@@ -1722,7 +1703,7 @@ const handleStreamMessage = (answer: { streamEnd: boolean; segment: string }) =>
 const finishStreamMessage = (queryData: { 
   message: string; 
   costTime: number; 
-  knowledgebase?: string | { docCount?: number; docName?: string[] };
+  knowledgebase?: string | KnowledgebaseInfo;
   tokenUsage?: { promptTokens?: number; completionTokens?: number }
 }) => {
   isTyping.value = false
@@ -1838,6 +1819,7 @@ const restoreKnowledgeBaseSelection = () => {
     }
   } catch (error) {
     console.error('恢复知识库选择失败：', error)
+    showNotification('上次选中的知识库没能恢复，请重新选择', 'warning')
   }
 }
 
@@ -1951,6 +1933,7 @@ const persistKnowledgeIds = async (ids: string[]) => {
     })
   } catch (error) {
     console.error('持久化知识库关联失败:', error)
+    showNotification(`知识库关联没保存上：${(error as Error).message}`, 'error')
   }
 }
 
@@ -2171,23 +2154,6 @@ const handleKeydown = (event: KeyboardEvent) => {
 </script>
 
 <style scoped>
-/* 通知提示 */
-.notification-toast {
-  position: fixed;
-  top: 1rem;
-  right: 1rem;
-  z-index: 50;
-  padding: 0.75rem 1.5rem;
-  border-radius: var(--radius-md);
-  box-shadow: 0 4px 16px var(--geek-shadow-md);
-  color: #fff;
-  font-weight: 500;
-}
-.toast-success { background: var(--geek-success); }
-.toast-error { background: var(--geek-error); }
-.toast-warning { background: var(--geek-warning); }
-.toast-info { background: var(--geek-primary); }
-
 /* 侧边栏选中项左侧强调条 */
 .assistant-item.item-active {
   border-left: 3px solid var(--geek-accent);
@@ -2201,17 +2167,6 @@ const handleKeydown = (event: KeyboardEvent) => {
 }
 .animate-slide-in-right {
   animation: slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* 通知过渡 */
-.notification-enter-active,
-.notification-leave-active {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.notification-enter-from,
-.notification-leave-to {
-  opacity: 0;
-  transform: translateX(24px);
 }
 
 /* 拖拽上传高亮 */

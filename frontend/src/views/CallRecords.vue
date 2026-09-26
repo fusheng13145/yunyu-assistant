@@ -203,11 +203,13 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, Bot, ChevronRight, Mic, PhoneOff, X } from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme'
+import { useNotification } from '../composables/useNotification'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { fetchCallRecords, fetchCallRecordDetail, fetchRecordingBlob, fetchUsageStats } from '../api/callRecord'
 import type { CallRecord, CallRecordDetail, UsageStats } from '../types'
 
 const router = useRouter()
+const { show } = useNotification()
 const { themeMode, setTheme } = useTheme()
 
 const records = ref<CallRecord[]>([])
@@ -238,6 +240,7 @@ const loadStats = async () => {
     stats.value = await fetchUsageStats(statsRange.value)
   } catch (error) {
     console.error('获取用量统计失败:', error)
+    show('用量统计加载失败，图表数据不是最新', 'error')
   }
 }
 
@@ -254,6 +257,7 @@ const loadRecords = async () => {
     total.value = result.total
   } catch (error) {
     console.error('获取通话记录失败:', error)
+    show(`通话记录加载失败：${(error as Error).message}`, 'error')
   } finally {
     loading.value = false
   }
@@ -276,6 +280,7 @@ const openDetail = async (record: CallRecord) => {
     detail.value = await fetchCallRecordDetail(record.id)
   } catch (error) {
     console.error('获取通话详情失败:', error)
+    show(`通话详情加载失败：${(error as Error).message}`, 'error')
   }
 }
 
@@ -295,6 +300,7 @@ const loadRecording = async (id: string) => {
     recordingUrl.value = URL.createObjectURL(blob)
   } catch (error) {
     console.error('获取通话录音失败:', error)
+    show(`录音拉取失败：${(error as Error).message}`, 'error')
   } finally {
     recordingLoading.value = false
   }

@@ -13,7 +13,9 @@
     "type:check": "vue-tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,vue}\"",
     "lint:fix": "eslint \"src/**/*.{ts,vue}\" --fix",
-    "check:auth": "node ../scripts/check-auth-session.mjs"
+    "check:auth": "node ../scripts/check-auth-session.mjs",
+    "check:notification": "node ../scripts/check-notification.mjs",
+    "check:kb-flag": "node ../scripts/check-knowledgebase-flag.mjs"
   },
   "dependencies": {
     "lucide-vue-next": "^0.525.0",

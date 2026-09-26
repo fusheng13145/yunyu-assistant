@@ -129,10 +129,12 @@ import { useRouter } from 'vue-router'
 import { ArrowLeft, Plus, KeyRound } from 'lucide-vue-next'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { useTheme } from '../composables/useTheme'
+import { useNotification } from '../composables/useNotification'
 import { fetchApps, createApp, revokeApp } from '../api/openapi'
 import type { ApiAppItem, ApiAppCreated } from '../api/openapi'
 
 const { themeMode, setTheme } = useTheme()
+const { show } = useNotification()
 const router = useRouter()
 
 const apps = ref<ApiAppItem[]>([])
@@ -155,6 +157,7 @@ const load = async () => {
     apps.value = await fetchApps()
   } catch (error) {
     console.error('加载应用列表失败:', error)
+    show('应用列表加载失败，请刷新页面重试', 'error')
   }
 }
 
@@ -166,6 +169,7 @@ const onCreate = async () => {
     await load()
   } catch (error) {
     console.error('创建应用失败:', error)
+    show(`创建应用失败：${(error as Error).message}`, 'error')
   } finally {
     creating.value = false
   }
@@ -183,6 +187,7 @@ const onRevokeConfirm = async () => {
     await load()
   } catch (error) {
     console.error('吊销应用失败:', error)
+    show(`吊销应用失败：${(error as Error).message}`, 'error')
   }
 }
 

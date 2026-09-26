@@ -1,16 +1,5 @@
 <template>
   <div class="geek-body theme-transition h-screen w-full flex flex-col relative overflow-hidden antialiased">
-    <!-- 通知提示 -->
-    <transition name="notification">
-      <div
-        v-if="notification.show"
-        class="fixed top-4 right-4 z-50 px-5 py-3 rounded-xl shadow-lg animate-fade-up geek-notification"
-        :class="[`geek-notification--${notification.type}`]"
-      >
-        {{ notification.message }}
-      </div>
-    </transition>
-
     <!-- 顶部导航栏 -->
     <header class="flex items-center justify-between px-6 py-4 border-b shrink-0 geek-surface">
       <div class="flex items-center gap-3">
@@ -605,6 +594,7 @@ import {
 import ChatMessages from '../components/ChatMessages.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { useTheme } from '../composables/useTheme'
+import { useNotification } from '../composables/useNotification'
 import { useWebSocket } from '../utils/websocket'
 import { useWebRTC } from '../composables/useWebRTC'
 import { uploadRecording } from '../api/callRecord'
@@ -646,12 +636,8 @@ const inputText = ref('')
 const isTyping = ref(false)
 const messages = ref<DisplayMessage[]>([])
 
-// 全局通知
-const notification = ref({
-  show: false,
-  message: '',
-  type: 'info' as 'success' | 'error' | 'warning' | 'info',
-})
+// 全局通知（状态与渲染收口在 App.vue 的唯一挂载点）
+const { show: showNotification } = useNotification()
 
 // 知识库状态
 const knowledgeBases = ref<KnowledgeBase[]>([])
@@ -692,14 +678,6 @@ watch(
 )
 
 // ==================== 公共工具方法 ====================
-/** 消息通知 */
-const showNotification = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
-  notification.value = { show: true, message, type }
-  setTimeout(() => {
-    notification.value.show = false
-  }, 3000)
-}
-
 /** 格式化文件大小 */
 const formatFileSize = (bytes: number): string => {
   if (bytes === 0) return '0 Bytes'
@@ -842,6 +820,7 @@ const connectWebSocket = () => {
     },
     onError: (err) => {
       console.error('WebSocket错误', err)
+      showNotification('聊天连接异常，请刷新重试', 'error')
     },
   })
 }
@@ -1091,6 +1070,7 @@ const loadKnowledgeBaseFiles = async (knowledgeBaseId: string) => {
     currentFiles.value = await RagflowApi.getDocuments(knowledgeBaseId)
   } catch (error) {
     console.error('获取文档列表失败:', error)
+    showNotification(`文档列表加载失败：${(error as Error).message}`, 'error')
     currentFiles.value = []
   }
 }
@@ -1272,6 +1252,7 @@ const loadSessions = async () => {
     sessions.value = await fetchSessions(assistantId)
   } catch (error) {
     console.error('加载会话列表失败：', error)
+    showNotification('会话列表加载失败，左侧列表可能不是最新', 'error')
   }
 }
 
@@ -1334,6 +1315,7 @@ const renderSessionHistory = async (sessionId: string) => {
     historyHasMore.value = historyPage * page.pageSize < page.total
   } catch (error) {
     console.error('加载会话历史失败：', error)
+    showNotification(`历史消息加载失败：${(error as Error).message}`, 'error')
   }
 }
 
@@ -1360,6 +1342,7 @@ const loadEarlierMessages = async () => {
     historyHasMore.value = historyPage * page.pageSize < page.total
   } catch (error) {
     console.error('加载更早消息失败：', error)
+    showNotification('更早的消息没取到，可以再点一次', 'error')
   } finally {
     historyLoadingMore.value = false
   }
@@ -1468,14 +1451,6 @@ const handleKeydown = (event: KeyboardEvent) => {
 
 <style scoped>
 /* ========== 页面专属样式（通用设计令牌见全局 style.css） ========== */
-
-/* 通知动画 */
-.notification-enter-active {
-  animation: fadeUp 0.3s ease;
-}
-.notification-leave-active {
-  animation: fadeDown 0.3s ease;
-}
 
 /* 弹窗动画 */
 .animate-modal-in {

@@ -118,7 +118,7 @@
 
             <!-- 消息元信息 -->
             <div
-              v-if="!msg.isStreaming && (msg.costTime || (msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))) || (msg.tokenUsage && (msg.tokenUsage.promptTokens || msg.tokenUsage.completionTokens)))"
+              v-if="!msg.isStreaming && (msg.costTime || knowledgebaseFlag(msg.knowledgebase) !== 'none' || (msg.tokenUsage && (msg.tokenUsage.promptTokens || msg.tokenUsage.completionTokens)))"
               class="flex items-center gap-3 pt-2 mt-2 border-t flex-wrap" style="border-color: var(--geek-divider)"
             >
               <span v-if="msg.costTime" class="text-xs flex items-center" style="color: var(--geek-text-faint)">
@@ -126,14 +126,21 @@
                 {{ (msg.costTime / 1000).toFixed(2) }}s
               </span>
               <span
-                v-if="msg.knowledgebase && (msg.knowledgebase.docCount || (msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0))"
+                v-if="knowledgebaseFlag(msg.knowledgebase) === 'failed'"
+                class="text-xs flex items-center gap-1.5 flex-wrap" style="color: var(--geek-warning)"
+              >
+                <AlertTriangle class="w-3 h-3" />
+                知识库检索失败 · 本条回复未带参考
+              </span>
+              <span
+                v-else-if="knowledgebaseFlag(msg.knowledgebase) === 'cited'"
                 class="text-xs flex items-center gap-1.5 flex-wrap" style="color: var(--geek-text-faint)"
               >
                 <BookOpen class="w-3 h-3" />
-                引用文档 {{ msg.knowledgebase.docCount || (msg.knowledgebase.docName?.length || 0) }} 个
-                <span v-if="msg.knowledgebase.docName && msg.knowledgebase.docName.length > 0" class="flex flex-wrap gap-1">
+                引用文档 {{ msg.knowledgebase?.docCount || (msg.knowledgebase?.docName?.length || 0) }} 个
+                <span v-if="msg.knowledgebase?.docName?.length" class="flex flex-wrap gap-1">
                   <span
-                    v-for="(doc, di) in msg.knowledgebase.docName"
+                    v-for="(doc, di) in msg.knowledgebase?.docName || []"
                     :key="di"
                     class="px-1.5 py-0.5 rounded text-[10px]"
                     style="background: var(--geek-input-bg); color: var(--geek-text-secondary)"
@@ -168,9 +175,10 @@
 
 <script setup lang="ts">
 import { ref, nextTick, watch, reactive } from 'vue'
-import { Bot, Clock, Wrench, ChevronDown, CheckCircle, BookOpen, Cpu } from 'lucide-vue-next'
+import { Bot, Clock, Wrench, ChevronDown, CheckCircle, BookOpen, Cpu, AlertTriangle } from 'lucide-vue-next'
 import type { DisplayMessage } from '../types'
 import { renderMarkdown } from '../utils/markdown'
+import { knowledgebaseFlag } from '../utils/knowledgebaseFlag'
 
 const props = withDefaults(defineProps<{
   messages: DisplayMessage[]

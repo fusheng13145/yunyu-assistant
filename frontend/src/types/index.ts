@@ -1,6 +1,8 @@
 export interface KnowledgebaseInfo {
   docCount?: number
   docName?: string[]
+  /** 检索是否因外部故障未得出结论（后端 v2.39 起随 query_end 下发） */
+  failed?: boolean
 }
 
 export interface ChatMessage {

@@ -463,11 +463,13 @@ import {
   ArrowLeft, Users, Bot, PhoneCall, MessageSquare, MessagesSquare, ScrollText,
 } from 'lucide-vue-next'
 import ThemeToggle from '../components/ThemeToggle.vue'
+import { useNotification } from '../composables/useNotification'
 import { useTheme } from '../composables/useTheme'
 import { fetchOverview, fetchAuditLogs, fetchUsers, fetchArchiveOverview, runArchive, fetchQuotas, fetchQuotaDefaults, upsertQuota, fetchInviteCodes, generateInviteCodes, MAX_INVITE_CODES_PER_REQUEST, type AdminOverview, type AdminAuditLog, type ArchiveOverview, type ArchiveRunResult, type AdminQuota, type QuotaUpsertPayload, type AdminInviteCode } from '../api/admin'
 import type { User } from '../types'
 
 const { themeMode, setTheme } = useTheme()
+const { show } = useNotification()
 const router = useRouter()
 
 const PAGE_SIZE = 10
@@ -503,6 +505,7 @@ const loadArchiveOverview = async () => {
     archiveOverview.value = await fetchArchiveOverview()
   } catch (error) {
     console.error('加载数据归档概览失败:', error)
+    show('数据归档概览加载失败，页面显示的归档状态不是最新', 'error')
   }
 }
 
@@ -563,6 +566,7 @@ const loadQuotas = async () => {
     quotaUserOptions.value = userPage.list
   } catch (error) {
     console.error('加载配额配置失败:', error)
+    show('配额配置加载失败，请先重试再修改，避免覆盖不到位的配置', 'error')
   }
 }
 
@@ -641,6 +645,7 @@ const loadAuditLogs = async () => {
     auditLogTotal.value = result.total
   } catch (error) {
     console.error('加载审计日志失败:', error)
+    show(`审计日志加载失败：${(error as Error).message}`, 'error')
   }
 }
 const prevAuditPage = () => { if (auditPage.value > 1) { auditPage.value--; loadAuditLogs() } }
@@ -660,6 +665,7 @@ const loadUsers = async () => {
     userTotal.value = result.total
   } catch (error) {
     console.error('加载用户列表失败:', error)
+    show(`用户列表加载失败：${(error as Error).message}`, 'error')
   }
 }
 const onSearchUser = () => { userPage.value = 1; loadUsers() }
@@ -685,6 +691,7 @@ const loadInviteCodes = async () => {
     inviteTotal.value = result.total
   } catch (error) {
     console.error('加载邀请码列表失败:', error)
+    show(`邀请码台账加载失败：${(error as Error).message}`, 'error')
   }
 }
 const prevInvitePage = () => { if (invitePage.value > 1) { invitePage.value--; loadInviteCodes() } }
@@ -738,7 +745,12 @@ const formatTime = (value?: string | null) => {
 
 onMounted(async () => {
   await Promise.all([
-    fetchOverview().then(data => { overview.value = data }).catch(e => console.error('加载概览失败:', e)),
+    fetchOverview()
+      .then(data => { overview.value = data })
+      .catch(e => {
+        console.error('加载概览失败:', e)
+        show('概览统计加载失败，卡片数字可能为空', 'error')
+      }),
     loadAuditLogs(),
     loadUsers(),
     loadArchiveOverview(),

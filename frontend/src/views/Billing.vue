@@ -83,9 +83,11 @@ import { useRouter } from 'vue-router'
 import { ArrowLeft, RefreshCw, Bot, PhoneCall, MessageSquare } from 'lucide-vue-next'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { useTheme } from '../composables/useTheme'
+import { useNotification } from '../composables/useNotification'
 import { fetchUsage, type QuotaUsage } from '../api/billing'
 
 const { themeMode, setTheme } = useTheme()
+const { show } = useNotification()
 const router = useRouter()
 const usage = ref<QuotaUsage | null>(null)
 
@@ -101,6 +103,7 @@ const load = async () => {
     usage.value = await fetchUsage()
   } catch (error) {
     console.error('加载用量失败:', error)
+    show('用量数据加载失败，显示的并非实时额度', 'error')
   }
 }
 

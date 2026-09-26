@@ -194,6 +194,7 @@ import { useRouter } from 'vue-router'
 import { ArrowLeft, Plus, Users, ChevronLeft, UserPlus } from 'lucide-vue-next'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { useTheme } from '../composables/useTheme'
+import { useNotification } from '../composables/useNotification'
 import {
   createOrg, fetchOrgs, fetchOrgMembers, addOrgMember,
   changeOrgMemberRole, removeOrgMember, deleteOrg,
@@ -201,6 +202,7 @@ import {
 import type { Org, OrgMember } from '../types'
 
 const { themeMode, setTheme } = useTheme()
+const { show } = useNotification()
 const router = useRouter()
 
 const orgs = ref<Org[]>([])
@@ -236,6 +238,7 @@ const loadOrgs = async () => {
     orgs.value = await fetchOrgs()
   } catch (error) {
     console.error('加载组织列表失败:', error)
+    show('组织列表加载失败，页面显示的不是最新数据', 'error')
   }
 }
 
@@ -247,6 +250,7 @@ const openOrg = async (orgId: string) => {
     members.value = await fetchOrgMembers(orgId)
   } catch (error) {
     console.error('加载成员失败:', error)
+    show('成员列表加载失败，请点击重试或稍后再看', 'error')
   }
 }
 
@@ -259,6 +263,7 @@ const onCreateOrg = async () => {
     await loadOrgs()
   } catch (error) {
     console.error('创建组织失败:', error)
+    show(`创建组织失败：${(error as Error).message}`, 'error')
   } finally {
     creating.value = false
   }
@@ -284,6 +289,7 @@ const onRoleChange = async (member: OrgMember, role: string) => {
     members.value = await fetchOrgMembers(selectedOrg.value.id)
   } catch (error) {
     console.error('修改角色失败:', error)
+    show(`角色修改失败：${(error as Error).message}`, 'error')
   }
 }
 
@@ -295,6 +301,7 @@ const onRemoveMember = async (member: OrgMember) => {
     members.value = await fetchOrgMembers(selectedOrg.value.id)
   } catch (error) {
     console.error('移除成员失败:', error)
+    show(`成员移除失败：${(error as Error).message}`, 'error')
   }
 }
 
@@ -307,6 +314,7 @@ const onExitOrg = async () => {
     await loadOrgs()
   } catch (error) {
     console.error('退出组织失败:', error)
+    show(`退出组织失败：${(error as Error).message}`, 'error')
   }
 }
 
@@ -319,6 +327,7 @@ const onDeleteOrg = async () => {
     await loadOrgs()
   } catch (error) {
     console.error('删除组织失败:', error)
+    show(`删除组织失败：${(error as Error).message}`, 'error')
   }
 }
 
