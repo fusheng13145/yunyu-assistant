@@ -52,7 +52,7 @@ class TokenBlacklistServiceTest {
     @Test
     void integrationWithJwtUtil_jtiIsUniquePerToken() throws Exception {
         TokenBlacklistService bl = new TokenBlacklistService();
-        JwtUtil jwtUtil = new JwtUtil(bl);
+        JwtUtil jwtUtil = new JwtUtil(bl, com.leyon.backend.support.JwtTestSupport.alwaysLiveCredentials());
         // 纯单测环境绕过 @Value 注入，反射填充密钥与有效期
         java.lang.reflect.Field secretField = JwtUtil.class.getDeclaredField("secret");
         secretField.setAccessible(true);

@@ -1,6 +1,7 @@
 package com.leyon.backend.interceptor;
 
 import com.leyon.backend.service.TokenBlacklistService;
+import com.leyon.backend.support.JwtTestSupport;
 import com.leyon.backend.util.JwtUtil;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,7 +39,7 @@ class AuthInterceptorTest {
     void setUp() {
         blacklistService = mock(TokenBlacklistService.class);
         when(blacklistService.isBlacklisted(any())).thenReturn(false);
-        jwtUtil = new JwtUtil(blacklistService);
+        jwtUtil = new JwtUtil(blacklistService, JwtTestSupport.alwaysLiveCredentials());
         ReflectionTestUtils.setField(jwtUtil, "secret", TEST_SECRET);
         ReflectionTestUtils.setField(jwtUtil, "expiration", 3_600_000L);
         ReflectionTestUtils.setField(jwtUtil, "refreshExpiration", 604_800_000L);

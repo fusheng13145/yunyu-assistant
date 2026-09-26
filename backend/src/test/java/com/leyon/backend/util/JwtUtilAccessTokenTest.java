@@ -1,6 +1,8 @@
 package com.leyon.backend.util;
 
+import com.leyon.backend.service.AccountCredentialService;
 import com.leyon.backend.service.TokenBlacklistService;
+import com.leyon.backend.support.JwtTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,7 +42,7 @@ class JwtUtilAccessTokenTest {
 
     @BeforeEach
     void setUp() {
-        jwtUtil = new JwtUtil(blacklistService);
+        jwtUtil = new JwtUtil(blacklistService, JwtTestSupport.alwaysLiveCredentials());
         ReflectionTestUtils.setField(jwtUtil, "secret", TEST_SECRET);
         ReflectionTestUtils.setField(jwtUtil, "expiration", 3_600_000L);
         ReflectionTestUtils.setField(jwtUtil, "refreshExpiration", 604_800_000L);

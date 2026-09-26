@@ -35,7 +35,7 @@ class UserServiceLoginLockTest {
     @Test
     void fifthFailureLocksAndSixthLoginRejected() throws Exception {
         LoginAttemptService attemptService = new LoginAttemptService();
-        JwtUtil jwtUtil = new JwtUtil(new TokenBlacklistService());
+        JwtUtil jwtUtil = new JwtUtil(new TokenBlacklistService(), com.leyon.backend.support.JwtTestSupport.alwaysLiveCredentials());
         // 反射填充 JwtUtil 字段
         setField(jwtUtil, "secret", "test-secret-key-0123456789abcdef0123456789abcdef");
         setField(jwtUtil, "expiration", 86400000L);
@@ -67,7 +67,7 @@ class UserServiceLoginLockTest {
     @Test
     void successfulLoginClearsFailures() throws Exception {
         LoginAttemptService attemptService = new LoginAttemptService();
-        JwtUtil jwtUtil = new JwtUtil(new TokenBlacklistService());
+        JwtUtil jwtUtil = new JwtUtil(new TokenBlacklistService(), com.leyon.backend.support.JwtTestSupport.alwaysLiveCredentials());
         setField(jwtUtil, "secret", "test-secret-key-0123456789abcdef0123456789abcdef");
         setField(jwtUtil, "expiration", 86400000L);
         setField(jwtUtil, "refreshExpiration", 604800000L);

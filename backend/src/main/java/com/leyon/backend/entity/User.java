@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.LocalDateTime;
 
 /**
@@ -86,6 +87,14 @@ public class User {
      */
     @TableLogic
     private Integer isDeleted;
+
+    /**
+     * 凭据版本号：每次改密 +1，令牌的 {@code tv} claim 与之不符即失效（v2.42）
+     * <p>
+     * 服务端内部状态，不对外下发（{@code GET /api/auth/me} 直接返回本实体）
+     */
+    @JsonIgnore
+    private Integer tokenVersion;
 
     public User() {
     }
@@ -191,6 +200,14 @@ public class User {
 
     public void setIsDeleted(Integer isDeleted) {
         this.isDeleted = isDeleted;
+    }
+
+    public Integer getTokenVersion() {
+        return tokenVersion;
+    }
+
+    public void setTokenVersion(Integer tokenVersion) {
+        this.tokenVersion = tokenVersion;
     }
 
     @Override

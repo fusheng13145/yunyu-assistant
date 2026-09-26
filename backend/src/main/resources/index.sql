@@ -32,6 +32,7 @@ CREATE TABLE `users` (
     `email` VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
     `phone` VARCHAR(20) DEFAULT NULL COMMENT '手机号',
     `role` VARCHAR(20) NOT NULL DEFAULT 'user' COMMENT '角色 user:普通用户 admin:管理员',
+    `token_version` INT NOT NULL DEFAULT 0 COMMENT '凭据版本：改密即+1，令牌 tv claim 与之不符立刻失效（v2.42）',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',

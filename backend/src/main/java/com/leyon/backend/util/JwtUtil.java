@@ -1,5 +1,6 @@
 package com.leyon.backend.util;
 
+import com.leyon.backend.service.AccountCredentialService;
 import com.leyon.backend.service.TokenBlacklistService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -20,6 +21,12 @@ import org.slf4j.LoggerFactory;
  * JWT 工具类
  * 负责令牌生成、解析、校验，支持访问令牌与刷新令牌双令牌体系
  * 登出令牌经 jti 黑名单失效（TokenBlacklistService）
+ * 账号侧作废经凭据版本戳失效（AccountCredentialService，v2.42）
+ * <p>
+ * 版本戳判定刻意放在 {@link #validateToken} 与 {@link #validateAccessToken} 内部而不是各调用点：
+ * 全仓有 7 处令牌校验入口（HTTP 拦截器、WS 握手拦截器、文本 WS、语音信令，以及
+ * {@code /api/auth/**} 放行路径里的刷新、登出、当前用户自解析三次），管理端拦截器则复用
+ * HTTP 拦截器写入的用户身份。逐处补必然漏掉一处——而漏掉的那一处就是攻击面。
  *
  * @author leyon
  */
@@ -37,6 +44,8 @@ public class JwtUtil {
     private static final String CLAIM_USERNAME = "username";
     /** jti claim 名称（JWK 标准字段） */
     private static final String CLAIM_JTI = "jti";
+    /** 账号凭据版本 claim 名称（v2.42：改密/注销即让已签发的令牌作废） */
+    private static final String CLAIM_TOKEN_VERSION = "tv";
 
     /**
      * JWT 加密密钥
@@ -45,7 +54,7 @@ public class JwtUtil {
     private String secret;
 
     /**
-     * JWT 过期时长(毫秒) - 访问令牌
+     * JWT 过期时长(毫秒) - 访问令牌，v2.42 起默认 15 分钟
      */
     @Value("${app.jwt.expiration}")
     private long expiration;
@@ -58,12 +67,17 @@ public class JwtUtil {
 
     private final TokenBlacklistService tokenBlacklistService;
 
+    /** 账号凭据版本校验（v2.42）：7 个校验调用点自动同规则 */
+    private final AccountCredentialService accountCredentialService;
+
     private static final Logger logger = LoggerFactory.getLogger(JwtUtil.class);
     /** HMAC-SHA 密钥最小长度（字节） */
     private static final int MIN_SECRET_LENGTH = 32;
 
-    public JwtUtil(TokenBlacklistService tokenBlacklistService) {
+    public JwtUtil(TokenBlacklistService tokenBlacklistService,
+                   AccountCredentialService accountCredentialService) {
         this.tokenBlacklistService = tokenBlacklistService;
+        this.accountCredentialService = accountCredentialService;
     }
 
     /**
@@ -138,6 +152,8 @@ public class JwtUtil {
                 .subject(userId)
                 .claim(CLAIM_USERNAME, username)
                 .claim(CLAIM_TOKEN_TYPE, type)
+                // 签发票据时钉住账号当时的凭据版本：改密后版本 +1，这一张立刻对不上（v2.42）
+                .claim(CLAIM_TOKEN_VERSION, accountCredentialService.currentVersion(userId))
                 .id(UUID.randomUUID().toString())
                 .issuedAt(now)
                 .expiration(expireDate)
@@ -214,7 +230,7 @@ public class JwtUtil {
 
     /**
      * 校验令牌有效性
-     * 捕获格式错误、签名错误、过期、黑名单命中等异常
+     * 捕获格式错误、签名错误、过期、黑名单命中、凭据版本落后等异常
      *
      * @param token JWT令牌
      * @return true-有效 false-无效
@@ -226,7 +242,8 @@ public class JwtUtil {
             if (tokenBlacklistService.isBlacklisted(claims.getId())) {
                 return false;
             }
-            return true;
+            // 账号侧作废校验：版本落后或账号已消失即无效（v2.42）
+            return accountCredentialService.isCredentialLive(claims.getSubject(), credentialVersion(claims));
         } catch (Exception e) {
             return false;
         }
@@ -235,7 +252,7 @@ public class JwtUtil {
     /**
      * 校验"可作为会话凭据"的令牌：签名、有效期、黑名单之外还要求 {@code type=access}
      * <p>
-     * 只调 {@link #validateToken} 是不够的：refresh 令牌默认 7 天有效、access 只有 24 小时
+     * 只调 {@link #validateToken} 是不够的：refresh 令牌默认 7 天有效、access 只有 15 分钟
      * （{@code app.jwt.expiration} / {@code app.jwt.refresh-expiration}），
      * 若它也通行于 {@code /api/**} 与 WebSocket，则泄露 refresh 令牌（XSS、日志、误分享）
      * 等于拿到整个 API 的长期访问权，而不只是"换发新令牌"这一项能力；
@@ -250,9 +267,23 @@ public class JwtUtil {
             if (!TOKEN_TYPE_ACCESS.equals(claims.get(CLAIM_TOKEN_TYPE, String.class))) {
                 return false;
             }
-            return !tokenBlacklistService.isBlacklisted(claims.getId());
+            if (tokenBlacklistService.isBlacklisted(claims.getId())) {
+                return false;
+            }
+            return accountCredentialService.isCredentialLive(claims.getSubject(), credentialVersion(claims));
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * 读令牌携带的凭据版本；v2.42 之前签发的存量令牌无此 claim，按初始版本 0 处理，
+     * 这样升级本身不会把在线用户踢下线，而账号一旦改密（版本 ≥1）它们同样失效。
+     */
+    private int credentialVersion(Claims claims) {
+        Number version = claims.get(CLAIM_TOKEN_VERSION, Number.class);
+        return version == null
+                ? AccountCredentialService.LEGACY_TOKEN_VERSION
+                : version.intValue();
     }
 }

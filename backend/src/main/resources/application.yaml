@@ -148,7 +148,10 @@ app:
   # JWT 认证配置（Secret 长度必须 ≥ 256 位 / 32 字节，生产环境使用强随机生成值）
   jwt:
     secret: ${JWT_SECRET}
-    expiration: ${JWT_EXPIRATION:86400000}
+    # 访问令牌有效期（毫秒），默认 15 分钟：前端 authFetch 会在临期/401 时静默续期
+    # （续期阈值 RENEW_SKEW_MS=60 秒），故 access 短周期不影响正常使用，
+    # 只压缩被盗令牌在没有凭据版本戳时的存活窗口（v2.42）
+    expiration: ${JWT_EXPIRATION:900000}
     # 刷新令牌有效期（毫秒），默认 7 天
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
   # RAG 知识库服务（未配置时允许启动，检索功能降级）

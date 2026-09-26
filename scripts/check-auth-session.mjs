@@ -6,6 +6,8 @@
  * 运行：node scripts/check-auth-session.mjs
  */
 
+import { readFileSync } from 'node:fs'
+
 const AUTH = new URL('../frontend/src/api/auth.ts', import.meta.url).href
 
 /** 造一个只用于本地判定的 JWT（签名无意义，只关心 payload.exp；jti 用于区分不同令牌） */
@@ -230,6 +232,45 @@ console.log('\n[9] FormData 请求体不被塞进 JSON Content-Type（否则后�
   await auth.authFetch('/api/x', { method: 'PUT', body: JSON.stringify({ a: 1 }) })
   const put = calls.find((c) => c.method === 'PUT')
   check('JSON 请求体自动补 Content-Type', /^application\/json/.test(put?.headers['content-type'] ?? ''))
+}
+
+// ---------------------------------------------------------------- 后端默认寿命 × 前端临期窗口
+console.log('\n[10] 后端 access 默认寿命与前端临期窗口配套（v2.42 · C-94）')
+{
+  const yaml = readFileSync(new URL('../backend/src/main/resources/application.yaml', import.meta.url), 'utf8')
+  const matched = yaml.match(/expiration:\s*\$\{JWT_EXPIRATION:(\d+)\}/)
+  check('application.yaml 里 access 默认值可解析（改名即断链）', !!matched, matched ? '' : '未找到 ${JWT_EXPIRATION:默认值}')
+  const ttlMs = Number(matched[1])
+  const ttlSec = ttlMs / 1000
+  check('access 默认 ≤ 15 分钟（改回数十小时则被盗令牌窗口重开）', ttlMs <= 900_000, `实际 ${ttlMs} ms`)
+  check('access 默认 ≥ 前端的 5 倍续期窗口（否则每次请求都要先换发）', ttlMs > 5 * 60_000, `实际 ${ttlMs} ms`)
+
+  // 用真实默认寿命造两枚令牌：窗口之外不该打续期，窗口之内必须先续期
+  const justOutside = await scenario(
+    makeStorage({ token: jwt(nowSec() + ttlSec - 61), refreshToken: 'RT_OLD' }),
+    (url) => (url === '/api/auth/refresh' ? { status: 200, body: newSession(nowSec() + ttlSec) } : { status: 200, body: ok })
+  )
+  await auth.request('/api/assistants')
+  check('剩余寿命高于 60s 窗口时不打续期', !justOutside.some((c) => c.url === '/api/auth/refresh'))
+
+  const justInside = await scenario(
+    makeStorage({ token: jwt(nowSec() + 59), refreshToken: 'RT_OLD' }),
+    (url) => (url === '/api/auth/refresh' ? { status: 200, body: newSession(nowSec() + ttlSec) } : { status: 200, body: ok })
+  )
+  await auth.request('/api/assistants')
+  check('进入最后一分钟时先换发再发业务请求', justInside[0]?.url === '/api/auth/refresh',
+    justInside.map((c) => c.url).join(' → '))
+
+  // 空闲超过 15 分钟后回来：令牌已过期也不能把用户直接踢下线，要先换发
+  const afterIdle = await scenario(
+    makeStorage({ token: jwt(nowSec() - 1), refreshToken: 'RT_OLD' }),
+    (url) => (url === '/api/auth/refresh' ? { status: 200, body: newSession(nowSec() + ttlSec) } : { status: 200, body: ok })
+  )
+  await auth.request('/api/assistants')
+  check('已过期令牌在发送前被换发（不产生 401 往返）',
+    afterIdle[0]?.url === '/api/auth/refresh' && !afterIdle.some((c) => c.url === '/api/auth/refresh' && c.status === 401))
+  const sent = afterIdle.find((c) => c.url === '/api/assistants')
+  check('业务请求携带的是换发后的新令牌', sent && /^Bearer /.test(sent.headers.authorization ?? ''))
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)

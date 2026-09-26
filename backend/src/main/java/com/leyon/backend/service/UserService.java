@@ -194,8 +194,8 @@ public class UserService {
             return false;
         }
 
-        // 更新新密码
-        user.setPassword(passwordEncoder.encode(newPassword));
-        return userMapper.updateById(user) > 0;
+        // 更新新密码，并在同一条语句里推进凭据版本：
+        // 分两步写会留"密码已改、旧令牌仍有效"的窗口，也可能只成功一半
+        return userMapper.updatePasswordAndBumpTokenVersion(userId, passwordEncoder.encode(newPassword)) > 0;
     }
 }
