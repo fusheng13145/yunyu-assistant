@@ -6,7 +6,13 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 聊天记录实体
@@ -16,6 +22,9 @@ import java.time.LocalDateTime;
  */
 @TableName("records")
 public class Record {
+
+    /** 用于 knowledgebase_info JSON 字符串与对象互转 */
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     // 角色常量
     /** 角色-用户 */
@@ -81,7 +90,7 @@ public class Record {
     private String toolResult;
 
     /**
-     * 引用的知识库信息（JSON 字符串：{docCount, docName[]}）
+     * 引用的知识库信息（JSON 字符串列：{docCount, docName[], failed}）
      */
     private String knowledgebaseInfo;
 
@@ -190,12 +199,52 @@ public class Record {
         this.toolResult = toolResult;
     }
 
+    /** MyBatis-Plus 映射 DB 与归档 SQL 使用（对外 JSON 隐藏，由 knowledgebase 对象承载） */
+    @JsonIgnore
     public String getKnowledgebaseInfo() {
         return knowledgebaseInfo;
     }
 
+    @JsonIgnore
     public void setKnowledgebaseInfo(String knowledgebaseInfo) {
         this.knowledgebaseInfo = knowledgebaseInfo;
+    }
+
+    /**
+     * 知识库引用状态：与 query_end 帧的 knowledgebase 同名同形，
+     * 历史回读（GET /api/sessions/{id}/messages）可直接复用前端的三态判定
+     *
+     * @param docCount 命中文档数
+     * @param docName  命中文档名列表
+     * @param failed   本轮检索是否因外部故障未得出结论
+     */
+    public record Knowledgebase(int docCount, List<String> docName, boolean failed) {
+    }
+
+    /**
+     * JSON 对外暴露 knowledgebase 为对象；列缺失/空/脏数据一律返回 null，
+     * 而不是臆造 {docCount:0, failed:false}——那会被渲染成"知识库确实没有相关内容"
+     */
+    @JsonProperty("knowledgebase")
+    public Knowledgebase getKnowledgebase() {
+        if (knowledgebaseInfo == null || knowledgebaseInfo.isBlank()) {
+            return null;
+        }
+        try {
+            return JSON_MAPPER.readValue(knowledgebaseInfo, new TypeReference<>() {
+            });
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 写入列文本（形状与 {@link #getKnowledgebase()} 读取侧同源，落库与下发不会漂移） */
+    public void setKnowledgebase(Knowledgebase knowledgebase) {
+        try {
+            this.knowledgebaseInfo = JSON_MAPPER.writeValueAsString(knowledgebase);
+        } catch (Exception e) {
+            this.knowledgebaseInfo = null;
+        }
     }
 
     public Long getCostTime() {

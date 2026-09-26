@@ -184,4 +184,100 @@ class ChatServiceTest {
     private static Map<String, Object> knowledgebaseOf(Map<String, Object> endChunk) {
         return (Map<String, Object>) endChunk.get("knowledgebase");
     }
+
+    // ===================== 检索状态必须落库，历史回看才可辨（v2.41 · C-90） =====================
+
+    /** 取本轮助手回复记录（落库顺序恒为 [user, assistant]） */
+    private static Record assistantRecordOf(ChatService service) {
+        List<Record> records = service.getNewRecords();
+        assertThat(records).hasSize(2);
+        return records.get(1);
+    }
+
+    @Test
+    void saveConversation_persistsKnowledgebaseHitShape() throws Exception {
+        ChatService kbChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "你是测试助手", List.of("kb-1"), List.of());
+        when(knowledgeProvider.queryKnowledgeBaseWithDetail(any(), any()))
+                .thenReturn(new KnowledgeProvider.KnowledgeHit("参考内容", 2, List.of("A.pdf", "B.pdf")));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("带参考的回答"))))));
+
+        StepVerifier.create(kbChat.chatStream("问题")).expectNextCount(2).verifyComplete();
+
+        // 落库形状与 query_end 帧同名同形，历史回看可直接复用前端 knowledgebaseFlag()
+        Map<String, Object> stored = objectMapper.readValue(
+                assistantRecordOf(kbChat).getKnowledgebaseInfo(), Map.class);
+        assertThat(stored).containsEntry("docCount", 2)
+                .containsEntry("docName", List.of("A.pdf", "B.pdf"))
+                .containsEntry("failed", false);
+    }
+
+    @Test
+    void saveConversation_persistsNoHitShape() throws Exception {
+        ChatService kbChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "你是测试助手", List.of("kb-1"), List.of());
+        when(knowledgeProvider.queryKnowledgeBaseWithDetail(any(), any()))
+                .thenReturn(new KnowledgeProvider.KnowledgeHit("", 0, List.of()));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("知识库确实没有相关内容"))))));
+
+        StepVerifier.create(kbChat.chatStream("问题")).expectNextCount(2).verifyComplete();
+
+        // 与失败例成对：docCount 同为 0，只有 failed 这一维不同；两例同落库形状则落库不可辨
+        Map<String, Object> stored = objectMapper.readValue(
+                assistantRecordOf(kbChat).getKnowledgebaseInfo(), Map.class);
+        assertThat(stored).containsEntry("docCount", 0)
+                .containsEntry("docName", List.of())
+                .containsEntry("failed", false);
+    }
+
+    @Test
+    void saveConversation_persistsRetrievalFailureShape() throws Exception {
+        ChatService kbChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "你是测试助手", List.of("kb-1"), List.of());
+        when(knowledgeProvider.queryKnowledgeBaseWithDetail(any(), any()))
+                .thenThrow(new RuntimeException("RAGFlow 连接超时"));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("无参考也照常回答"))))));
+
+        StepVerifier.create(kbChat.chatStream("问题")).expectNextCount(2).verifyComplete();
+
+        Map<String, Object> stored = objectMapper.readValue(
+                assistantRecordOf(kbChat).getKnowledgebaseInfo(), Map.class);
+        assertThat(stored).containsEntry("docCount", 0)
+                .containsEntry("docName", List.of())
+                .containsEntry("failed", true);
+    }
+
+    @Test
+    void saveConversation_leavesKnowledgebaseInfoNullWhenNoKnowledgeBaseConfigured() {
+        Generation gen = new Generation(new AssistantMessage("回复内容"));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(gen))));
+
+        StepVerifier.create(chatService.chatStream("用户问题")).expectNextCount(2).verifyComplete();
+
+        // 未挂知识库与会话本身无关，不该凭空写一个"0 篇引用"的假状态
+        assertThat(assistantRecordOf(chatService).getKnowledgebaseInfo()).isNull();
+        // 用户消息不携带检索状态
+        assertThat(chatService.getNewRecords().get(0).getKnowledgebaseInfo()).isNull();
+    }
+
+    @Test
+    void saveConversation_knowledgebaseInfoIsValidJsonForMysqlColumn() throws Exception {
+        // MySQL JSON 列对非法文本直接报 3140，落库文本必须是可解析 JSON
+        ChatService kbChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "你是测试助手", List.of("kb-1"), List.of());
+        when(knowledgeProvider.queryKnowledgeBaseWithDetail(any(), any()))
+                .thenReturn(new KnowledgeProvider.KnowledgeHit("参考内容", 1, List.of("含\"引号\".pdf")));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("回答"))))));
+
+        StepVerifier.create(kbChat.chatStream("问题")).expectNextCount(2).verifyComplete();
+
+        String raw = assistantRecordOf(kbChat).getKnowledgebaseInfo();
+        assertThat(raw).doesNotStartWith("null").isNotBlank();
+        assertThat(objectMapper.readTree(raw).path("docName").get(0).asText()).isEqualTo("含\"引号\".pdf");
+    }
 }

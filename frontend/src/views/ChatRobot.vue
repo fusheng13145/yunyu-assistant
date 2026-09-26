@@ -596,6 +596,7 @@ import ThemeToggle from '../components/ThemeToggle.vue'
 import { useTheme } from '../composables/useTheme'
 import { useNotification } from '../composables/useNotification'
 import { useWebSocket } from '../utils/websocket'
+import { mapHistoryRecord } from '../utils/mapHistoryRecord'
 import { useWebRTC } from '../composables/useWebRTC'
 import { uploadRecording } from '../api/callRecord'
 import { fetchAssistant } from '../api/assistant'
@@ -1299,13 +1300,7 @@ const renderSessionHistory = async (sessionId: string) => {
     const list = page.list
       .slice()
       .reverse()
-      .map((r): DisplayMessage | null => {
-        if (r.role === 0) return { role: 'user', text: r.message }
-        if (r.role === 1) return { role: 'assistant', text: r.message, costTime: r.costTime }
-        if (r.role === 2) return { role: 'tool_call', toolName: r.toolName, text: r.toolArgs || r.message }
-        if (r.role === 3) return { role: 'tool_result', toolName: r.toolName, toolResult: r.toolResult || r.message, text: r.toolResult || r.message }
-        return null
-      })
+      .map(mapHistoryRecord)
       .filter((m): m is DisplayMessage => m !== null)
     if (list.length === 0) {
       const name = currentAssistant.value?.name || '智能助手'
@@ -1329,13 +1324,7 @@ const loadEarlierMessages = async () => {
     const older = page.list
       .slice()
       .reverse()
-      .map((r): DisplayMessage | null => {
-        if (r.role === 0) return { role: 'user', text: r.message }
-        if (r.role === 1) return { role: 'assistant', text: r.message, costTime: r.costTime }
-        if (r.role === 2) return { role: 'tool_call', toolName: r.toolName, text: r.toolArgs || r.message }
-        if (r.role === 3) return { role: 'tool_result', toolName: r.toolName, toolResult: r.toolResult || r.message, text: r.toolResult || r.message }
-        return null
-      })
+      .map(mapHistoryRecord)
       .filter((m): m is DisplayMessage => m !== null)
     messages.value = [...older, ...messages.value]
     historyPage += 1

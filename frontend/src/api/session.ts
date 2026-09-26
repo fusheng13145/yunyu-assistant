@@ -1,4 +1,4 @@
-import type { ChatSession } from '../types'
+import type { ChatSession, KnowledgebaseInfo } from '../types'
 import { request } from './auth'
 
 const API_BASE = '/api'
@@ -37,6 +37,8 @@ export interface ChatRecordMessage {
   toolResult?: string
   costTime?: number
   createdAt?: string
+  /** 本轮检索状态（后端 v2.41 起落库；NULL=该会话未挂知识库，故可整段缺失） */
+  knowledgebase?: KnowledgebaseInfo
 }
 
 /** 查询会话历史消息（分页，倒序最新在前；切换会话时回显，长会话惰性加载） */

@@ -501,6 +501,12 @@ public class ChatService {
         assistantRecord.setRole(Record.ROLE_ASSISTANT);
         assistantRecord.setMessage(assistantText);
         assistantRecord.setCostTime(costTime);
+        // 检索状态随回复落库（v2.41）：query_end 帧是一次性广播，刷新页面/历史回看只剩数据库这条；
+        // 未挂知识库的会话不写，否则一条 "0 篇引用" 的假状态会和"确实没查到"混为一谈
+        if (!knowledgeIds.isEmpty()) {
+            assistantRecord.setKnowledgebase(new Record.Knowledgebase(
+                    lastKnowledgeHit.docCount(), lastKnowledgeHit.docNames(), lastKnowledgeHit.failed()));
+        }
         chatRecords.add(assistantRecord);
     }
 
