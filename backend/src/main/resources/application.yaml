@@ -105,6 +105,13 @@ app:
     # "匿名把任意账号锁在登录页外"的 DoS 工具；快速爆破另有 AUTH 限流桶（5 次/分钟）挡着。
     login-lock:
       username-failures: ${LOGIN_LOCK_USERNAME_FAILURES:15}
+  # 开放平台（v2.50 · 候选 ㉙）：是否允许语音握手用 URL 查询参数 ?apiKey= 携带 API Key。
+  # 默认 false——长期凭据一旦进过 URL 就等于泄露（nginx access_log、浏览器历史、任何中间件都可能留着它），
+  # 而 HTTP 侧的 /api/open/** 从来不读查询参数，只有浏览器 WebSocket 因为设不了自定义头才需要这条通道。
+  # 置 true 属"部署者明确承担日志外泄风险"的应急兼容：每次走它都会记进拒绝台账的 URL_KEY_USED/URL_KEY_REJECTED，
+  # 便于看清还剩多少集成在用旧通道。彻底修法（短寿命一次性握手票据）属语音二期，见手册 7.4 候选 ㉞。
+  openapi:
+    ws-url-key-allowed: ${OPENAPI_WS_URL_KEY_ALLOWED:false}
   # 未认证 WebSocket 连接的存活上限（v2.32）
   # /ws/* 与 /ws-voice/* 允许免令牌握手（认证推迟到首条 auth 消息），而 Tomcat 服务端会话没有空闲回收
   # （setMaxIdleTimeout 于服务端是空操作，实测免令牌连接可存活 400 秒以上），故由应用层定时关闭超期未认证的连接。

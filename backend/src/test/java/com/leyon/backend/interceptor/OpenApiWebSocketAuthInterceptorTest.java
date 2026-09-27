@@ -2,6 +2,7 @@ package com.leyon.backend.interceptor;
 
 import com.leyon.backend.entity.ApiApp;
 import com.leyon.backend.service.ApiAppService;
+import com.leyon.backend.service.OpenApiDenialMeter;
 import com.leyon.backend.service.RateLimitService;
 import com.leyon.backend.util.ClientIpResolver;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,12 @@ import static org.mockito.Mockito.when;
  * 开放 OpenAPI 语音 WebSocket 握手鉴权拦截器单元测试（v2.16 开放语音）
  * 覆盖：无 Key 401、apiKey 查询参数有效注入身份、X-API-Key 请求头有效注入、无效/停用 Key 401；
  * v2.45 追加两条：缺 voice 能力 403、握手超限 429 且不查库（限流必须排在验 Key 之前）。
+ * <p>
+ * <b>v2.50（C-110）把 URL 查询参数通道改成默认关闭</b>（长期凭据会进反代访问日志与浏览器历史），
+ * 所以本类现在有两把拦截器：{@code interceptor} 显式开闸、保住既有链路用例的语义，
+ * {@code defaultInterceptor} 是生产默认、锁"带 URL Key 也当没带凭据"。关闸不等于失明——
+ * 被拒的 URL 用法单独记一格 {@code URL_KEY_REJECTED}，否则线上有多少集成还在用旧通道就没人知道。
+ * 台账用真组件断言落点，理由同 {@code OpenApiAuthInterceptorTest}。
  *
  * @author leyon
  */
@@ -58,22 +65,36 @@ class OpenApiWebSocketAuthInterceptorTest {
     @Mock
     private WebSocketHandler wsHandler;
 
+    /** 显式开闸（{@code ws-url-key-allowed=true}）的拦截器：既有链路用例走的是 URL 通道 */
     private OpenApiWebSocketAuthInterceptor interceptor;
+
+    /** v2.50 起的**生产默认**（开关关着）：URL 通道按"未携带凭据"拒绝 */
+    private OpenApiWebSocketAuthInterceptor defaultInterceptor;
+
     private Map<String, Object> attributes;
 
     /** 握手拒绝时要写的响应头：mock 只提供实例，断言直接读它（比 verify 更适合大小写不敏感的 header 语义） */
     private HttpHeaders responseHeaders;
 
+    /** 台账用真组件：v2.50 要断言的是"记进了哪一格"，而不是"有没有调 record" */
+    private OpenApiDenialMeter denialMeter;
+
     @BeforeEach
     void setUp() {
         // 来源地址判定用真实组件（默认不信任代理头），只测拦截器自己的编排
-        interceptor = new OpenApiWebSocketAuthInterceptor(apiAppService, rateLimitService,
-                new ClientIpResolver(false, 1));
+        denialMeter = new OpenApiDenialMeter();
+        interceptor = newInterceptor(true);
+        defaultInterceptor = newInterceptor(false);
         attributes = new HashMap<>();
         responseHeaders = new HttpHeaders();
         when(request.getHeaders()).thenReturn(new HttpHeaders());
         when(response.getHeaders()).thenReturn(responseHeaders);
         allowHandshake();
+    }
+
+    private OpenApiWebSocketAuthInterceptor newInterceptor(boolean urlKeyAllowed) {
+        return new OpenApiWebSocketAuthInterceptor(apiAppService, rateLimitService,
+                new ClientIpResolver(false, 1), denialMeter, urlKeyAllowed);
     }
 
     /** 放行限流档（各用例只断言鉴权与能力，限流本身在 RateLimitServiceTest 与下面的专项用例里测） */
@@ -219,12 +240,83 @@ class OpenApiWebSocketAuthInterceptorTest {
         when(request.getURI()).thenReturn(URI.create("ws://localhost:8080/api/open/ws-voice/a1?apiKey=key-ok"));
         when(request.getRemoteAddress()).thenReturn(new InetSocketAddress(InetAddress.getLoopbackAddress(), 51234));
         interceptor = new OpenApiWebSocketAuthInterceptor(apiAppService, rateLimitService,
-                new ClientIpResolver(true, 1));
+                new ClientIpResolver(true, 1), denialMeter, true);
 
         interceptor.beforeHandshake(request, response, wsHandler, attributes);
 
         ArgumentCaptor<String> bucketIp = ArgumentCaptor.forClass(String.class);
         verify(rateLimitService).tryAcquire(eq(RateLimitService.Tier.OPEN_WS), bucketIp.capture());
         assertThat(bucketIp.getValue()).isEqualTo("203.0.113.60");
+    }
+
+    /** 台账里某个格子的累计次数（没有该格时返回 0） */
+    private long count(OpenApiDenialMeter.Kind kind, String app) {
+        return denialMeter.recent(24).stream()
+                .filter(entry -> entry.kind() == kind && entry.app().equals(app))
+                .mapToLong(OpenApiDenialMeter.Entry::count)
+                .sum();
+    }
+
+    @Test
+    @DisplayName("v2.50 默认关闸：只带 ?apiKey= 的握手回 401（长期凭据不该从 URL 被采纳）")
+    void urlKeyIsNotAcceptedByDefault() {
+        when(request.getURI()).thenReturn(URI.create("ws://localhost:8080/api/open/ws-voice/a1?apiKey=key-ok"));
+        when(apiAppService.authByApiKey(any())).thenReturn(app("app-7", "u-owner", ApiApp.ENABLED, ALL_SCOPES));
+
+        boolean pass = defaultInterceptor.beforeHandshake(request, response, wsHandler, attributes);
+
+        assertThat(pass).isFalse();
+        verify(response).setStatusCode(HttpStatus.UNAUTHORIZED);
+        // 关闸后连库都不该查：采纳与否的判定发生在验 Key 之前
+        verify(apiAppService, never()).authByApiKey(any());
+    }
+
+    @Test
+    @DisplayName("v2.50 关闸不等于失明：被拒的 URL 通道使用记 URL_KEY_REJECTED，而不是混进 KEY_MISSING")
+    void rejectedUrlKeyHasItsOwnBucket() {
+        when(request.getURI()).thenReturn(URI.create("ws://localhost:8080/api/open/ws-voice/a1?apiKey=key-ok"));
+
+        defaultInterceptor.beforeHandshake(request, response, wsHandler, attributes);
+
+        assertThat(count(OpenApiDenialMeter.Kind.URL_KEY_REJECTED, OpenApiDenialMeter.UNKNOWN_APP)).isEqualTo(1);
+        assertThat(count(OpenApiDenialMeter.Kind.KEY_MISSING, OpenApiDenialMeter.UNKNOWN_APP)).isZero();
+    }
+
+    @Test
+    @DisplayName("v2.50 默认关闸不影响请求头通道：非浏览器客户端（curl/mobile/server）照常放行")
+    void headerChannelUnaffectedByDefault() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-API-Key", "key-header-ok");
+        when(request.getHeaders()).thenReturn(headers);
+        when(request.getURI()).thenReturn(URI.create("ws://localhost:8080/api/open/ws-voice/a3"));
+        when(apiAppService.authByApiKey("key-header-ok"))
+                .thenReturn(app("app-8", "u-owner-8", ApiApp.ENABLED, ALL_SCOPES));
+
+        assertThat(defaultInterceptor.beforeHandshake(request, response, wsHandler, attributes)).isTrue();
+        assertThat(attributes.get(OpenApiWebSocketAuthInterceptor.SESSION_ATTR_APP_ID)).isEqualTo("app-8");
+        assertThat(denialMeter.recent(24)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("v2.50 显式开闸后 URL 通道可用，但每次使用都记 URL_KEY_USED（给\"能不能一直关着\"提供读数）")
+    void openedUrlChannelIsStillCounted() {
+        boolean pass = handshake("ws://localhost:8080/api/open/ws-voice/a1?apiKey=key-open",
+                app("app-12", "u-owner", ApiApp.ENABLED, ALL_SCOPES));
+
+        assertThat(pass).isTrue();
+        assertThat(count(OpenApiDenialMeter.Kind.URL_KEY_USED, "app-12")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("v2.50 握手拒绝分格入册：完全没带凭据记 KEY_MISSING，缺能力记 SCOPE_DENIED 且带 appId")
+    void handshakeDenialsAreBucketedByReason() {
+        when(request.getURI()).thenReturn(URI.create("ws://localhost:8080/api/open/ws-voice/a1"));
+        defaultInterceptor.beforeHandshake(request, response, wsHandler, attributes);
+
+        handshake("ws://localhost:8080/api/open/ws-voice/a1?apiKey=key-no-voice",
+                app("app-13", "u-owner", ApiApp.ENABLED, "chat,call"));
+
+        assertThat(count(OpenApiDenialMeter.Kind.KEY_MISSING, OpenApiDenialMeter.UNKNOWN_APP)).isEqualTo(1);
+        assertThat(count(OpenApiDenialMeter.Kind.SCOPE_DENIED, "app-13")).isEqualTo(1);
     }
 }

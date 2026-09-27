@@ -4,12 +4,17 @@ import com.leyon.backend.annotation.Audit;
 import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.ApiApp;
 import com.leyon.backend.service.ApiAppService;
+import com.leyon.backend.service.OpenApiDenialMeter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 开放平台应用管理接口（P2-10 开放 OpenAPI）
@@ -23,8 +28,12 @@ public class ApiAppController {
 
     private final ApiAppService apiAppService;
 
-    public ApiAppController(ApiAppService apiAppService) {
+    /** 拒绝与风险事件台账（v2.50 · 候选 ㉜，只读展示） */
+    private final OpenApiDenialMeter denialMeter;
+
+    public ApiAppController(ApiAppService apiAppService, OpenApiDenialMeter denialMeter) {
         this.apiAppService = apiAppService;
+        this.denialMeter = denialMeter;
     }
 
     /**
@@ -106,5 +115,41 @@ public class ApiAppController {
             return ApiResponse.paramError("应用不存在或无操作权限");
         }
         return ApiResponse.success();
+    }
+
+    /**
+     * 开放平台拒绝与风险事件台账（v2.50 · 候选 ㉜）：按「事件种类 × 应用 × 小时」聚合的累计次数。
+     * <p>
+     * 属主只能看到自己应用的行；认不出归属的行（无 Key / 无效 Key / 限流）以 {@code unknown} 一格
+     * 全体可见——爆破针对的不是某个应用，把它锁在"仅管理员"里等于最该看见的时候看不见，
+     * 而这格只有次数、不含任何凭据片段。
+     * <p>
+     * 口径限制（已写进手册 6.6）：台账在内存，<b>重启清零、多实例各算各的份额</b>，
+     * 且吊销应用后其历史行会随归属查询一起消失（行还在内存里，只是没人能再查到自己已删的应用）。
+     */
+    @GetMapping("/denials")
+    public ApiResponse<Map<String, Object>> denials(@RequestParam(defaultValue = "24") int hours,
+                                                    HttpServletRequest request) {
+        String userId = (String) request.getAttribute("userId");
+        int window = OpenApiDenialMeter.clampWindow(hours);
+        Set<String> mine = apiAppService.listByUser(userId).stream().map(ApiApp::getId)
+                .collect(Collectors.toSet());
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (OpenApiDenialMeter.Entry entry : denialMeter.recent(window)) {
+            boolean unknown = OpenApiDenialMeter.UNKNOWN_APP.equals(entry.app());
+            if (!unknown && !mine.contains(entry.app())) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("app", unknown ? null : entry.app());
+            row.put("kind", entry.kind().name());
+            row.put("kindLabel", entry.kind().label());
+            row.put("count", entry.count());
+            rows.add(row);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("windowHours", window);
+        result.put("rows", rows);
+        return ApiResponse.success(result);
     }
 }

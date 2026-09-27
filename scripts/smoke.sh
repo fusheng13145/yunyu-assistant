@@ -747,16 +747,111 @@ if [ -n "$SCOPE_APP_ID" ]; then
     else
         skip '非属主改能力 + 审计详情' '没有独立于业务账号的管理员令牌（提供 SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS 后可测）'
     fi
-
-    if [ "$KEEP" = '1' ]; then
-        skip 'DELETE /api/openapi/apps/{id}' 'KEEP=1'
-    else
-        req DELETE "/api/openapi/apps/$SCOPE_APP_ID" "$TOKEN"
-        api_ok 'DELETE /api/openapi/apps/{id}（清理本次自造应用）'
-    fi
 else
     skip '能力变更全链' '应用创建失败，后续断言无法进行'
 fi
+
+# ---------- 7.11 拒绝台账与凭据通道（v2.50 · 候选 ㉙ + ㉜） ----------
+# 两件事一起收口：①（C-110）把**有效** Key 只写进 URL 查询参数打 REST 侧，必须仍回 401——
+# 长期凭据一旦进 URL 就会落进反代访问日志与浏览器历史，所以"能通"从来不是可选项；
+# ②（C-111）§7.9/§7.10 攒下的 401/403/429 必须查得到，且属主只看到自己应用的行 +
+#   全体可见的 unknown 格（无 Key / 错 Key / 握手限流都不知归属，把它们藏进"仅管理员"等于没做）。
+# 排在 §7.10 之后：本节完全依赖前两节造成的拒绝事件，且此刻自造应用还没被吊销（吊销后行会退出读数）。
+section '7.11 开放平台拒绝台账'
+
+if [ -n "$SCOPE_APP_KEY" ]; then
+    # 有效 Key + 正确的 Accept，唯一变量是"Key 放在哪"：查询参数不被读取 ⇒ 401
+    STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' -X POST \
+              -H 'Accept: text/event-stream' -H 'Content-Type: application/json' \
+              -d '{}' "$BASE/api/open/chat?apiKey=$SCOPE_APP_KEY" 2>/dev/null)" || STATUS="000"
+    BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)"
+    want_status '有效 Key 只写在 URL 查询参数打 REST → 仍 401（HTTP 侧从不读 query，凭据不进日志面）' 401 401
+else
+    skip '有效 Key 只写在 URL 查询参数打 REST → 仍 401' '§7.10 未拿到自造应用的有效 Key'
+fi
+
+# 先取回"我这个账号名下的应用 id 清单"，作为下一条读数断言的判据（不能只断言"没有别人的行"，
+# 那需要先知道别人是谁；改成"每一行要么 unknown、要么在我自己的清单里"是可判定的同强形式）
+OWNED=''
+if [ -n "$TOKEN" ]; then
+    req GET /api/openapi/apps "$TOKEN"
+    if api_ok 'GET /api/openapi/apps（取归属清单，供 §7.11 校验拒绝读数的可见性）'; then
+        ROW=0
+        while true; do
+            ROW_ID="$(jget "data.$ROW.id")"
+            [ -z "$ROW_ID" ] && break
+            OWNED="$OWNED $ROW_ID "
+            ROW=$((ROW + 1))
+        done
+    fi
+fi
+
+MY_APP_ROWS=''
+UNKNOWN_KINDS=''
+if [ -n "$TOKEN" ]; then
+    req GET '/api/openapi/denials?hours=24' "$TOKEN"
+    if api_ok 'GET /api/openapi/denials?hours=24（拒绝台账读数）'; then
+        [ "$(jget data.windowHours)" = '24' ] \
+            && ok '窗口按请求回显（前端不必猜服务端截断成了多少）' \
+            || bad 'windowHours 回显漂移' "实际 $(jget data.windowHours)"
+        IDX=0
+        FOREIGN=''
+        SCOPE_DENIED_COUNT=0
+        while true; do
+            KIND="$(jget "data.rows.$IDX.kind")"
+            [ -z "$KIND" ] && break
+            APP="$(jget "data.rows.$IDX.app")"
+            if [ -z "$APP" ]; then
+                UNKNOWN_KINDS="$UNKNOWN_KINDS $KIND "
+            else
+                case "$OWNED" in
+                    *" $APP "*)
+                        # 自己名下的应用：本节只关心 §7.10 那几次能力拒绝有没有落到按应用分的格子
+                        [ "$KIND" = 'SCOPE_DENIED' ] && [ "$APP" = "$SCOPE_APP_ID" ] \
+                            && SCOPE_DENIED_COUNT="$(jget "data.rows.$IDX.count")" ;;
+                    *) FOREIGN="$FOREIGN $APP" ;;
+                esac
+            fi
+            IDX=$((IDX + 1))
+        done
+        [ -z "$FOREIGN" ] \
+            && ok '读数不含非本账号应用的行（别人的 Key 被拒过多少次都不透露）' \
+            || bad '拒绝台账泄漏了他人的应用 id' "$FOREIGN"
+        # 前两节的三类"我的"事件：§7.10 用只有 chat 的 Key 打了 3 次 /api/open/call
+        [ "${SCOPE_DENIED_COUNT:-0}" -ge 3 ] \
+            && ok "§7.10 的 403 已按应用入账（SCOPE_DENIED ×$SCOPE_DENIED_COUNT）" \
+            || bad '§7.10 造成的能力拒绝未进台账' "SCOPE_DENIED count=$SCOPE_DENIED_COUNT，期望 ≥3"
+        for EXPECTED in KEY_MISSING KEY_INVALID RATE_LIMITED; do
+            case "$UNKNOWN_KINDS" in
+                *" $EXPECTED "*|"$EXPECTED"*)
+                    ok "无法归属的 $EXPECTED 全体可见（爆破不针对某个应用，锁在管理端等于看不见）" ;;
+                *)
+                    bad "台账缺 unknown 格的 $EXPECTED" "unknown 行=$UNKNOWN_KINDS" ;;
+            esac
+        done
+    fi
+
+    # 吊销即退出读数：这是"台账不泄漏已删对象"的口径，顺带承担 §7.10 自造应用的清理
+    if [ -n "$SCOPE_APP_ID" ]; then
+        if [ "$KEEP" = '1' ]; then
+            skip 'DELETE + 吊销后该行退出读数' 'KEEP=1'
+        else
+            req DELETE "/api/openapi/apps/$SCOPE_APP_ID" "$TOKEN"
+            api_ok 'DELETE /api/openapi/apps/{id}（清理本次自造应用）'
+            req GET '/api/openapi/denials?hours=24' "$TOKEN"
+            if api_ok 'GET /api/openapi/denials（吊销后再读一次）'; then
+                printf '%s' "$BODY" | grep -qF "$SCOPE_APP_ID" \
+                    && bad '吊销后仍能查到该应用的拒绝行' '读数未按当前归属过滤' \
+                    || ok '吊销应用的行随归属查询一起退出（unknown 格不受影响）'
+            fi
+        fi
+    fi
+fi
+
+# 握手侧"URL Key 通道默认关闭"这条不在真机重复：§7.9 的限流断言已把本机 IP 的 OPEN_WS 桶打到 429，
+# 此后握手一律 429，再也分辨不出"401 因关闸"还是"401 因没 Key"；而开关本身要重启才换。
+# 判定与两种台账落点（URL_KEY_REJECTED / URL_KEY_USED）在 OpenApiWebSocketAuthInterceptorTest 用真台账断言。
+skip '握手侧 URL 查询参数通道默认关闭' '§7.9 已耗尽同 IP 的 OPEN_WS 桶 ⇒ 真机只能测出 429；开关需重启，判定与台账落点走单测'
 
 # ---------- 8. 管理端只读 ----------
 if [ -n "${SMOKE_ADMIN_USER:-}" ]; then

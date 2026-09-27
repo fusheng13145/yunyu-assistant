@@ -58,3 +58,20 @@ export function updateAppScopes(appId: string, scopes: string): Promise<{ id: st
     body: JSON.stringify({ scopes }),
   })
 }
+
+/** 一条聚合结果：app 为 null 表示"认不出归属"的那一格（无 Key / 错 Key / 握手超限），全体可见 */
+export interface DenialRow {
+  app: string | null
+  kind: string
+  kindLabel: string
+  count: number
+}
+
+/**
+ * 开放平台拒绝台账（v2.50）：近 N 小时按「事件种类 × 应用」聚合的累计次数。
+ * 口径必须知道三件事：内存实现（重启清零）、多实例各算各的份额、窗口上限 24 小时
+ * （传更大的值服务端会截断并在 windowHours 里回显实际值）。
+ */
+export function fetchDenials(hours = 24): Promise<{ windowHours: number; rows: DenialRow[] }> {
+  return request<{ windowHours: number; rows: DenialRow[] }>(`${API_BASE}/openapi/denials?hours=${hours}`)
+}

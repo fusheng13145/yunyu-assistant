@@ -2,6 +2,7 @@ package com.leyon.backend.interceptor;
 
 import com.leyon.backend.entity.ApiApp;
 import com.leyon.backend.service.ApiAppService;
+import com.leyon.backend.service.OpenApiDenialMeter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +27,8 @@ import static org.mockito.Mockito.when;
  * 覆盖：无 Key 401 / 无效 Key 401 / 停用应用 401 / 有效 Key 且有能力放行并注入属主身份；
  * v2.45 追加能力判定：缺所需能力回 403（不回 401，否则调用方会去换一把同样没权限的 Key），
  * 以及"未登记所需能力的开放路径按拒绝处理"——新增端点忘记登记时必须是立刻可见的失败。
+ * v2.50（候选 ㉜）追加拒绝台账的四条：台账用真组件而不是 mock，因为要断言的是"记进了哪一格、
+ * 记了几次"，mock 只能证明"调了 record"；并有一条反向用例锁住"放行不记账"。
  *
  * @author leyon
  */
@@ -44,11 +47,15 @@ class OpenApiAuthInterceptorTest {
     private HttpServletResponse response;
 
     private OpenApiAuthInterceptor interceptor;
+    private OpenApiDenialMeter denialMeter;
     private StringWriter responseBody;
 
     @BeforeEach
     void setUp() throws Exception {
-        interceptor = new OpenApiAuthInterceptor(apiAppService);
+        // 台账用真组件而不是 mock：这批要断言的就是"记没记进正确的格子"，
+        // 用 mock 只能验"调了record"，验不出聚合键的形态（appId / unknown 的分格）
+        denialMeter = new OpenApiDenialMeter();
+        interceptor = new OpenApiAuthInterceptor(apiAppService, denialMeter);
         responseBody = new StringWriter();
         when(response.getWriter()).thenReturn(new PrintWriter(responseBody));
     }
@@ -140,5 +147,53 @@ class OpenApiAuthInterceptorTest {
     void scopeMatchingIsTolerant() throws Exception {
         assertThat(pass("key-ok", "/api/open/call",
                 app("app-6", "u-owner", ApiApp.ENABLED, "call, chat"))).isTrue();
+    }
+
+    /** 台账里某个格子的累计次数（没有该格时返回 0） */
+    private long count(OpenApiDenialMeter.Kind kind, String app) {
+        return denialMeter.recent(24).stream()
+                .filter(entry -> entry.kind() == kind && entry.app().equals(app))
+                .mapToLong(OpenApiDenialMeter.Entry::count)
+                .sum();
+    }
+
+    @Test
+    @DisplayName("v2.50 拒绝分格记账：没带 Key 与带了但查不到不是一回事（前者多半是漏配，后者才是爆破或在试旧凭据）")
+    void missingAndInvalidKeysAreCountedSeparately() throws Exception {
+        pass(null, "/api/open/chat", null);
+        pass(null, "/api/open/chat", null);
+        pass("bad-key", "/api/open/chat", null);
+
+        assertThat(count(OpenApiDenialMeter.Kind.KEY_MISSING, OpenApiDenialMeter.UNKNOWN_APP)).isEqualTo(2);
+        assertThat(count(OpenApiDenialMeter.Kind.KEY_INVALID, OpenApiDenialMeter.UNKNOWN_APP)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("v2.50 能力拒绝按应用记账：属主能看出\"是我的哪把 Key 在被拿去撞没开通的端点\"")
+    void scopeDenialIsCountedPerApp() throws Exception {
+        pass("key-chat-only", "/api/open/call", app("app-9", "u-owner", ApiApp.ENABLED, "chat"));
+
+        assertThat(count(OpenApiDenialMeter.Kind.SCOPE_DENIED, "app-9")).isEqualTo(1);
+        assertThat(denialMeter.recent(24))
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.kind())
+                        .isEqualTo(OpenApiDenialMeter.Kind.SCOPE_DENIED));
+    }
+
+    @Test
+    @DisplayName("v2.50 未登记能力的开放路径同样入册（ENDPOINT_UNREGISTERED 是服务方自己的缺陷账，不该只留在日志里）")
+    void unregisteredPathIsCounted() throws Exception {
+        pass("key-ok", "/api/open/new-thing", app("app-10", "u-owner", ApiApp.ENABLED, ALL_SCOPES));
+
+        assertThat(count(OpenApiDenialMeter.Kind.ENDPOINT_UNREGISTERED, "app-10")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("v2.50 反向锚点：放行的请求一个字节都不记（台账若把成功也算进\"拒绝\"，读数就全废了）")
+    void allowedRequestRecordsNothing() throws Exception {
+        assertThat(pass("key-ok", "/api/open/chat",
+                app("app-11", "u-owner", ApiApp.ENABLED, ALL_SCOPES))).isTrue();
+
+        assertThat(denialMeter.recent(24)).isEmpty();
     }
 }

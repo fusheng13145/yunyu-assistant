@@ -2,6 +2,7 @@ package com.leyon.backend.interceptor;
 
 import com.leyon.backend.entity.ApiApp;
 import com.leyon.backend.service.ApiAppService;
+import com.leyon.backend.service.OpenApiDenialMeter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -9,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
+import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.io.IOException;
@@ -27,6 +29,11 @@ import java.util.List;
  * 未出现在 {@link #REQUIRED_SCOPES} 里的 /api/open/ 路径按**拒绝**处理并记 WARN：
  * 新增开放端点时忘了登记能力，表现必须是"立刻被发现"，而不是"所有 Key 都能调"。
  * （/api/open/callbacks/** 由 AppConfig 从本拦截器排除，走独立的 X-Gateway-Token 校验。）
+ * <p>
+ * v2.50 两处收口：① 三类拒绝除 WARN 外一律进 {@link OpenApiDenialMeter} 聚合台账（候选 ㉜——此前
+ * 被暴力试 Key 与"某个集成用错端点"在运维侧完全同形，都只是日志里几行会滚走的 WARN）；
+ * ② 把"本拦截器**只读请求头**"写进测试与冒烟判据（候选 ㉙ 复核结论：长期凭据进 URL 的通道
+ * 从来只存在于语音握手，HTTP 侧没有）。
  *
  * @author leyon
  */
@@ -64,8 +71,12 @@ public class OpenApiAuthInterceptor implements HandlerInterceptor {
 
     private final ApiAppService apiAppService;
 
-    public OpenApiAuthInterceptor(ApiAppService apiAppService) {
+    /** 拒绝事件台账（聚合计数，不逐条写库；v2.50） */
+    private final OpenApiDenialMeter denialMeter;
+
+    public OpenApiAuthInterceptor(ApiAppService apiAppService, OpenApiDenialMeter denialMeter) {
         this.apiAppService = apiAppService;
+        this.denialMeter = denialMeter;
     }
 
     @Override
@@ -74,6 +85,9 @@ public class OpenApiAuthInterceptor implements HandlerInterceptor {
         String apiKey = request.getHeader(API_KEY_HEADER);
         ApiApp app = apiAppService.authByApiKey(apiKey);
         if (app == null || app.getEnabled() == null || app.getEnabled() != ApiApp.ENABLED) {
+            // 分两格记：缺凭据多半是集成漏配，带着 Key 却查不到才是爆破或在试旧凭据
+            denialMeter.record(StringUtils.hasText(apiKey)
+                    ? OpenApiDenialMeter.Kind.KEY_INVALID : OpenApiDenialMeter.Kind.KEY_MISSING, null);
             response.setStatus(UNAUTHORIZED_CODE);
             response.setContentType(JSON_CONTENT_TYPE);
             response.getWriter().write(UNAUTHORIZED_RESPONSE);
@@ -83,11 +97,13 @@ public class OpenApiAuthInterceptor implements HandlerInterceptor {
         String requiredScope = requiredScope(uri);
         if (requiredScope == null) {
             log.warn("开放端点未登记所需能力，按拒绝处理：{}", uri);
+            denialMeter.record(OpenApiDenialMeter.Kind.ENDPOINT_UNREGISTERED, app.getId());
             writeForbidden(response, "该开放端点尚未登记所需能力，请联系服务方");
             return false;
         }
         if (!app.hasScope(requiredScope)) {
             log.warn("开放平台能力不足：appId={} 缺 {}，请求 {}", app.getId(), requiredScope, uri);
+            denialMeter.record(OpenApiDenialMeter.Kind.SCOPE_DENIED, app.getId());
             writeForbidden(response, "该 API Key 未开通此能力（需要 " + requiredScope + "）");
             return false;
         }

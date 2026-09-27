@@ -1,5 +1,6 @@
 package com.leyon.backend.interceptor;
 
+import com.leyon.backend.service.OpenApiDenialMeter;
 import com.leyon.backend.service.RateLimitService;
 import com.leyon.backend.util.ClientIpResolver;
 
@@ -37,9 +38,17 @@ public class RateLimitInterceptor implements HandlerInterceptor {
      */
     private final ClientIpResolver clientIpResolver;
 
-    public RateLimitInterceptor(RateLimitService rateLimitService, ClientIpResolver clientIpResolver) {
+    /** 开放侧拒绝台账（v2.50 · 候选 ㉜） */
+    private final OpenApiDenialMeter denialMeter;
+
+    /** 开放平台路由前缀：只有这一族的 429 入拒绝台账，内部业务的限流不属"第三方被拒" */
+    private static final String OPEN_API_PREFIX = "/api/open/";
+
+    public RateLimitInterceptor(RateLimitService rateLimitService, ClientIpResolver clientIpResolver,
+                                OpenApiDenialMeter denialMeter) {
         this.rateLimitService = rateLimitService;
         this.clientIpResolver = clientIpResolver;
+        this.denialMeter = denialMeter;
     }
 
     /** 跨域预检请求方法（放行，不计数） */
@@ -85,6 +94,11 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         RateLimitService.Decision decision =
                 rateLimitService.tryAcquire(tier, clientIpResolver.resolve(request));
         if (!decision.allowed()) {
+            // 开放侧的 429 记进拒绝台账（v2.50 · 候选 ㉜）：此刻 Key 还没验过，只能记成"无法归属"，
+            // 但"某来源正在被挡"这件事本身就是属主需要看见的——内部业务的 429 不入此账
+            if (request.getRequestURI().startsWith(OPEN_API_PREFIX)) {
+                denialMeter.record(OpenApiDenialMeter.Kind.RATE_LIMITED, null);
+            }
             writeRateLimitResponse(response, decision.retryAfterSeconds());
             return false;
         }

@@ -1,11 +1,14 @@
 package com.leyon.backend.interceptor;
 
+import com.leyon.backend.service.OpenApiDenialMeter;
 import com.leyon.backend.service.RateLimitService;
 import com.leyon.backend.util.ClientIpResolver;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -25,20 +28,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * v2.45 把计数实现抽到 {@link RateLimitService}（握手链路要用同一份），本类因此只测
  * "URI 归档 + 429 形状 + 来源地址"这三件拦截器 own 的事；容量滑窗与档间隔离的直接断言
  * 在 {@code RateLimitServiceTest}。
+ * <p>
+ * <b>v2.50 起多一件事</b>：拦截器还是唯一知道"这次 429 属不属于开放平台"的地方（限流发生在
+ * 鉴权之前，此刻连 Key 都没有），所以台账的归档口径也在本类锁死——开放侧入账且只能记成
+ * {@code unknown}，内部业务侧完全不入账。
  *
  * @author leyon
  */
 class RateLimitInterceptorTest {
+
+    /**
+     * 真实台账而不是 mock：本类要锁的是"哪一类 429 会留下什么形状的行"，
+     * 换 mock 就变成验证调了几次参数一样的方法
+     */
+    private final OpenApiDenialMeter denialMeter = new OpenApiDenialMeter();
 
     /** 默认形态：不信任代理头，桶键＝连接层地址 */
     private final RateLimitInterceptor interceptor = interceptorWith(false, 1);
 
     /**
      * v2.44 起信任配置只在 {@link ClientIpResolver} 一处，v2.45 起计数只在 {@link RateLimitService}
-     * 一处，拦截器都是构造注入，因此测试直接组装而不是反射填字段
+     * 一处，v2.50 起拒绝台账只在 {@link OpenApiDenialMeter} 一处，拦截器都是构造注入，
+     * 因此测试直接组装而不是反射填字段。
      */
     private RateLimitInterceptor interceptorWith(boolean trustProxy, int trustHops) {
-        return new RateLimitInterceptor(new RateLimitService(), new ClientIpResolver(trustProxy, trustHops));
+        return new RateLimitInterceptor(new RateLimitService(),
+                new ClientIpResolver(trustProxy, trustHops), denialMeter);
     }
 
     /**
@@ -190,5 +205,31 @@ class RateLimitInterceptorTest {
                 "改最左伪造段仍应命中同一客户端桶");
         assertTrue(allow(proxied, "POST", "/api/auth/login", "10.0.0.99", "203.0.113.61"),
                 "真实客户端地址不同的请求不应被连坐");
+    }
+
+    @Test
+    @DisplayName("v2.50 开放侧的 429 入拒绝台账：限流发生在鉴权之前，只能记成无法归属（unknown）")
+    void openApiDenialIsLedgedAsUnknown() throws Exception {
+        for (int i = 0; i < 30; i++) {
+            allow("POST", "/api/open/chat", "10.0.0.30");
+        }
+        assertFalse(allow("POST", "/api/open/chat", "10.0.0.30"));
+
+        List<OpenApiDenialMeter.Entry> rows = denialMeter.recent(24);
+        assertEquals(1, rows.size(), "一次 429 只应留一行聚合，而不是每次记一条");
+        assertEquals(OpenApiDenialMeter.Kind.RATE_LIMITED, rows.get(0).kind());
+        assertEquals(OpenApiDenialMeter.UNKNOWN_APP, rows.get(0).app(),
+                "429 时 Key 尚未校验，记不出归属就不能凭空造一格");
+        assertEquals(1L, rows.get(0).count());
+    }
+
+    @Test
+    @DisplayName("v2.50 内部业务的 429 不入台账：这本账只记\"第三方被拒\"，不是通用限流日志")
+    void internalDenialStaysOutOfLedger() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            assertTrue(allow("POST", "/api/auth/login", "10.0.0.31"));
+        }
+        assertFalse(allow("POST", "/api/auth/login", "10.0.0.31"), "该请求应已 429");
+        assertTrue(denialMeter.recent(24).isEmpty(), "登录超限不属开放平台拒绝事件");
     }
 }

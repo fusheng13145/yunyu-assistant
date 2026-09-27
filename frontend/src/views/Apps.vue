@@ -25,6 +25,23 @@
         </button>
       </div>
 
+      <!-- 未归属的拒绝（无 Key / 错 Key / 握手超限）：爆破针对的不是某个应用，所以这一格对所有登录用户可见 -->
+      <div v-if="!denialFailed && unattributed.length > 0" class="geek-card rounded-xl px-4 py-3 mb-4 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span class="text-xs" style="color: var(--geek-text-secondary)">未识别凭据的调用：</span>
+        <span
+          v-for="row in unattributed"
+          :key="row.kind"
+          class="text-xs px-1.5 py-0.5 rounded-sm mono"
+          style="background: var(--geek-warning-bg); color: var(--geek-warning)"
+        >{{ row.kindLabel }} ×{{ row.count }}</span>
+        <span class="text-xs" style="color: var(--geek-text-faint)">
+          近 {{ denialWindow }} 小时累计，不含任何凭据内容；台账在内存里，重启清零、只算当前实例
+        </span>
+      </div>
+      <p v-else-if="denialFailed" class="text-xs mb-4" style="color: var(--geek-warning)">
+        拒绝台账读取失败：上方各应用的"被拒"列不可信，请刷新重试
+      </p>
+
       <div v-if="apps.length === 0" class="geek-card rounded-xl py-16 text-center">
         <KeyRound class="w-10 h-10 mx-auto mb-3" style="color: var(--geek-text-faint)" />
         <p class="text-sm" style="color: var(--geek-text-muted)">暂无应用</p>
@@ -38,6 +55,7 @@
               <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">应用名称</th>
               <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">作用域</th>
               <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">Webhook</th>
+              <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">近 {{ denialWindow }} 小时被拒</th>
               <th class="text-center px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">状态</th>
               <th class="text-center px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">创建时间</th>
               <th class="text-center px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">操作</th>
@@ -66,6 +84,19 @@
                 </div>
               </td>
               <td class="px-4 py-2.5 text-xs">{{ app.webhookUrl || '—' }}</td>
+              <!-- 拒绝台账（v2.50）：内存聚合，读数失败与"真的零次被拒"必须长成两种样子 -->
+              <td class="px-4 py-2.5">
+                <span v-if="cellFor(app.id).tone === 'unavailable'" class="text-xs" style="color: var(--geek-warning)">台账读不到</span>
+                <span v-else-if="cellFor(app.id).tone === 'quiet'" class="text-xs" style="color: var(--geek-text-faint)">0 次</span>
+                <div v-else class="flex flex-wrap items-center gap-1">
+                  <span
+                    v-for="row in cellFor(app.id).rows"
+                    :key="row.kind"
+                    class="text-xs px-1.5 py-0.5 rounded-sm mono"
+                    style="background: var(--geek-warning-bg); color: var(--geek-warning)"
+                  >{{ row.kindLabel }} ×{{ row.count }}</span>
+                </div>
+              </td>
               <td class="px-4 py-2.5 text-center">
                 <span
                   class="text-xs px-1.5 py-0.5 rounded-sm mono"
@@ -181,15 +212,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, Plus, KeyRound } from 'lucide-vue-next'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import ScopePicker from '../components/ScopePicker.vue'
 import { useTheme } from '../composables/useTheme'
 import { useNotification } from '../composables/useNotification'
-import { fetchApps, createApp, revokeApp, updateAppScopes } from '../api/openapi'
-import type { ApiAppItem, ApiAppCreated } from '../api/openapi'
+import { fetchApps, createApp, revokeApp, updateAppScopes, fetchDenials } from '../api/openapi'
+import type { ApiAppItem, ApiAppCreated, DenialRow } from '../api/openapi'
+import { ledgerCellFor, unattributedRows } from '../utils/denialLedger'
 
 const { themeMode, setTheme } = useTheme()
 const { show } = useNotification()
@@ -204,6 +236,15 @@ const revokeTarget = ref<ApiAppItem | null>(null)
 const editTarget = ref<ApiAppItem | null>(null)
 const editScopes = ref<string[]>([])
 const savingScopes = ref(false)
+
+/** 拒绝台账（v2.50 · 候选 ㉜）：读数、实际窗口、以及"读没读到"这个状态本身 */
+const denialRows = ref<DenialRow[]>([])
+const denialWindow = ref(24)
+const denialFailed = ref(false)
+
+/** 三态判定（读不到 / 零次 / 有拒绝）在 utils/denialLedger.ts，与门禁共用同一份实现 */
+const cellFor = (appId: string) => ledgerCellFor(denialRows.value, appId, denialFailed.value)
+const unattributed = computed(() => unattributedRows(denialRows.value))
 
 /** 能力清单与服务端 ApiApp.ALL_SCOPES 同序同名；勾选框只负责拼逗号串，判定全在服务端 */
 const scopeOptions = [
@@ -229,6 +270,24 @@ const load = async () => {
   } catch (error) {
     console.error('加载应用列表失败:', error)
     show('应用列表加载失败，请刷新页面重试', 'error')
+  }
+  await loadDenials()
+}
+
+/**
+ * 拒绝台账单独一条错误路径：它是附加的可观测面，读失败不能把应用列表也带崩，
+ * 但也不能显示成"0 次被拒"——那等于把故障伪装成好消息，所以置 denialFailed 让列显式承认读不到。
+ */
+const loadDenials = async () => {
+  try {
+    const result = await fetchDenials()
+    denialRows.value = result.rows
+    denialWindow.value = result.windowHours
+    denialFailed.value = false
+  } catch (error) {
+    console.error('加载拒绝台账失败:', error)
+    denialRows.value = []
+    denialFailed.value = true
   }
 }
 
