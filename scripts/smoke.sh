@@ -691,7 +691,41 @@ if [ -n "$SCOPE_APP_ID" ]; then
             printf '%s' "$BODY" | grep -qF "\"targetId\":\"$SCOPE_APP_ID\"" \
                 && ok '审计 targetId 指到本次应用（能指认具体是哪一个）' \
                 || bad '审计 targetId 未指向本次应用' 'targetId 不匹配'
-            skip '被拒绝的能力变更在审计里记成 result=1（成功）' 'AuditAspect 按"有没有抛异常"判成败，而 ApiResponse.paramError 是正常返回 ⇒ 上面那条非属主尝试与一次成功变更在台账里同形。开发库实测：同一应用 5 条 API_APP_SCOPES_UPDATE，其中 3 条 detail 为 NULL 的拒绝行同样 result=1。已登记为候选 ㉛（修法要动全局审计形状，不属本批）'
+            # 逐行数本应用的 SCOPES_UPDATE 按 result 分桶：拒绝 ≥3（两类非法入参 + 一次非属主）、
+            # 成功 ≥2。前者证"被拒绝不再记成成功"，后者证判据没被反向改成"一律失败"。
+            # 边界：只扫上面取回的第一页（pageSize=50，新→旧），前提是本次五笔变更仍在最近 50 行内；
+            # 共享库上有别人并发写审计时会挤出该页而伪红（手册 6.6 v2.47 条）。
+            IDX=0
+            REJECTED=0
+            ACCEPTED=0
+            REJECT_DETAIL=''
+            while true; do
+                ACTION="$(jget "data.list.$IDX.action")"
+                [ -z "$ACTION" ] && break
+                if [ "$ACTION" = 'API_APP_SCOPES_UPDATE' ] \
+                   && [ "$(jget "data.list.$IDX.targetId")" = "$SCOPE_APP_ID" ]; then
+                    if [ "$(jget "data.list.$IDX.result")" = '0' ]; then
+                        REJECTED=$((REJECTED + 1))
+                        [ -z "$REJECT_DETAIL" ] && REJECT_DETAIL="$(jget "data.list.$IDX.detail")"
+                    else
+                        ACCEPTED=$((ACCEPTED + 1))
+                    fi
+                fi
+                IDX=$((IDX + 1))
+            done
+            if [ "$REJECTED" -ge 3 ]; then
+                ok "被拒绝的能力变更记 result=0（本次 $REJECTED 条：两类非法入参 + 一次非属主）"
+            else
+                bad '被拒绝的能力变更仍记成成功' "result=0 的行只有 $REJECTED 条，期望 ≥3 ⇒ 判据又退回'只看有没有抛异常'"
+            fi
+            if [ "$ACCEPTED" -ge 2 ]; then
+                ok "成功的能力变更仍记 result=1（$ACCEPTED 条）⇒ 判据不是'一律失败'"
+            else
+                bad '成功变更未记 result=1' "result=1 的行只有 $ACCEPTED 条，期望 ≥2"
+            fi
+            printf '%s' "$REJECT_DETAIL" | grep -qF '应用不存在或无操作权限' \
+                && ok '拒绝行的 detail 带业务侧原因（不只"失败了"，还答得出"为什么"）' \
+                || bad '拒绝行缺可解释的原因' "detail=$(printf '%s' "$REJECT_DETAIL" | head -c 80)"
         fi
     else
         skip '非属主改能力 + 审计详情' '没有独立于业务账号的管理员令牌（提供 SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS 后可测）'

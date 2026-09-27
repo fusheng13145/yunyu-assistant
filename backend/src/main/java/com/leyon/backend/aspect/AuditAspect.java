@@ -2,6 +2,7 @@ package com.leyon.backend.aspect;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.annotation.Audit;
+import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.AuditLog;
 import com.leyon.backend.service.AuditLogService;
 import com.leyon.backend.util.ClientIpResolver;
@@ -45,8 +46,15 @@ public class AuditAspect {
     /** 被审计方法可用此 request 属性补充"改了什么"，见 {@link #record} */
     static final String DETAIL_ATTRIBUTE = "auditDetail";
 
+    /** {@code ApiResponse.success} 家族的固定业务码；非此值即一次业务失败 */
+    private static final int BUSINESS_SUCCESS_CODE = 200;
+
     /**
      * 环绕通知：执行目标方法，记录审计日志（成功/失败）
+     * <p>
+     * 成败有两条判据，缺一不可：抛异常（开放侧与 service 层错误走这条），以及
+     * 返回体业务码非 200（管理侧拒绝走 {@code ApiResponse.paramError}，HTTP 仍是 200，见手册 4.4）。
+     * 只判前一条会把"被拒绝的变更"记成成功，而这类行恰恰是最需要事后指认的。
      */
     @Around("@annotation(audit)")
     public Object around(ProceedingJoinPoint joinPoint, Audit audit) throws Throwable {
@@ -55,18 +63,32 @@ public class AuditAspect {
         String ip = request != null ? clientIpResolver.resolve(request) : null;
         String targetId = findTargetId(joinPoint.getArgs());
 
-        boolean success = true;
         Object result;
         try {
             result = joinPoint.proceed();
         } catch (Throwable t) {
-            success = false;
-            record(userId, audit, targetId, ip, success, t.getMessage(), detailOf(request));
+            record(userId, audit, targetId, ip, false, t.getMessage(), detailOf(request));
             throw t;
         }
         // 变更详情由被审计方法自己写入（它才知道改前的值），所以必须在 proceed 之后读
-        record(userId, audit, targetId, ip, success, null, detailOf(request));
+        String businessReason = businessFailureReason(result);
+        record(userId, audit, targetId, ip, businessReason == null, businessReason, detailOf(request));
         return result;
+    }
+
+    /**
+     * 返回体是否表示一次业务失败；是则给出落进 {@code detail.failReason} 的原因，否则返回 null。
+     * <p>
+     * 判据只覆盖 {@code ApiResponse} 这一种返回形状——全部 19 个 {@code @Audit} 端点都是它。
+     * 其它形状一律不猜（维持"没抛异常即成功"），否则新增返回类型会让审计朝反方向撒谎。
+     */
+    private static String businessFailureReason(Object result) {
+        if (!(result instanceof ApiResponse<?> response) || response.getCode() == BUSINESS_SUCCESS_CODE) {
+            return null;
+        }
+        return StringUtils.hasText(response.getMessage())
+                ? response.getMessage()
+                : "业务码 " + response.getCode();
     }
 
     private Object detailOf(HttpServletRequest request) {

@@ -175,6 +175,8 @@ CREATE TABLE `call_records` (
 
 -- ----------------------------
 -- 审计日志表: audit_logs
+-- result 判据自 v2.47 起为两条：抛异常 或 返回体 ApiResponse.code≠200（管理侧拒绝走后者，HTTP 仍是 200）；
+-- 此判定追溯不到历史行——v2.47 之前"被拒绝的变更"与"成功的变更"同样记 1，按 result 统计须先划时间界
 -- ----------------------------
 DROP TABLE IF EXISTS `audit_logs`;
 CREATE TABLE `audit_logs` (
