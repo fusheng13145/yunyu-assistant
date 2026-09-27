@@ -90,6 +90,21 @@ app:
   # 默认取严格侧：除显式 open 外的任何取值都按 invite 处理，配置写错不会变成裸奔注册。
   registration:
     mode: ${REGISTRATION_MODE:invite}
+  # 客户端来源判定与登录锁定（v2.44）
+  # 限流桶键、登录锁定维度、审计落库 IP 三处共用同一份判定，口径由 ClientIpResolver 唯一持有
+  security:
+    # 是否信任反向代理追加的 X-Forwarded-For。默认 false＝只信连接层地址（getRemoteAddr）：
+    # 代理头是客户端可伪造的输入面，默认吃它等于"每个请求都能自选落在哪个桶"。
+    # 只有实例确实部署在反向代理之后才置 true，且必须同时核对 trust-hops。
+    trust-proxy: ${TRUST_PROXY:false}
+    # 受信代理跳数（trust-proxy=true 时从 XFF 右端起算第几跳）：一层 nginx/Caddy＝1；
+    # CDN → LB → nginx 这类形态要按受信代理层数调大，否则桶键会落到中间代理的地址上。
+    trust-hops: ${TRUST_HOPS:1}
+    # 登录锁定的账号维度阈值（次/5 分钟）。来源维度固定 20 次/15 分钟，不受此配置影响。
+    # 放宽自 v2.43 前的 5 次：账号维度只能兜"跨 IP 的慢速撞库"，阈值太紧会变成
+    # "匿名把任意账号锁在登录页外"的 DoS 工具；快速爆破另有 AUTH 限流桶（5 次/分钟）挡着。
+    login-lock:
+      username-failures: ${LOGIN_LOCK_USERNAME_FAILURES:15}
   # 未认证 WebSocket 连接的存活上限（v2.32）
   # /ws/* 与 /ws-voice/* 允许免令牌握手（认证推迟到首条 auth 消息），而 Tomcat 服务端会话没有空闲回收
   # （setMaxIdleTimeout 于服务端是空操作，实测免令牌连接可存活 400 秒以上），故由应用层定时关闭超期未认证的连接。

@@ -5,13 +5,16 @@ import com.leyon.backend.entity.User;
 import com.leyon.backend.service.InviteCodeService;
 import com.leyon.backend.service.TokenBlacklistService;
 import com.leyon.backend.service.UserService;
+import com.leyon.backend.util.ClientIpResolver;
 import com.leyon.backend.util.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.util.Map;
 
@@ -27,7 +30,8 @@ import static org.mockito.Mockito.when;
 /**
  * 认证接口单元测试
  * 覆盖：/api/auth/** 为拦截器放行路径时需自行从 Authorization 头解析用户、无令牌时拒绝、
- * 请求头凭据只认 access 令牌（C-63）、注册密码长度规则、刷新令牌的字段契约与账号存在性校验
+ * 请求头凭据只认 access 令牌（C-63）、注册密码长度规则、刷新令牌的字段契约与账号存在性校验、
+ * 登录交给锁定层的来源地址（v2.44）
  *
  * @author leyon
  */
@@ -48,6 +52,10 @@ class AuthControllerTest {
 
     @Mock
     private HttpServletRequest request;
+
+    /** 真身（不 mock）：本批要锁的正是"控制器把哪一个地址交给登录锁定"，桩会把它自身也桩掉 */
+    @Spy
+    private ClientIpResolver clientIpResolver = new ClientIpResolver(false, 1);
 
     @InjectMocks
     private AuthController authController;
@@ -186,5 +194,25 @@ class AuthControllerTest {
         assertThat(result.getCode()).isEqualTo(400);
         verify(jwtUtil, never()).generateToken(anyString(), anyString());
         verify(jwtUtil, never()).generateRefreshToken(anyString(), anyString());
+    }
+
+    /**
+     * v2.44：登录必须把"服务端能证明的来源"交给锁定判定，否则来源维度形同虚设。
+     * 这里用真实 resolver（显式取生产默认形态：不信任代理头），而不是 mock，
+     * 否则"控制器自己读 XFF 第一段"这种回归没人拦得住。
+     */
+    @Test
+    void login_passesServerProvenClientIp_notForgedForwardedFor() {
+        MockHttpServletRequest loginRequest = new MockHttpServletRequest("POST", "/api/auth/login");
+        loginRequest.setRemoteAddr("203.0.113.7");
+        loginRequest.addHeader("X-Forwarded-For", "1.1.1.1");
+        when(userService.login("alice", "abc12345", "203.0.113.7"))
+                .thenReturn(Map.of("token", "access-token", "refreshToken", "refresh-token"));
+
+        ApiResponse<Map<String, String>> result = authController.login(
+                Map.of("username", "alice", "password", "abc12345"), loginRequest);
+
+        assertThat(result.getCode()).isEqualTo(200);
+        verify(userService).login("alice", "abc12345", "203.0.113.7");
     }
 }

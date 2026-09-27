@@ -6,6 +6,7 @@ import com.leyon.backend.entity.User;
 import com.leyon.backend.service.InviteCodeService;
 import com.leyon.backend.service.TokenBlacklistService;
 import com.leyon.backend.service.UserService;
+import com.leyon.backend.util.ClientIpResolver;
 import com.leyon.backend.util.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
@@ -28,6 +29,7 @@ public class AuthController {
     private final JwtUtil jwtUtil;
     private final TokenBlacklistService tokenBlacklistService;
     private final InviteCodeService inviteCodeService;
+    private final ClientIpResolver clientIpResolver;
 
     /** 密码规则：长度 6-128 且至少含一个字母与一个数字（与前端注册校验、报错文案一致） */
     private static final Pattern PASSWORD_PATTERN = Pattern.compile(
@@ -35,11 +37,12 @@ public class AuthController {
     );
 
     public AuthController(UserService userService, JwtUtil jwtUtil, TokenBlacklistService tokenBlacklistService,
-                          InviteCodeService inviteCodeService) {
+                          InviteCodeService inviteCodeService, ClientIpResolver clientIpResolver) {
         this.userService = userService;
         this.jwtUtil = jwtUtil;
         this.tokenBlacklistService = tokenBlacklistService;
         this.inviteCodeService = inviteCodeService;
+        this.clientIpResolver = clientIpResolver;
     }
 
     /**
@@ -122,7 +125,8 @@ public class AuthController {
             return ApiResponse.paramError("密码长度不能超过128个字符");
         }
 
-        Map<String, String> result = userService.login(username, password);
+        // 登录锁定按来源维度判定，地址只能取服务端可证明的那一个（v2.44）
+        Map<String, String> result = userService.login(username, password, clientIpResolver.resolve(request));
         return ApiResponse.success(result);
     }
 

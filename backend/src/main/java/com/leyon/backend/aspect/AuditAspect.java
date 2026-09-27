@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.annotation.Audit;
 import com.leyon.backend.entity.AuditLog;
 import com.leyon.backend.service.AuditLogService;
+import com.leyon.backend.util.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -16,6 +17,9 @@ import org.springframework.util.StringUtils;
 /**
  * 操作审计切面
  * 拦截标注了 @Audit 的方法，记录操作人、动作、目标、IP、结果
+ * <p>
+ * IP 自 v2.44 起与限流桶键同口径（{@link ClientIpResolver}）：审计的价值在于事后能指认同一个
+ * 来源，直取 X-Forwarded-For 第一段等于让被审计者自己填写落库的来源字段。
  *
  * @author leyon
  */
@@ -27,10 +31,13 @@ public class AuditAspect {
 
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
+    private final ClientIpResolver clientIpResolver;
 
-    public AuditAspect(AuditLogService auditLogService, ObjectMapper objectMapper) {
+    public AuditAspect(AuditLogService auditLogService, ObjectMapper objectMapper,
+                       ClientIpResolver clientIpResolver) {
         this.auditLogService = auditLogService;
         this.objectMapper = objectMapper;
+        this.clientIpResolver = clientIpResolver;
     }
 
     /**
@@ -40,7 +47,7 @@ public class AuditAspect {
     public Object around(ProceedingJoinPoint joinPoint, Audit audit) throws Throwable {
         HttpServletRequest request = findRequest(joinPoint.getArgs());
         String userId = request != null ? (String) request.getAttribute("userId") : null;
-        String ip = request != null ? getClientIp(request) : null;
+        String ip = request != null ? clientIpResolver.resolve(request) : null;
         String targetId = findTargetId(joinPoint.getArgs());
 
         boolean success = true;
@@ -105,16 +112,5 @@ public class AuditAspect {
             }
         }
         return null;
-    }
-
-    /**
-     * 获取客户端真实 IP
-     */
-    private String getClientIp(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(xForwardedFor)) {
-            return xForwardedFor.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }

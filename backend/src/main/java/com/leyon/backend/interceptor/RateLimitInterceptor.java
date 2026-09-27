@@ -1,5 +1,7 @@
 package com.leyon.backend.interceptor;
 
+import com.leyon.backend.util.ClientIpResolver;
+
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -24,6 +26,7 @@ import java.util.concurrent.TimeUnit;
  * 接口速率限制拦截器（v2.35 扩面为两档）
  * 认证桶：login/register/refresh/password 共用 5 次/分钟/IP（防凭证爆破）
  * 高成本桶：OpenAPI 对话/外呼、RAGFlow 检索试验、录音上传/下载共用 30 次/分钟/IP（防额度与带宽滥用）
+ * 桶键的"IP"自 v2.44 起默认取连接层地址；只有确认在反向代理后部署才开 app.security.trust-proxy
  * 配置 app.redis.enabled=true 时使用 Redis 固定窗口计数（多实例共享）；否则使用内存滑动窗口（单实例）
  * Redis 故障时自动降级内存实现
  *
@@ -50,6 +53,16 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     /** 是否启用 Redis 共享状态（环境变量 REDIS_ENABLED） */
     @Value("${app.redis.enabled:false}")
     private boolean redisEnabled;
+
+    /**
+     * 客户端地址判定（v2.44）：注入而不是自己读配置，避免限流桶键与登录锁定的来源维度
+     * 各自解析一次代理信任、进而在两处口径漂移
+     */
+    private final ClientIpResolver clientIpResolver;
+
+    public RateLimitInterceptor(ClientIpResolver clientIpResolver) {
+        this.clientIpResolver = clientIpResolver;
+    }
 
     /**
      * 上次全量清理时间戳，用于节流清理频率
@@ -158,8 +171,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        // 获取客户端真实IP（优先 X-Forwarded-For，其次 RemoteAddr），桶按 IP+档位 计
-        String bucketKey = getClientIp(request) + "|" + tier.name();
+        // 桶键＝服务端能证明的来源（v2.44：默认只信连接层地址，代理头须显式开信任）
+        String bucketKey = clientIpResolver.resolve(request) + "|" + tier.name();
 
         // 检查是否超出速率限制（Redis 优先，失败降级内存）
         if (isRateLimited(bucketKey, tier, response)) {
@@ -167,22 +180,6 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         }
 
         return true;
-    }
-
-    /**
-     * 获取客户端真实 IP 地址
-     * 优先从代理头获取，兜底使用 RemoteAddr
-     *
-     * @param request 请求对象
-     * @return 客户端 IP 字符串
-     */
-    private String getClientIp(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-            // 取第一个IP（最原始的客户端IP）
-            return xForwardedFor.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 
     /**

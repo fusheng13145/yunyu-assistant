@@ -7,7 +7,7 @@
 
 | 模块 | 能力 |
 |---|---|
-| 账号认证 | 注册 / 登录 / 修改密码 / 个人资料，JWT 无状态鉴权 + 双令牌**静默续期**（临期或 401 时单飞刷新后重放，跨标签页互不踢出，v2.30），登录限流防爆破；**会话凭据只认 access 令牌**——REST、WS 握手与首条 `auth` 帧统一校验 `type == access`，7 天寿命的 refresh 令牌不能当会话凭据使用（v2.32 C-63）；**注册默认需一次性邀请码**——`REGISTRATION_MODE=invite` 下注册必须带一个未使用过的码，领取由带 `used_by IS NULL` 条件的原子 UPDATE 完成（一个码只对应一个账号，并发下不超发），管理端可批量发码并查台账（v2.37）；**改密即作废全部已签发令牌**——`users.token_version` 在签发时钉进 `tv` claim、由 `JwtUtil` 的两个校验入口查库比对，故改密后旧 access 与旧 refresh 同时失效，被盗令牌不再能靠轮换无限存活；access 默认寿命随之从 24 小时收到 **15 分钟**（v2.42） |
+| 账号认证 | 注册 / 登录 / 修改密码 / 个人资料，JWT 无状态鉴权 + 双令牌**静默续期**（临期或 401 时单飞刷新后重放，跨标签页互不踢出，v2.30），登录限流防爆破；**"客户端是谁"自 v2.44 起由 `ClientIpResolver` 单点判定**——默认只信连接层地址，伪造 `X-Forwarded-For` 不再能换限流桶，反向代理部署须显式设 `TRUST_PROXY` + `TRUST_HOPS`（从右往左按代理层数取），限流桶键 / 登录锁定 / 审计落库三处同一口径；**登录失败按来源（20 次/15 分）为主 + 账号（15 次/5 分）粗兜底两维锁定**（v2.44；此前"按用户名 5 次锁 15 分钟"与可伪造头组合即成匿名锁人武器）；**会话凭据只认 access 令牌**——REST、WS 握手与首条 `auth` 帧统一校验 `type == access`，7 天寿命的 refresh 令牌不能当会话凭据使用（v2.32 C-63）；**注册默认需一次性邀请码**——`REGISTRATION_MODE=invite` 下注册必须带一个未使用过的码，领取由带 `used_by IS NULL` 条件的原子 UPDATE 完成（一个码只对应一个账号，并发下不超发），管理端可批量发码并查台账（v2.37）；**改密即作废全部已签发令牌**——`users.token_version` 在签发时钉进 `tv` claim、由 `JwtUtil` 的两个校验入口查库比对，故改密后旧 access 与旧 refresh 同时失效，被盗令牌不再能靠轮换无限存活；access 默认寿命随之从 24 小时收到 **15 分钟**（v2.42） |
 | 助手管理 | 助手增删改查（软删除 + 属主校验）、人设 / 音色 / 模型参数配置、知识库绑定、人设模板、**可用工具白名单（按助手裁剪能力）** |
 | 语音通话 | WebRTC 建链、ASR 实时转写、LLM 流式回复、TTS 播报、VAD 打断（网关侧执行）、沉默追问、LLM 主动挂断、通话记录、**通话录音（两条音轨并入一个流本地上传与回放；未做混音，回放内容未经浏览器验证，见手册 6.6 v2.38）**、弱网自动降级 |
 | 文本对话 | 流式对话、人设热更新、知识库动态切换、对话重置、工具调用可视化、Markdown 渲染；**配额耗尽 / 消息过长的服务端拒绝以 toast 说明并当场解冻输入框**（v2.43 前该回执无人消费，输入会冻结到刷新） |
@@ -17,7 +17,7 @@
 | 用量配额 | 助手上限、单日通话次数 / 时长 / 消息量配额拦截 + 用量账单视图（组织优先 / 用户兜底 / 环境变量再兜底）+ **管理端配额配置页**；单条用户输入长度上限 2000 字（v2.29，防按条计量的配额被超长消息打穿成本） |
 | 开放 OpenAPI | 第三方应用 API Key（`X-API-Key`）、文本对话流式 SSE（多轮会话续聊）、WebRTC 语音会话、**PSTN 外呼（可插拔网关）**、**Webhook 回调（通话/外呼/消息事件，异步+重试+签名）**，用量计入属主配额 |
 | AI 工具 | 挂断（hangup）、当前时间、天气（高德）、联网搜索、**深度研究（检索 + 多篇正文一次抓取汇总）**、**文生图 / 文生视频（异步任务）/ 网页正文读取**，支持 Function Calling 递归续答；**一个工具类即一个能力**，依赖密钥/开关未配置的工具不注册（模型不可见），且可按助手勾选可用工具，见手册 2.8 |
-| 工程化 | 操作审计、全局异常脱敏、健康检查、环境变量化配置、逻辑删除、统一响应体 |
+| 工程化 | 操作审计（落库 IP 与限流桶键同口径，客户端不可自填，v2.44）、全局异常脱敏、健康检查、环境变量化配置、逻辑删除、统一响应体 |
 
 ## 技术栈
 
@@ -81,7 +81,7 @@ mysql --default-character-set=utf8mb4 -uroot -p yunyu_assistant < backend/src/ma
 复制 `.env.example` 为 `.env` 并填写必填项（`.env` 已被 git 忽略，不会入库）：
 
 - 必需：`DB_USER` / `DB_PASSWORD` / `JWT_SECRET`（≥32 字节强随机值）/ `OPENAI_API_KEY`
-- 可选：`OPENAI_BASE_URL` / `RAGFLOW_*` / `RUSTPBX_ENDPOINT` / `SEARCH_*` / `WEATHER_API_KEY` / `HEALTH_SHOW_DETAILS` / `MAPPER_LOG_LEVEL` / `LOG_FILE` / `SERVER_ADDRESS` / `MANAGEMENT_SERVER_PORT` / `MANAGEMENT_SERVER_ADDRESS` / `CORS_ALLOWED_ORIGINS` / `REGISTRATION_MODE`（v2.37，默认 `invite`）等（公网部署相关四项见手册 5.3 与 5.10）
+- 可选：`OPENAI_BASE_URL` / `RAGFLOW_*` / `RUSTPBX_ENDPOINT` / `SEARCH_*` / `WEATHER_API_KEY` / `HEALTH_SHOW_DETAILS` / `MAPPER_LOG_LEVEL` / `LOG_FILE` / `SERVER_ADDRESS` / `MANAGEMENT_SERVER_PORT` / `MANAGEMENT_SERVER_ADDRESS` / `CORS_ALLOWED_ORIGINS` / `REGISTRATION_MODE`（v2.37，默认 `invite`）/ `TRUST_PROXY` + `TRUST_HOPS` + `LOGIN_LOCK_USERNAME_FAILURES`（v2.44，反向代理部署与前两项必须成对设）等（公网部署相关项见手册 5.3 与 5.10）
 
 > **`.env` 不会被自动读取**（项目无 dotenv 依赖，Spring / JVM / Maven 都不解析它），需显式导出：
 > `set -a && . ./.env && set +a && java -jar ...`，或 systemd 的 `EnvironmentFile=`。`start-backend.bat` 也不读 `.env`，它只在变量缺失时给一组开发默认值。
@@ -137,6 +137,8 @@ npm run dev
 | `SERVER_PORT` / `SERVER_ADDRESS` | **（v2.30 新增 `SERVER_ADDRESS`）** 后端端口与监听地址，默认 `8080` / `0.0.0.0`（Boot 原行为）。单机反代部署应设 `127.0.0.1`，让"业务端口不出机器"由内核保证而非只靠云安全组（手册 5.7⑤、5.10②） |
 | `MANAGEMENT_SERVER_PORT` / `MANAGEMENT_SERVER_ADDRESS` | **（v2.30 引入，v2.31 真实首跑修正）** actuator 端口与监听地址，默认"与业务同端口、地址**不设**"。⚠️ Boot 3.5.15 两个方向不对称：同端口时给了 address 会直接抛异常起不来（故 yaml 刻意不给默认值、`.env.example` 默认注释），而端口独立时它又**不继承** `server.address`（不设即 `/actuator` 绑全网卡）。结论＝换端口必须两项成对配，且只换端口不设地址会被 `ManagementAddressGuard` 拒绝启动（手册 5.3、6.1 与 7.4 C-59/C-61） |
 | `CORS_ALLOWED_ORIGINS` | **（v2.30）** 前端来源白名单（逗号分隔），HTTP 跨域与 WebSocket 握手共用，默认为此前硬编码的 4 个本地端口。**公网站点必须把正式域名加进来**：浏览器 WS 握手一定带 `Origin`，漏配的表现是"能登录、点什么都没反应"且后端日志无异常栈（手册 5.7⑥、6.5） |
+| `TRUST_PROXY` / `TRUST_HOPS` | **（v2.44 新增）** 限流桶键 / 登录锁定 / 审计落库三处"客户端是谁"的唯一判据开关。默认 `false` / `1` ⇒ **只信连接层地址，不读 `X-Forwarded-For`**（该头最左段由客户端自填，读它等于让每个请求自选落在哪个桶）。反向代理后部署必须设 `TRUST_PROXY=true` 并把 `TRUST_HOPS` 配成**自己控制的代理层数**（判据从右往左数）；配错的两个方向都是"不同用户并进同一个桶"，**且不会报错**，故按手册 5.8 用审计落库的 `ip` 做人工验收 |
+| `LOGIN_LOCK_USERNAME_FAILURES` | **（v2.44 新增）** 账号维度登录失败锁定阈值，默认 15（锁 5 分钟）。主判定已改为来源维度（20 次/15 分，不可配），账号维度只作"换 IP 慢爆号"的粗兜底；调回 5 会重新打开"匿名把任意账号锁在登录页外"的窗口，调太高则共享出口（校园网 / 公司 NAT）下容易被他人失败次数牵连（手册 2.1、6.6） |
 
 | `WS_UNAUTHENTICATED_IDLE_MS` | **（v2.32 新增）** 未认证 WebSocket 连接的存活上限，默认 30000。`/ws/*` 与 `/ws-voice/*` 允许免令牌握手后用首条 `auth` 帧认证，故该上限必须由应用层回收器执行（Tomcat 不回收服务端会话，`setMaxIdleTimeout()` 在服务端是空操作）；回收器 10 秒扫一次，实际关闭时间＝该值向上取整到 10 秒格。详见手册 3.4 |
 

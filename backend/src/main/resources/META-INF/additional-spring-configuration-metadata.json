@@ -249,6 +249,21 @@
       "name": "app.registration.mode",
       "type": "java.lang.String",
       "description": "注册开放度，默认 invite。invite=注册必须带管理端生成的一次性邀请码（公网首阶段）；open=忽略邀请码开放注册（第二阶段）。除 open 外的取值一律按 invite 判定。"
+    },
+    {
+      "name": "app.security.trust-proxy",
+      "type": "java.lang.Boolean",
+      "description": "是否信任反向代理追加的 X-Forwarded-For，默认 false。false 时限流桶键、登录锁定来源维度、审计落库 IP 一律只取连接层地址（getRemoteAddr）；代理头是客户端可伪造的输入面，默认生效等于每个请求可自选落在哪个桶。仅确认部署在反向代理之后才置 true。"
+    },
+    {
+      "name": "app.security.trust-hops",
+      "type": "java.lang.Integer",
+      "description": "受信代理跳数，默认 1。trust-proxy=true 时取 XFF 从右起第 N 个非空条目（受信代理追加的那一跳），一层 nginx/Caddy 用 1，CDN→LB→nginx 需调大；配小会把不同客户端并进同一个桶，配大（超过链长）收敛到最左条目。"
+    },
+    {
+      "name": "app.security.login-lock.username-failures",
+      "type": "java.lang.Integer",
+      "description": "登录锁定「账号维度」的失败阈值，默认 15 次（锁 5 分钟）。v2.43 前为 5 次/15 分钟，太紧：任何匿名请求都能把指定账号锁在登录页外。现在主判定走来源维度（固定 20 次/15 分钟，不可配），账号维度只兜跨 IP 的慢速撞库。0 或负数回默认值。"
     }
   ]
 }

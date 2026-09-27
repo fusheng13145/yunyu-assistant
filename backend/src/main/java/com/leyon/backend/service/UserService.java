@@ -91,21 +91,33 @@ public class UserService {
 
     /**
      * 用户登录
+     * <p>
+     * v2.44 起锁定按「来源 + 账号」两个维度判定，故必须拿到可信客户端地址
+     * （由 {@code ClientIpResolver} 产出，见 {@code AuthController}）。
      *
      * @param username 用户名
      * @param password 明文密码
+     * @param clientIp 可信客户端地址；为空时只按账号维度判定（不把"取不到地址"当成"来自某个共享桶"）
      * @return 登录结果：token、refreshToken、用户ID、用户名、昵称、头像
-     * @throws RuntimeException 用户名或密码错误 / 账号临时锁定
+     * @throws RuntimeException 用户名或密码错误 / 登录被临时锁定
      */
-    public Map<String, String> login(String username, String password) {
+    public Map<String, String> login(String username, String password, String clientIp) {
         if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
             throw new RuntimeException("用户名和密码不能为空");
         }
 
-        // 登录失败锁定检查：锁定期间直接拒绝
-        long remainingLockMs = loginAttemptService.getRemainingLockMs(username);
+        LoginAttemptService.LoginLockTarget usernameTarget = LoginAttemptService.LoginLockTarget.username(username);
+        LoginAttemptService.LoginLockTarget ipTarget = StringUtils.hasText(clientIp)
+                ? LoginAttemptService.LoginLockTarget.ip(clientIp)
+                : null;
+
+        // 锁定检查：来源维度先判（它是"这台机器在乱试"），账号维度后判（"这个号被人盯上了"）
+        long remainingLockMs = ipTarget == null ? 0L : loginAttemptService.getRemainingLockMs(ipTarget);
+        if (remainingLockMs <= 0) {
+            remainingLockMs = loginAttemptService.getRemainingLockMs(usernameTarget);
+        }
         if (remainingLockMs > 0) {
-            throw new RuntimeException("登录失败次数过多，账号已临时锁定，请 "
+            throw new RuntimeException("登录失败次数过多，已临时锁定，请 "
                     + (remainingLockMs / 1000 / 60 + 1) + " 分钟后再试");
         }
 
@@ -116,12 +128,19 @@ public class UserService {
         // 密码比对（用户不存在与密码错误返回同一文案，避免用户名枚举）
         boolean passwordOk = user != null && passwordEncoder.matches(password, user.getPassword());
         if (!passwordOk) {
-            loginAttemptService.recordFailure(username);
+            loginAttemptService.recordFailure(usernameTarget);
+            if (ipTarget != null) {
+                loginAttemptService.recordFailure(ipTarget);
+            }
             throw new RuntimeException("用户名或密码错误");
         }
 
-        // 登录成功：清除失败计数
-        loginAttemptService.recordSuccess(username);
+        // 登录成功：两个维度的失败计数一起清除
+        if (ipTarget == null) {
+            loginAttemptService.recordSuccess(usernameTarget);
+        } else {
+            loginAttemptService.recordSuccess(usernameTarget, ipTarget);
+        }
 
         // 生成访问令牌 + 刷新令牌
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
