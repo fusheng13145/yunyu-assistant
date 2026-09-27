@@ -87,7 +87,9 @@ class UserServiceInviteCodeTest {
         // 领取记录里的 used_by 必须就是新建账号的 id，否则管理端"谁用的这个码"不可追溯
         assertThat(claimedFor.getValue()).isEqualTo(created.getId());
         assertThat(inserted.getValue().getId()).isEqualTo(created.getId());
-        assertThat(created.getPassword()).isNull();
+        // v2.48 起服务层不再改写返回的实体（原 setPassword(null)），外发抑制由 User 实体注解负责；
+        // 这里锁的是"落库的那一行确实是 BCrypt 哈希"
+        assertThat(inserted.getValue().getPassword()).startsWith("$2a$");
     }
 
     @Test

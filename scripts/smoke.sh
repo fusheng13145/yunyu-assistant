@@ -326,7 +326,11 @@ if api_ok 'GET /api/auth/me'; then
     [ "$(jget data.username)" = "$USER_NAME" ] \
         && ok 'me 的用户名与登录账号一致（身份未错发）' \
         || bad 'me 用户名不一致' "期望 $USER_NAME，实际 $(jget data.username)"
-    [ -z "$(jget data.password)" ] && ok 'me 不回传密码字段' || bad 'me 泄漏密码字段' 'data.password 非空'
+    # 判据自 v2.48 起从"值为空"改为"键不存在"：手写 setPassword(null) 也会给出 "password":null，
+    # 而 jget 把 null 与缺失压成同一个空串，测不出这条差别（实体护栏的形态只有扫原文才看得见）
+    printf '%s' "$BODY" | grep -qF '"password"' \
+        && bad 'me 仍带 password 键（实体级抑制未生效）' "$(printf '%s' "$BODY" | head -c 120)" \
+        || ok 'me 响应体无 password 键（抑制在实体上，不靠出口手写）'
 fi
 
 if [ -n "$REFRESH_TOKEN" ]; then
@@ -764,7 +768,10 @@ if [ -n "${SMOKE_ADMIN_USER:-}" ]; then
         req GET /api/admin/quotas/defaults "$ADMIN_TOKEN"
         [ -n "$(jget data.assistantLimit)" ] && ok '兜底配额可直接注入管理页表单' || bad '兜底配额缺少 assistantLimit' "$(detail)"
         req GET /api/admin/users "$ADMIN_TOKEN"
-        [ -z "$(jget data.list.0.password)" ] && ok '用户列表已脱敏（password 不外泄）' || bad '用户列表泄漏密码字段' 'data.list[0].password 非空'
+        # 同上：管理端一次要扫多行，判据也只能落在"键不存在"上（值为 null 是旧的手写脱敏形态）
+        printf '%s' "$BODY" | grep -qF '"password"' \
+            && bad '用户列表仍带 password 键（实体级抑制未生效）' "$(printf '%s' "$BODY" | head -c 120)" \
+            || ok '用户列表整页响应体无 password 键'
         # 未使用的邀请码等同"一个可注册的凭据"，台账必须在管理端鉴权之后才可见
         req GET '/api/admin/invite-codes?page=1&pageSize=1'
         want_status '无令牌读邀请码台账 → 401（未使用的码不对外可枚举）' 401 401

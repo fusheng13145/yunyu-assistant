@@ -201,6 +201,8 @@ public class AuthController {
 
     /**
      * 获取当前登录用户信息
+     * <p>
+     * 直接返回实体：{@code password} / {@code tokenVersion} 由实体上的注解抑制，出口不再手写脱敏（v2.48 · C-107）
      */
     @GetMapping("/me")
     public ApiResponse<User> me(HttpServletRequest request) {
@@ -216,8 +218,6 @@ public class AuthController {
         if (user == null) {
             return ApiResponse.paramError("用户不存在");
         }
-        // 密码脱敏
-        user.setPassword(null);
         return ApiResponse.success(user);
     }
 

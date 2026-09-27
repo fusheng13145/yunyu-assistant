@@ -46,6 +46,8 @@ public class User {
 
     /**
      * 登录密码，BCrypt 加密存储
+     * <p>
+     * 外发由 {@code getPassword()} 上的 {@code @JsonIgnore} 负责，调用方不再各自脱敏（v2.48 · C-107）
      */
     private String password;
 
@@ -138,6 +140,13 @@ public class User {
         this.nickname = nickname;
     }
 
+    /**
+     * 密码哈希不进 JSON：Jackson 会把字段与 accessor 上的注解合并成同一个逻辑属性，
+     * 所以这里的 {@code @JsonIgnore} 同时封掉了出站与入站——本仓没有任何请求体绑定 {@link User}，
+     * 入站封掉是收益（未来的 {@code @RequestBody User} 不能从外部塞口令哈希）。
+     * 进程内读写不受影响：{@code UserService} 仍靠它做 BCrypt 校验与落库。
+     */
+    @JsonIgnore
     public String getPassword() {
         return password;
     }
@@ -212,11 +221,11 @@ public class User {
 
     @Override
     public String toString() {
+        // password 被整条略过：log.info("{}", user) 里的哈希和响应体里的哈希是同一种泄露
         return "User{" +
                 "id='" + id + '\'' +
                 ", username='" + username + '\'' +
                 ", nickname='" + nickname + '\'' +
-                ", password='" + password + '\'' +
                 ", avatar='" + avatar + '\'' +
                 ", email='" + email + '\'' +
                 ", phone='" + phone + '\'' +

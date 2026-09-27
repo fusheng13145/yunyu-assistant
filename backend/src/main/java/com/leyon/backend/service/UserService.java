@@ -46,7 +46,7 @@ public class UserService {
      * @param username   用户名
      * @param password   明文密码
      * @param inviteCode 邀请码；{@code app.registration.mode=invite} 时必填且一次性
-     * @return 注册成功的用户信息（已清空密码字段）
+     * @return 注册成功的用户信息（即落库的那一行，含口令哈希；外发抑制由 {@link User} 实体负责）
      * @throws RuntimeException 用户名已存在 / 缺码 / 邀请码无效或已被使用
      */
     @Transactional
@@ -84,8 +84,6 @@ public class UserService {
         }
         userMapper.insert(user);
 
-        // 响应脱敏，清空密码
-        user.setPassword(null);
         return user;
     }
 

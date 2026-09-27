@@ -3,6 +3,7 @@ package com.leyon.backend.controller;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.AuditLog;
 import com.leyon.backend.entity.Quota;
@@ -147,7 +148,7 @@ class AdminControllerTest {
     // ===================== 用户列表 =====================
 
     @Test
-    void users_masksPasswords() {
+    void users_suppressPasswordInJsonWithoutRewritingLoadedRow() throws Exception {
         User user = new User();
         user.setId("u-1");
         user.setUsername("leyon");
@@ -157,10 +158,14 @@ class AdminControllerTest {
 
         ApiResponse<Map<String, Object>> result = controller.users(1, 10, null);
 
+        // 外发抑制落在实体上，不再依赖控制器手写 setPassword(null)（v2.48 · C-107）
+        String json = new ObjectMapper().writeValueAsString(result);
+        assertThat(json).doesNotContain("password").doesNotContain("$2a$10$");
         assertThat(result.getData().get("list")).asList().hasSize(1);
-        assertThat(user.getPassword()).isNull();
-        assertThat(user.getUsername()).isEqualTo("leyon");
         assertThat(result.getData()).containsEntry("total", 1L);
+        // 查出来的行保持原样：改写实体做脱敏会让同一对象若被再次更新时把口令哈希写成 NULL
+        assertThat(user.getPassword()).startsWith("$2a$10$");
+        assertThat(user.getUsername()).isEqualTo("leyon");
     }
 
     /**

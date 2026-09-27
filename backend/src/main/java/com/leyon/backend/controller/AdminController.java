@@ -129,13 +129,9 @@ public class AdminController {
                     .or().like(User::getNickname, kw));
         }
         // 列表用克隆副本追加分页，避免 LIMIT 污染 count 查询
+        // 密码不外发由 User 实体注解负责，此处不改写查出来的行（v2.48 · C-107）
         List<User> list = userMapper.selectList(wrapper.clone().last("LIMIT " + safeSize + " OFFSET " + offset));
         long total = userMapper.selectCount(wrapper);
-
-        // 密码脱敏
-        for (User user : list) {
-            user.setPassword(null);
-        }
 
         Map<String, Object> result = new HashMap<>();
         result.put("list", list);
