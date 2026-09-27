@@ -16,7 +16,8 @@
     "check:auth": "node ../scripts/check-auth-session.mjs",
     "check:notification": "node ../scripts/check-notification.mjs",
     "check:kb-flag": "node ../scripts/check-knowledgebase-flag.mjs",
-    "check:history-record": "node ../scripts/check-history-record.mjs"
+    "check:history-record": "node ../scripts/check-history-record.mjs",
+    "check:chat-frame": "node ../scripts/check-chat-frame.mjs"
   },
   "dependencies": {
     "lucide-vue-next": "^0.525.0",

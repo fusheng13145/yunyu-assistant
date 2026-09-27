@@ -321,7 +321,7 @@
             class="flex-1 geek-input h-12 px-4 rounded-lg"
             placeholder="请输入您想问的问题..."
             @keyup.enter="sendMessage"
-            :disabled="isTyping"
+            :disabled="chatFrameState.typing"
           />
           <button
             @click="startVoiceCall"
@@ -334,8 +334,8 @@
           <button
             @click="sendMessage"
             class="geek-btn geek-btn-primary w-12 h-12 rounded-full flex items-center justify-center"
-            :class="{ 'opacity-40 cursor-not-allowed': !inputText.trim() || isTyping }"
-            :disabled="!inputText.trim() || isTyping"
+            :class="{ 'opacity-40 cursor-not-allowed': !inputText.trim() || chatFrameState.typing }"
+            :disabled="!inputText.trim() || chatFrameState.typing"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -1094,12 +1094,13 @@ import { useMessageSearch } from '../composables/useMessageSearch'
 import { useQuickCommands } from '../composables/useQuickCommands'
 import { exportChatToMarkdown, exportChatToJson } from '../utils/exportChat'
 import { useWebSocket } from '../utils/websocket'
+import { handleChatTurnFrame, initialChatStreamState } from '../utils/chatFrame'
 import { useWebRTC } from '../composables/useWebRTC'
 import { uploadRecording } from '../api/callRecord'
 import { fetchAssistantsPage, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels, fetchTools } from '../api/assistant'
 import { logout, clearSession } from '../api/auth'
 import { RagflowApi } from '../api/ragflow'
-import type { Assistant, DisplayMessage, KnowledgeBase, KnowledgebaseInfo, AsrDeltaData, VoiceInfo, ModelInfo, ToolInfo } from '../types'
+import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, VoiceInfo, ModelInfo, ToolInfo } from '../types'
 
 // 主题与路由
 const { themeMode, setTheme } = useTheme()
@@ -1140,11 +1141,10 @@ const models = ref<ModelInfo[]>([])
 // WebSocket 实例
 let ws: ReturnType<typeof useWebSocket> | null = null
 let voiceWs: ReturnType<typeof useWebSocket> | null = null
-const isFirstOfStream = ref(true)
 
-// 聊天状态
+// 聊天状态（流式回合状态收口在 utils/chatFrame，视图不再各写一份）
+const chatFrameState = ref(initialChatStreamState())
 const inputText = ref('')
-const isTyping = ref(false)
 const messages = ref<DisplayMessage[]>([])
 
 // 全局通知（状态与渲染收口在 App.vue 的唯一挂载点）
@@ -1573,16 +1573,30 @@ const startVoiceCall = async () => {
     voiceWs = useWebSocket(wsUrl, {
       onOpen: () => voiceWs?.send({ type: 'offer', sdp: offerSDP }),
       onMessage: async (event) => {
+        let data: { type?: string; data?: unknown }
         try {
-          const data = JSON.parse(event.data)
+          data = JSON.parse(event.data as string)
+        } catch (e) {
+          console.error('语音消息解析失败', e)
+          chatFrameState.value = { ...chatFrameState.value, typing: false, firstOfStream: true }
+          showNotification('收到无法解析的语音消息', 'error')
+          return
+        }
+        try {
+          // 回合帧（流式/工具/收尾/error）统一走 chatFrame 入口，视图只留语音专属帧
+          const turn = handleChatTurnFrame(event, chatFrameState, messages.value, (m) => showNotification(m, 'error'), data)
+          if (turn.handled) {
+            if (turn.queryEnded) asrText.value = ''
+            return
+          }
           if (data.type === 'webrtc_answer') {
-            await webrtc.handleAnswer(data.data)
+            await webrtc.handleAnswer(data.data as string)
             voiceCallActive.value = true
             voiceWs?.send({ type: 'webrtc_connected' })
             showNotification('语音通话已连接！', 'success')
           } else if (data.type === 'webrtc_connected') {
             // 后端回执通话记录ID，随即开始录音（P2-8 通话录音）
-            currentCallId = String(data.data?.callId || '')
+            currentCallId = String((data.data as { callId?: string | number } | undefined)?.callId || '')
             if (!currentCallId) {
               showNotification('通话记录未建立，本次通话将不保存录音', 'info')
             } else if (!webrtc.startRecording()) {
@@ -1590,25 +1604,13 @@ const startVoiceCall = async () => {
             }
           } else if (data.type === 'asr_delta') {
             asrText.value = (data.data as AsrDeltaData).text
-          } else if (data.type === 'assistant_message') {
-            handleStreamMessage(data.data)
-          } else if (data.type === 'tool_call') {
-            messages.value.push({ role: 'tool_call', toolName: data.toolName, text: data.toolArgs || '' })
-          } else if (data.type === 'tool_result') {
-            const tr = data.data
-            messages.value.push({ role: 'tool_result', toolName: tr?.name, toolResult: tr?.result, text: tr?.result || '' })
-          } else if (data.type === 'query_end') {
-            finishStreamMessage(data.data)
-            asrText.value = ''
-          } else if (data.type === 'error') {
-            // 后端拒绝类错误（如通话配额超限）：随后连接会被服务端关闭
-            showNotification(String(data.data ?? '语音通话异常'), 'error')
           } else if (data.type === 'hangup') {
             endVoiceCall()
             showNotification('对方已挂断', 'info')
           }
         } catch (e) {
-          console.error('语音消息解析失败', e)
+          console.error('语音消息处理失败', e)
+          showNotification('语音消息处理失败', 'error')
         }
       },
       onClose: () => voiceCallActive.value && endVoiceCall(),
@@ -1658,71 +1660,21 @@ const connectWebSocket = () => {
       }, 100)
     },
     onMessage: (event) => {
+      let data: { type?: string }
       try {
-        const data = JSON.parse(event.data)
-        if (data.type === 'assistant_message') {
-          handleStreamMessage(data.data)
-        } else if (data.type === 'tool_call') {
-          messages.value.push({ role: 'tool_call', toolName: data.toolName, text: data.toolArgs || '' })
-        } else if (data.type === 'tool_result') {
-          const tr = data.data
-          messages.value.push({ role: 'tool_result', toolName: tr?.name, toolResult: tr?.result, text: tr?.result || '' })
-        } else if (data.type === 'query_end') {
-          finishStreamMessage(data.data)
-        }
+        data = JSON.parse(event.data as string)
       } catch (e) {
         console.error('消息解析失败', e)
+        chatFrameState.value = { ...chatFrameState.value, typing: false, firstOfStream: true }
+        showNotification('收到无法解析的消息，本条回复可能不完整', 'error')
+        return
       }
+      // 回合帧（含 error 回执）统一走 chatFrame 入口：解冻、落笔、提示一次完成
+      handleChatTurnFrame(event, chatFrameState, messages.value, (m) => showNotification(m, 'error'), data)
     },
-    onClose: () => isTyping.value = false,
+    onClose: () => chatFrameState.value = { ...chatFrameState.value, typing: false },
     onError: () => showNotification('聊天连接异常，请刷新重试', 'error'),
   })
-}
-
-// 流式消息处理
-const handleStreamMessage = (answer: { streamEnd: boolean; segment: string }) => {
-  if (answer.streamEnd) {
-    isTyping.value = false
-    isFirstOfStream.value = true
-    return
-  }
-  if (isFirstOfStream.value) {
-    messages.value.push({
-      role: 'assistant',
-      text: answer.segment,
-      isStreaming: true,
-    } as DisplayMessage)
-    isFirstOfStream.value = false
-  } else {
-    const lastMsg = messages.value[messages.value.length - 1]
-    if (lastMsg?.role === 'assistant') lastMsg.text += answer.segment
-  }
-}
-
-// 流式消息结束
-const finishStreamMessage = (queryData: { 
-  message: string; 
-  costTime: number; 
-  knowledgebase?: string | KnowledgebaseInfo;
-  tokenUsage?: { promptTokens?: number; completionTokens?: number }
-}) => {
-  isTyping.value = false
-  isFirstOfStream.value = true
-  const lastMsg = messages.value[messages.value.length - 1]
-  if (lastMsg?.role === 'assistant' && lastMsg.isStreaming) {
-    lastMsg.text = queryData.message || lastMsg.text
-    lastMsg.isStreaming = false
-    lastMsg.costTime = queryData.costTime
-    // 统一转换为对象格式存储
-    if (typeof queryData.knowledgebase === 'string') {
-      lastMsg.knowledgebase = { docName: [queryData.knowledgebase] }
-    } else {
-      lastMsg.knowledgebase = queryData.knowledgebase
-    }
-    if (queryData.tokenUsage) {
-      lastMsg.tokenUsage = queryData.tokenUsage
-    }
-  }
 }
 
 // 重置对话
@@ -1738,13 +1690,12 @@ const resetChat = () => {
 
 // 发送消息
 const sendMessage = () => {
-  if (!inputText.value.trim() || isTyping.value) return
+  if (!inputText.value.trim() || chatFrameState.value.typing) return
   const content = inputText.value.trim()
   messages.value.push({ role: 'user', text: content } as DisplayMessage)
   ws?.send({ type: 'chat', content })
   inputText.value = ''
-  isTyping.value = true
-  isFirstOfStream.value = true
+  chatFrameState.value = { typing: true, firstOfStream: true }
 }
 
 const handleScrollStateChange = () => {}

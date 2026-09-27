@@ -244,7 +244,7 @@
               class="flex-1 geek-input rounded-lg px-4 py-2.5 text-sm"
               placeholder="请输入您想问的问题"
               @keyup.enter="sendMessage"
-              :disabled="isTyping"
+              :disabled="chatFrameState.typing"
             />
             <button
               @click="startVoiceCall"
@@ -256,9 +256,9 @@
             </button>
             <button
               @click="sendMessage"
-              :disabled="!inputText.trim() || isTyping"
+              :disabled="!inputText.trim() || chatFrameState.typing"
               class="geek-btn geek-btn-primary"
-              :class="{ 'opacity-40 cursor-not-allowed': !inputText.trim() || isTyping }"
+              :class="{ 'opacity-40 cursor-not-allowed': !inputText.trim() || chatFrameState.typing }"
             >
               发送
             </button>
@@ -596,6 +596,7 @@ import ThemeToggle from '../components/ThemeToggle.vue'
 import { useTheme } from '../composables/useTheme'
 import { useNotification } from '../composables/useNotification'
 import { useWebSocket } from '../utils/websocket'
+import { handleChatTurnFrame, initialChatStreamState } from '../utils/chatFrame'
 import { mapHistoryRecord } from '../utils/mapHistoryRecord'
 import { useWebRTC } from '../composables/useWebRTC'
 import { uploadRecording } from '../api/callRecord'
@@ -621,9 +622,6 @@ const currentAssistant = ref<Assistant | null>(null)
 const sessions = ref<ChatSession[]>([])
 const currentSession = ref<ChatSession | null>(null)
 
-// 流式输出标记
-const isFirstOfStream = ref(true)
-
 // 人设相关
 const personalityText = ref('')
 const originalPersonality = ref('')
@@ -634,7 +632,7 @@ const personalityChanged = computed(() => {
 
 // 聊天相关
 const inputText = ref('')
-const isTyping = ref(false)
+const chatFrameState = ref(initialChatStreamState())
 const messages = ref<DisplayMessage[]>([])
 
 // 全局通知（状态与渲染收口在 App.vue 的唯一挂载点）
@@ -726,12 +724,12 @@ const resetChat = () => {
 
 const sendMessage = () => {
   const text = inputText.value.trim()
-  if (!text || isTyping.value || !ws) return
+  if (!text || chatFrameState.value.typing || !ws) return
 
   messages.value.push({ role: 'user', text })
   ws.send({ type: 'chat', content: text })
   inputText.value = ''
-  isTyping.value = true
+  chatFrameState.value = { typing: true, firstOfStream: true }
 }
 
 const handleScrollStateChange = () => {}
@@ -772,49 +770,19 @@ const connectWebSocket = () => {
       }, 100)
     },
     onMessage: (event) => {
+      let data: { type?: string }
       try {
-        const data = JSON.parse(event.data)
-        if (data.type === 'assistant_message') {
-          const answer = data.data
-          if (answer.streamEnd) {
-            isTyping.value = false
-            isFirstOfStream.value = true
-          } else {
-            if (isFirstOfStream.value) {
-              messages.value.push({ role: 'assistant', text: answer.segment, isStreaming: true })
-              isFirstOfStream.value = false
-            } else {
-              const lastMsg = messages.value.at(-1)
-              if (lastMsg && lastMsg.role === 'assistant') {
-                lastMsg.text += answer.segment
-              }
-            }
-          }
-        } else if (data.type === 'tool_call') {
-          // 工具调用（调试时间线）：参数/结果折叠查看
-          messages.value.push({ role: 'tool_call', toolName: data.toolName, text: data.toolArgs || '' })
-        } else if (data.type === 'tool_result') {
-          const tr = data.data
-          messages.value.push({ role: 'tool_result', toolName: tr?.name, toolResult: tr?.result, text: tr?.result || '' })
-        } else if (data.type === 'query_end') {
-          const queryData = data.data
-          isTyping.value = false
-          isFirstOfStream.value = true
-          const lastMsg = messages.value.at(-1)
-          if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-            lastMsg.text = queryData.message || lastMsg.text
-            lastMsg.isStreaming = false
-            lastMsg.costTime = queryData.costTime
-            lastMsg.knowledgebase = queryData.knowledgebase
-            if (queryData.tokenUsage) lastMsg.tokenUsage = queryData.tokenUsage
-          }
-          // 会话标题/排序可能已更新（首轮自动生成标题），静默刷新列表
-          loadSessions()
-        }
+        data = JSON.parse(event.data as string)
       } catch (e) {
         console.error('消息解析失败', e)
-        isTyping.value = false
+        chatFrameState.value = { ...chatFrameState.value, typing: false, firstOfStream: true }
+        showNotification('收到无法解析的消息，本条回复可能不完整', 'error')
+        return
       }
+      // 回合帧统一走 chatFrame 入口（error 回执在此解冻，不再冻结到刷新）
+      const turn = handleChatTurnFrame(event, chatFrameState, messages.value, (m) => showNotification(m, 'error'), data)
+      // 会话标题/排序可能已更新（首轮自动生成标题），静默刷新列表
+      if (turn.queryEnded) loadSessions()
     },
     onClose: () => {
       // 连接关闭（指数退避重连由 websocket 封装处理）
@@ -842,16 +810,30 @@ const startVoiceCall = async () => {
         voiceWs?.send({ type: 'offer', sdp: offerSDP })
       },
       onMessage: async (event) => {
+        let data: { type?: string; data?: unknown }
         try {
-          const data = JSON.parse(event.data)
+          data = JSON.parse(event.data as string)
+        } catch (e) {
+          console.error('语音消息解析失败', e)
+          chatFrameState.value = { ...chatFrameState.value, typing: false, firstOfStream: true }
+          showNotification('收到无法解析的语音消息', 'error')
+          return
+        }
+        try {
+          // 回合帧统一走 chatFrame 入口（语音通道此前同样漏消费 error 帧）
+          const turn = handleChatTurnFrame(event, chatFrameState, messages.value, (m) => showNotification(m, 'error'), data)
+          if (turn.handled) {
+            if (turn.queryEnded) asrText.value = ''
+            return
+          }
           if (data.type === 'webrtc_answer') {
-            await webrtc.handleAnswer(data.data)
+            await webrtc.handleAnswer(data.data as string)
             voiceCallActive.value = true
             voiceWs?.send({ type: 'webrtc_connected' })
             showNotification('语音通话已连接', 'success')
           } else if (data.type === 'webrtc_connected') {
             // 后端回执通话记录ID，随即开始录音（P2-8 通话录音）
-            currentCallId = String(data.data?.callId || '')
+            currentCallId = String((data.data as { callId?: string | number } | undefined)?.callId || '')
             if (!currentCallId) {
               showNotification('通话记录未建立，本次通话将不保存录音', 'info')
             } else if (!webrtc.startRecording()) {
@@ -860,46 +842,13 @@ const startVoiceCall = async () => {
           } else if (data.type === 'asr_delta') {
             const asrData = data.data as AsrDeltaData
             asrText.value = asrData.text
-          } else if (data.type === 'assistant_message') {
-            const answer = data.data
-            if (answer.streamEnd) {
-              isTyping.value = false
-              isFirstOfStream.value = true
-            } else {
-              if (isFirstOfStream.value) {
-                messages.value.push({ role: 'assistant', text: answer.segment, isStreaming: true })
-                isFirstOfStream.value = false
-              } else {
-                const lastMsg = messages.value.at(-1)
-                if (lastMsg && lastMsg.role === 'assistant') {
-                  lastMsg.text += answer.segment
-                }
-              }
-            }
-          } else if (data.type === 'tool_call') {
-            messages.value.push({ role: 'tool_call', toolName: data.toolName, text: data.toolArgs || '' })
-          } else if (data.type === 'tool_result') {
-            const tr = data.data
-            messages.value.push({ role: 'tool_result', toolName: tr?.name, toolResult: tr?.result, text: tr?.result || '' })
-          } else if (data.type === 'query_end') {
-            const queryData = data.data
-            isTyping.value = false
-            isFirstOfStream.value = true
-            const lastMsg = messages.value.at(-1)
-            if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-              lastMsg.text = queryData.message || lastMsg.text
-              lastMsg.isStreaming = false
-              lastMsg.costTime = queryData.costTime
-              lastMsg.knowledgebase = queryData.knowledgebase
-              if (queryData.tokenUsage) lastMsg.tokenUsage = queryData.tokenUsage
-            }
-            asrText.value = ''
           } else if (data.type === 'hangup') {
             endVoiceCall()
             showNotification('对方已挂断', 'info')
           }
         } catch (e) {
-          console.error('语音消息解析失败', e)
+          console.error('语音消息处理失败', e)
+          showNotification('语音消息处理失败', 'error')
         }
       },
       onClose: () => {
@@ -1282,8 +1231,7 @@ const closeTextSocket = () => {
     ws.close()
     ws = null
   }
-  isTyping.value = false
-  isFirstOfStream.value = true
+  chatFrameState.value = initialChatStreamState()
 }
 
 /** 渲染会话历史消息（分页惰性加载，含工具调用/结果，恢复调试时间线） */
