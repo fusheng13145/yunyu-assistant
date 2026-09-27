@@ -3,8 +3,11 @@ package com.leyon.backend.util;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+
+import java.net.InetSocketAddress;
 
 /**
  * 客户端 IP 判定（v2.44）
@@ -45,7 +48,27 @@ public class ClientIpResolver {
 
     /** 按当前配置判定客户端 IP；无地址时返回 {@link #UNKNOWN} */
     public String resolve(HttpServletRequest request) {
-        return resolve(request, trustProxy, UNKNOWN, trustHops);
+        return resolve(request == null ? null : request.getRemoteAddr(),
+                request == null ? null : request.getHeader("X-Forwarded-For"));
+    }
+
+    /**
+     * WebSocket 握手形态的判定（v2.45）：握手走 {@code HandshakeInterceptor} 链、拿不到
+     * {@code HttpServletRequest}，但**必须**与 HTTP 侧共用同一份 trust-proxy/trust-hops 配置——
+     * 两条链路各自解析一次代理信任，迟早在一处忘记开信任而另一处开着。
+     */
+    public String resolve(ServerHttpRequest request) {
+        if (request == null) {
+            return UNKNOWN;
+        }
+        InetSocketAddress remote = request.getRemoteAddress();
+        String remoteAddr = null;
+        if (remote != null) {
+            remoteAddr = remote.getAddress() != null
+                    ? remote.getAddress().getHostAddress()
+                    : remote.getHostString();
+        }
+        return resolve(remoteAddr, request.getHeaders().getFirst("X-Forwarded-For"));
     }
 
     /** 无配置形态的判定（单测与显式传参的调用方使用） */
@@ -71,13 +94,26 @@ public class ClientIpResolver {
         if (request == null) {
             return fallback;
         }
+        return resolve(request.getRemoteAddr(), request.getHeader("X-Forwarded-For"),
+                trustProxy, fallback, trustHops);
+    }
+
+    /** 按当前配置从两个原始输入判定（HTTP 与握手两条链路都收敛到这里） */
+    private String resolve(String remoteAddr, String forwardedFor) {
+        return resolve(remoteAddr, forwardedFor, trustProxy, UNKNOWN, trustHops);
+    }
+
+    /**
+     * 判定的真正落点：只吃"连接层地址 + XFF 原始值"两个字符串，因此两条链路（{@code HttpServletRequest}
+     * 与握手的 {@code ServerHttpRequest}）不可能在解析规则上分叉。
+     */
+    static String resolve(String remoteAddr, String forwardedFor, boolean trustProxy, String fallback, int trustHops) {
         if (trustProxy) {
-            String proxied = fromForwardedFor(request.getHeader("X-Forwarded-For"), trustHops);
+            String proxied = fromForwardedFor(forwardedFor, trustHops);
             if (StringUtils.hasText(proxied)) {
                 return proxied;
             }
         }
-        String remoteAddr = request.getRemoteAddr();
         return StringUtils.hasText(remoteAddr) ? remoteAddr : fallback;
     }
 

@@ -330,15 +330,16 @@ CREATE TABLE `quota_daily_usage` (
 
 -- ----------------------------
 -- 第三方应用表: api_apps（P2-10 开放 OpenAPI）
--- app_key 为明文 API Key（第三方请求头 X-API-Key 携带），scopes 逗号分隔能力
+-- app_key_hash 为 API Key 的 SHA-256 hex（v2.45 · C-102：明文不落库，创建时只回显一次）；
+-- scopes 逗号分隔能力 chat/call/voice，自 v2.45 起真正参与判定，缺能力回 403
 -- ----------------------------
 DROP TABLE IF EXISTS `api_apps`;
 CREATE TABLE `api_apps` (
     `id` VARCHAR(36) NOT NULL COMMENT '应用UUID',
-    `app_key` VARCHAR(64) NOT NULL COMMENT 'API Key（明文，第三方请求鉴权）',
+    `app_key_hash` VARCHAR(64) NOT NULL COMMENT 'API Key 的 SHA-256 hex（小写）；明文不再落库',
     `app_name` VARCHAR(64) NOT NULL COMMENT '应用名称',
     `user_id` VARCHAR(36) NOT NULL COMMENT '属主用户ID',
-    `scopes` VARCHAR(255) NOT NULL DEFAULT 'chat' COMMENT '能力范围，逗号分隔（chat:文本对话）',
+    `scopes` VARCHAR(255) NOT NULL DEFAULT 'chat' COMMENT '能力范围，逗号分隔（chat/call/voice）；空=无任何能力',
     `webhook_url` VARCHAR(255) DEFAULT NULL COMMENT 'Webhook 回调地址（P2-17；空=不接收事件回调）',
     `webhook_secret` VARCHAR(64) DEFAULT NULL COMMENT 'Webhook 签名密钥（P2-17；用于 HMAC-SHA256 签名）',
     `enabled` TINYINT(1) DEFAULT 1 COMMENT '是否启用 1:启用 0:停用',
@@ -346,7 +347,7 @@ CREATE TABLE `api_apps` (
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_app_key` (`app_key`)
+    UNIQUE KEY `uk_app_key_hash` (`app_key_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='第三方应用表';
 
 -- ----------------------------

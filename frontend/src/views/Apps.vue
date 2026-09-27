@@ -18,7 +18,7 @@
     <main class="flex-1 p-6 max-w-5xl w-full mx-auto">
       <div class="flex items-center justify-between mb-4">
         <span class="text-sm" style="color: var(--geek-text-secondary)">
-          第三方应用用于开放 API 接入（文本对话 / 语音会话），配额计入你的账号用量
+          第三方应用按能力接入开放 API（文本对话 / 电话外呼 / 语音会话），未开通的端点返回 403；配额计入你的账号用量
         </span>
         <button @click="showCreate = true" class="geek-btn geek-btn-primary geek-btn-sm">
           <Plus class="w-4 h-4 inline mr-1" />创建应用
@@ -47,7 +47,15 @@
             <tr v-for="app in apps" :key="app.id" class="border-b geek-divider">
               <td class="px-4 py-2.5" style="color: var(--geek-text)">{{ app.appName }}</td>
               <td class="px-4 py-2.5">
-                <span class="text-xs px-1.5 py-0.5 rounded-sm mono" style="background: var(--geek-primary-bg); color: var(--geek-primary)">{{ app.scope }}</span>
+                <div class="flex flex-wrap gap-1">
+                  <span
+                    v-for="scope in scopeList(app.scope)"
+                    :key="scope"
+                    class="text-xs px-1.5 py-0.5 rounded-sm mono"
+                    style="background: var(--geek-primary-bg); color: var(--geek-primary)"
+                  >{{ scope }}</span>
+                  <span v-if="scopeList(app.scope).length === 0" class="text-xs" style="color: var(--geek-text-faint)">无能力</span>
+                </div>
               </td>
               <td class="px-4 py-2.5 text-xs">{{ app.webhookUrl || '—' }}</td>
               <td class="px-4 py-2.5 text-center">
@@ -76,7 +84,19 @@
         <div class="geek-card rounded-xl p-6 w-full max-w-lg mx-4">
           <h3 class="font-display text-lg font-bold mb-4" style="color: var(--geek-text)">创建应用</h3>
           <input v-model="createForm.appName" type="text" maxlength="64" placeholder="应用名称（必填）" class="geek-input w-full px-3 py-2 rounded mb-3" />
-          <input v-model="createForm.webhookUrl" type="text" placeholder="Webhook 回调 URL（可选，第三方调用时可接收事件回调）" class="geek-input w-full px-3 py-2 rounded mb-5" />
+          <input v-model="createForm.webhookUrl" type="text" placeholder="Webhook 回调 URL（可选，第三方调用时可接收事件回调）" class="geek-input w-full px-3 py-2 rounded mb-4" />
+          <!-- 能力勾选（v2.45）：勾选即白名单，服务端按端点判定，缺能力回 403 -->
+          <fieldset class="rounded px-3 py-2.5 mb-5" style="border: 1px solid var(--geek-border)">
+            <legend class="text-xs px-1" style="color: var(--geek-text-secondary)">开通能力</legend>
+            <label v-for="option in scopeOptions" :key="option.value" class="flex items-start gap-2 py-1 cursor-pointer">
+              <input v-model="createForm.scopes" type="checkbox" :value="option.value" class="mt-0.5" />
+              <span class="text-xs leading-relaxed">
+                <span class="mono" style="color: var(--geek-text)">{{ option.value }}</span>
+                <span style="color: var(--geek-text-muted)">— {{ option.label }}</span>
+              </span>
+            </label>
+            <p class="text-xs mt-1.5" style="color: var(--geek-text-faint)">全不选＝只开通文本对话；能力后续不可编辑，需要调整请吊销后重建</p>
+          </fieldset>
           <div class="flex justify-end gap-2">
             <button @click="showCreate = false" class="geek-btn geek-btn-ghost geek-btn-sm">取消</button>
             <button @click="onCreate" :disabled="!createForm.appName.trim() || creating" class="geek-btn geek-btn-primary geek-btn-sm" :class="{ 'opacity-40 cursor-not-allowed': !createForm.appName.trim() || creating }">
@@ -94,6 +114,10 @@
           <div class="rounded px-3 py-2 mono text-xs break-all mb-3" style="background: var(--geek-input-bg); color: var(--geek-accent)">
             {{ createdApp.appKey }}
           </div>
+          <p class="text-xs mb-3" style="color: var(--geek-text-muted)">
+            本次开通能力：<span class="mono" style="color: var(--geek-text)">{{ scopeList(createdApp.scopes).join(' / ') || '无' }}</span>
+            （能力创建后不可编辑；调用未开通的端点会返回 403）
+          </p>
           <p class="text-xs mb-3" style="color: var(--geek-text-muted)">
             Webhook Secret（用于回调签名校验，同样仅展示一次）：
           </p>
@@ -140,9 +164,19 @@ const router = useRouter()
 const apps = ref<ApiAppItem[]>([])
 const showCreate = ref(false)
 const creating = ref(false)
-const createForm = ref({ appName: '', webhookUrl: '' })
+const createForm = ref({ appName: '', webhookUrl: '', scopes: ['chat'] as string[] })
 const createdApp = ref<ApiAppCreated | null>(null)
 const revokeTarget = ref<ApiAppItem | null>(null)
+
+/** 能力清单与服务端 ApiApp.ALL_SCOPES 同序同名；勾选框只负责拼逗号串，判定全在服务端 */
+const scopeOptions = [
+  { value: 'chat', label: '文本对话（POST /api/open/chat）' },
+  { value: 'call', label: '电话外呼（POST /api/open/call，产生运营商费用）' },
+  { value: 'voice', label: '语音会话（WS /api/open/ws-voice/*）' },
+]
+
+/** 逗号串 → 能力数组（空/缺省都归一为空数组，供"无能力"占位显示） */
+const scopeList = (value?: string) => (value || '').split(',').map(s => s.trim()).filter(Boolean)
 
 const formatTime = (value?: string) => {
   if (!value) return '-'
@@ -164,8 +198,12 @@ const load = async () => {
 const onCreate = async () => {
   creating.value = true
   try {
-    createdApp.value = await createApp(createForm.value.appName.trim(), createForm.value.webhookUrl.trim() || undefined)
-    createForm.value = { appName: '', webhookUrl: '' }
+    createdApp.value = await createApp(
+      createForm.value.appName.trim(),
+      createForm.value.webhookUrl.trim() || undefined,
+      createForm.value.scopes.join(','),
+    )
+    createForm.value = { appName: '', webhookUrl: '', scopes: ['chat'] }
     await load()
   } catch (error) {
     console.error('创建应用失败:', error)

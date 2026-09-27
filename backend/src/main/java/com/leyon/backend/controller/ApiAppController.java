@@ -28,7 +28,7 @@ public class ApiAppController {
     }
 
     /**
-     * 创建第三方应用，返回 app_key（仅展示一次）；可指定 webhookUrl（P2-17）
+     * 创建第三方应用，返回 app_key（仅展示一次）；可指定 webhookUrl（P2-17）与 scopes（v2.45）
      */
     @Audit(action = "API_APP_CREATE", targetType = "api_app")
     @PostMapping("/apps")
@@ -39,8 +39,9 @@ public class ApiAppController {
             return ApiResponse.paramError("应用名称不能为空");
         }
         String webhookUrl = body == null ? null : body.get("webhookUrl");
+        String scopes = body == null ? null : body.get("scopes");
         try {
-            ApiApp app = apiAppService.create(userId, appName, webhookUrl);
+            ApiApp app = apiAppService.create(userId, appName, webhookUrl, scopes);
             return ApiResponse.success(app);
         } catch (IllegalArgumentException e) {
             return ApiResponse.paramError(e.getMessage());

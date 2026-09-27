@@ -13,6 +13,7 @@ import com.leyon.backend.interceptor.AdminAuthInterceptor;
 import com.leyon.backend.interceptor.AuthInterceptor;
 import com.leyon.backend.interceptor.OpenApiAuthInterceptor;
 import com.leyon.backend.interceptor.RateLimitInterceptor;
+import com.leyon.backend.service.RateLimitService;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
@@ -78,14 +79,11 @@ public class AppConfig implements WebMvcConfigurer {
                 // 排除开放 OpenAPI（由 OpenApiAuthInterceptor 以 API Key 鉴权，与 JWT 通道隔离）
                 .excludePathPatterns("/api/open/**");
 
-        // 速率限制拦截器（v2.35 扩面）：认证桶 4 端点 5 次/分钟 + 高成本桶 4 模式 30 次/分钟，
-        // 档位与容量在 RateLimitInterceptor.Tier 内定义；此处注册的路径模式必须覆盖 Tier 的全部端点，
-        // 否则漏注册的路径根本不会进入拦截器（Tier 判定只是第二道）。
+        // 速率限制拦截器（v2.35 扩面 / v2.45 抽为 RateLimitService 计数单点）：
+        // 路径模式直接取自档位表，避免"注册清单漏了一个端点 ⇒ 该端点悄悄不限流"。
+        // 注意 /api/open/ws-voice/* 的握手不经 HandlerInterceptor，由握手拦截器内调 RateLimitService 计数。
         registry.addInterceptor(rateLimitInterceptor)
-                .addPathPatterns(
-                        "/api/auth/login", "/api/auth/register", "/api/auth/refresh", "/api/auth/password",
-                        "/api/open/chat", "/api/open/call", "/api/ragflow/retrieval-test",
-                        "/api/call-records/*/recording");
+                .addPathPatterns(RateLimitService.Tier.mvcPathPatterns());
 
         // 管理员接口鉴权拦截器（依赖 AuthInterceptor 解析的 userId，须在其之后）
         registry.addInterceptor(adminAuthInterceptor)

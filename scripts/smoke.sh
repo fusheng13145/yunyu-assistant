@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# 云谕助手 —— 接口冒烟（v2.37）
+# 云谕助手 —— 接口冒烟（v2.45）
 #
 # 用途：对"已经跑起来"的实例打一遍关键 HTTP 链路。单测只能证明方法行为，
 #       拦截器顺序、序列化、路由、限流与握手这些只有真进程才暴露的问题靠这里。
@@ -10,7 +10,8 @@
 #   中文到服务端就成了非法 UTF-8；而 curl 压根做不成 WS 握手（旧版 §7 因此永远 SKIP）。
 #
 # 边界（刻意为之）：
-#   - 不碰任何消耗外部额度或不可逆的接口：/api/open/**、语音链路、检索测试、POST /api/admin/archive/run 均不调用。
+#   - 不碰任何消耗外部额度或不可逆的接口。/api/open/** 与开放语音握手只在 §7.9 打**负向**
+#     （无 Key/错 Key 在拦截器内返回，不进业务、不计费）；检索测试与 POST /api/admin/archive/run 不调用。
 #   - 写路径只写本次刚创建的数据，结尾删除（KEEP=1 可保留）。
 #   - 不打印令牌：失败时只输出 HTTP 状态、业务 code 与 message 字段。
 #
@@ -538,6 +539,42 @@ BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)"
 want_status '上传缺 file 字段 → 400 且点名缺哪个字段' 400 400
 skip '上传超体积 → 413' '需要 54MB 真实上行流量，冒烟不做；已在 .scratch/probe_chain.sh 实测线上形状'
 
+# ---------- 7.9 开放平台：Key 鉴权与握手闸门（v2.45） ----------
+# 全部是负向断言：无 Key / 错 Key 在 OpenApiAuthInterceptor 内就返回，不进业务、不计费、不建会话；
+# 握手侧故意不带 Key，用来证明 OPEN_WS 桶排在"验 Key 之前"（否则永远只会 401，打不出 429）。
+# 放在 §8.5 之前：本节的 /api/open/chat 也落 EXPENSIVE 桶，先跑才不会互相污染。
+section '7.9 开放平台鉴权与握手闸门'
+# 必须带 Accept: text/event-stream：/api/open/chat 的 produces 只有这一个媒体类型，Accept 写成
+# application/json 会在**路由阶段**就不匹配（Spring 抛 HttpMediaTypeNotAcceptableException），
+# 拦截器根本没跑——那样断言到的不是鉴权行为，而是一个与此无关的 500（已登记，见下面 SKIP）。
+STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' -X POST \
+          -H 'Accept: text/event-stream' -H 'Content-Type: application/json' -d '{}' \
+          "$BASE/api/open/chat" 2>/dev/null)" || STATUS="000"
+BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)"
+want_status '无 X-API-Key 调 /api/open/chat → 401' 401 401
+skip 'Accept 写错的开放端点 → 406' '实测为 HTTP 500：HttpMediaTypeNotAcceptableException 未被 GlobalExceptionHandler 收口（v2.37 §7.5 那一族的漏项），已登记为独立缺陷，不在本版顺手改行为'
+STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' -X POST \
+          -H 'Accept: text/event-stream' \
+          -H 'X-API-Key: smoke-not-a-real-key-00000000000000000000000000' \
+          -H 'Content-Type: application/json' -d '{}' "$BASE/api/open/chat" 2>/dev/null)" || STATUS="000"
+BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)"
+want_status '错 Key 调 /api/open/chat → 401（不是 403：Key 压根没通过校验）' 401 401
+ws_assert '开放语音握手无 Key → 401' 'api/open/ws-voice/smoke' '' 401 \
+    '101 ⇒ 握手拦截器未生效，任何人无需凭据即可建立第三方语音会话'
+OPEN_WS_429=0
+OPEN_WS_TRIES=0
+while [ "$OPEN_WS_TRIES" -lt 15 ] && [ "$OPEN_WS_429" = "0" ]; do
+    OPEN_WS_TRIES=$((OPEN_WS_TRIES + 1))
+    case "$(ws_handshake 'api/open/ws-voice/smoke' '')" in
+        *429*) OPEN_WS_429=1 ;;
+    esac
+done
+if [ "$OPEN_WS_429" = "1" ]; then
+    ok "握手限流生效：$OPEN_WS_TRIES 次无 Key 握手内出现 429（OPEN_WS 桶排在验 Key 之前）"
+else
+    bad '开放语音握手未触发限流' '连续 15 次握手全走完成鉴权链路 ⇒ 握手不经 RateLimitService，可被用来暴力试 Key'
+fi
+
 # ---------- 8. 管理端只读 ----------
 if [ -n "${SMOKE_ADMIN_USER:-}" ]; then
     section '8. 管理端只读检查'
@@ -629,8 +666,15 @@ want_status '登出后放行路径 /api/auth/me 同样失效（黑名单不只�
 # api_ok 已把 429 记成 SKIP（保护生效，不算故障），无需处理。
 # 放在 §9 之后：此时业务断言已全部做完，错误凭据不会再干扰前序区段。
 section '10. 限流桶 — 认证'
+# 先清窗：AUTH 桶是 60 秒**滑动**窗口，而 §2 的注册/登录/刷新已经占掉若干名额。
+# 不等干净就断言会踩到一个真实过的假失败：桶里混着一条临界旧条目时，"第 5 次 login 见 429"
+# 并不能证明此刻桶满 —— 那条旧条目可能在紧接着的 refresh 之前刚好出窗，于是断言 429 收到 400。
+# 睡满 61 秒让全部旧条目出窗，本节才是"自己放行了 5 次 → 第 6 次必 429"的闭环证据。
+printf '        …等待 61 秒让 AUTH 滑动窗口清空（前序区段占用的名额出窗）\n'
+sleep 61
 AUTH_429=0
 AUTH_SHAPE_CHECKED=0
+AUTH_ALLOWS=0
 LOGIN_TRIES=0
 BAD_LOGIN_BODY="$(json username 'smoke-no-such-user' password 'wrong-password-123')"
 i=0
@@ -650,7 +694,10 @@ while [ "$i" -lt 8 ] && [ "$AUTH_429" = "0" ]; do
         # 不是 401。本项目里 401 专指"会话凭据缺失/失效"（前端据此触发静默续期/跳登录），
         # 把凭据错误也返 401 会让登录页把自己判成"登录态过期"。断言按产品契约，不按 RFC。
         # 形状只记一次：循环打的是同一个不变响应，重复计数会把一项断言刷成四项。
-        400) if [ "$AUTH_SHAPE_CHECKED" = "0" ]; then
+        # 只有**放行**才往滑窗里写时间戳（429 不计数），所以放行次数就是本区段自己造出的条目数——
+        # 下面的共用桶断言要用它判断"桶满"是不是还成立。
+        400) AUTH_ALLOWS=$((AUTH_ALLOWS + 1))
+             if [ "$AUTH_SHAPE_CHECKED" = "0" ]; then
                  AUTH_SHAPE_CHECKED=1
                  [ "$(jget message)" = '用户名或密码错误' ] \
                      && ok '错误口令 → HTTP 400 + 反枚举文案（不区分用户名/密码，避免用户名枚举）' \
@@ -660,28 +707,30 @@ while [ "$i" -lt 8 ] && [ "$AUTH_429" = "0" ]; do
     esac
 done
 if [ "$AUTH_429" = "1" ]; then
-    if [ "$LOGIN_TRIES" -le 1 ]; then
-        skip 'AUTH 桶容量' '首个请求即 429 ⇒ 1 分钟窗口内已被上一轮（或 §2/§8 的正常认证请求）打满，本轮无法判容量'
-    elif [ "$LOGIN_TRIES" -ge 9 ]; then
-        bad 'AUTH 桶容量应为 5/分钟' '放行 '"$LOGIN_TRIES"' 次才见 429，超出容量'
+    if [ "$LOGIN_TRIES" -ge 9 ]; then
+        bad 'AUTH 桶容量应为 5/分钟' '尝试 '"$LOGIN_TRIES"' 次才见 429，超出容量'
+    elif [ "$AUTH_ALLOWS" = "5" ]; then
+        ok "AUTH 桶容量精确：清窗后放行 5 次，第 6 次 429（5 次/分钟/来源）"
     else
-        ok "AUTH 桶生效：$LOGIN_TRIES 次（含前序区段已用量）后返回 429"
+        skip 'AUTH 桶容量精确为 5' "清窗后放行 $AUTH_ALLOWS 次即见 429 ⇒ 同来源还有别的流量在占桶（例如 REDIS_ENABLED=true 且多个实例共桶），本轮不判精确容量"
     fi
 else
-    bad 'AUTH 桶未生效' '8 次错误口令登录未见 429（§8 管理员登录已消耗 1 次，5 次容量下第 5～8 次必触发）'
+    bad 'AUTH 桶未生效' '8 次错误口令登录未见 429（清窗后连 5 次容量都打不满，等于不限流）'
 fi
 # 形状断言只在真的收到 400 时才执行；若进本区段前桶已被 §2 的邀请码断言打满，第一条就是 429，
 # 少一条断言要显式登记成 SKIP，不能静默消失
 [ "$AUTH_SHAPE_CHECKED" = "1" ] \
     || skip '错误口令响应形状' '本区段未见 400 ⇒ AUTH 桶进本节前后即 429（前序认证请求已占满 5 次/分钟）'
 # 共用同桶的直接证据：login 打满后，refresh 这条从未被请求过的路径也应 429。
-# 若两桶独立，refresh 会走到业务层对乱码令牌报 401——429/401 的区分度就是本断言的价值。
-# 仅在确认已见 429 后才断言（上一项 bad 时桶状态不可知，重复判同一件事只会有两条噪声）
-if [ "$AUTH_429" = "1" ]; then
+# 若两桶独立，refresh 会走到业务层对乱码令牌报 code 400（"刷新令牌无效或已过期"）——
+# 429 与 400 的区分度就是本断言的价值：它证明限流按**档位**而不是按路径各数各的。
+# 额外要求 AUTH_ALLOWS==5：只有"本区段自己放行了满 5 条新条目"才证明此刻桶真满；
+# 靠旧条目凑满的 429 会在下一秒出窗，v2.45 实测就是这样把本断言打成假失败（断 429 收到 400）。
+if [ "$AUTH_429" = "1" ] && [ "$AUTH_ALLOWS" = "5" ]; then
     req POST /api/auth/refresh '' "$(json refreshToken 'smoke-not-a-real-token')"
-    want_status 'refresh 与 login 共用同桶（429 而非 401）' 429 -
+    want_status 'refresh 与 login 共用同桶（429 而非业务 400）' 429 -
 else
-    skip 'refresh 与 login 共用同桶' 'AUTH 桶未确认打满'
+    skip 'refresh 与 login 共用同桶' '未确认"本区段放行满 5 条新条目后仍 429" ⇒ 桶状态不可知，不断言共用'
 fi
 
 # ---------- 汇总 ----------

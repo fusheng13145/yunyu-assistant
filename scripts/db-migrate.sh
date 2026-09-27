@@ -72,5 +72,10 @@ for item in "${pending[@]}"; do
     run_sql -e "INSERT INTO schema_migrations (version) VALUES ('${version}');"
 done
 
-run_sql -e "DROP PROCEDURE IF EXISTS yunyu_add_column; DROP PROCEDURE IF EXISTS yunyu_add_index;"
+run_sql -e "DROP PROCEDURE IF EXISTS yunyu_add_column;
+             DROP PROCEDURE IF EXISTS yunyu_add_index;
+             DROP PROCEDURE IF EXISTS yunyu_add_unique_index;
+             DROP PROCEDURE IF EXISTS yunyu_drop_column;
+             DROP PROCEDURE IF EXISTS yunyu_exec_if_column;
+             DROP PROCEDURE IF EXISTS yunyu_assert;"
 echo "[migrate] 完成，共应用 ${#pending[@]} 条迁移；辅助过程已从库中移除"

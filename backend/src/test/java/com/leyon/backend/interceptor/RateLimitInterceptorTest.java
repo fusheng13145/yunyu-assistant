@@ -1,5 +1,6 @@
 package com.leyon.backend.interceptor;
 
+import com.leyon.backend.service.RateLimitService;
 import com.leyon.backend.util.ClientIpResolver;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 走内存实现（redisEnabled 默认 false），断言的是真实判定与 429 响应形状。
  * v2.44 起桶键只取连接层地址（trust-proxy 默认 false），故另有两组用例锁"伪造代理头换不到新桶"
  * 与"启用信任后按右端起跳数取值"。
+ * <p>
+ * v2.45 把计数实现抽到 {@link RateLimitService}（握手链路要用同一份），本类因此只测
+ * "URI 归档 + 429 形状 + 来源地址"这三件拦截器 own 的事；容量滑窗与档间隔离的直接断言
+ * 在 {@code RateLimitServiceTest}。
  *
  * @author leyon
  */
@@ -29,11 +34,11 @@ class RateLimitInterceptorTest {
     private final RateLimitInterceptor interceptor = interceptorWith(false, 1);
 
     /**
-     * v2.44 起信任配置只在 {@link com.leyon.backend.util.ClientIpResolver} 一处，
-     * 拦截器通过构造注入使用它，因此测试直接组装而不是反射填字段
+     * v2.44 起信任配置只在 {@link ClientIpResolver} 一处，v2.45 起计数只在 {@link RateLimitService}
+     * 一处，拦截器都是构造注入，因此测试直接组装而不是反射填字段
      */
     private RateLimitInterceptor interceptorWith(boolean trustProxy, int trustHops) {
-        return new RateLimitInterceptor(new ClientIpResolver(trustProxy, trustHops));
+        return new RateLimitInterceptor(new RateLimitService(), new ClientIpResolver(trustProxy, trustHops));
     }
 
     /**

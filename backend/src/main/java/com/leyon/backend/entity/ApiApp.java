@@ -6,12 +6,19 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.LocalDateTime;
 
 /**
  * 第三方应用实体（P2-10 开放 OpenAPI）
  * 对应数据表：api_apps
- * app_key 为明文 API Key（第三方请求头 X-API-Key 携带），scopes 逗号分隔能力（chat:文本对话）
+ * <p>
+ * API Key 自 v2.45 起**只存哈希**（{@code app_key_hash}，SHA-256 hex）：明文只在创建响应里一次性回显，
+ * 落库与鉴权都不再持有它，故库备份外泄不再等于把所有第三方凭据一起交出去。字段 {@link #appKey}
+ * 因此标成 {@code @TableField(exist = false)}——它不是列，只是"创建那一次"的载体。
+ * <p>
+ * {@code scopes} 是逗号分隔的能力白名单，自 v2.45 起**真正参与判定**（此前全仓无读判点，
+ * 等于每个有效 key 天然拥有全部能力），取值见 {@link #SCOPE_CHAT} 等常量与两个 OpenAPI 拦截器。
  *
  * @author leyon
  */
@@ -28,8 +35,18 @@ public class ApiApp {
     /** 停用 */
     public static final int DISABLED = 0;
 
-    /** 能力范围 - 文本对话 */
+    /** 能力范围 - 文本对话（POST /api/open/chat） */
     public static final String SCOPE_CHAT = "chat";
+    /** 能力范围 - 电话外呼（POST /api/open/call） */
+    public static final String SCOPE_CALL = "call";
+    /** 能力范围 - 语音会话（WS /api/open/ws-voice/*） */
+    public static final String SCOPE_VOICE = "voice";
+
+    /**
+     * 全部合法能力，顺序即前端勾选顺序。创建入参按此白名单过滤，不认识的值直接拒绝而不是静默丢弃——
+     * 静默丢弃会让调用方以为授予了能力却在运行时收到 403。
+     */
+    public static final java.util.List<String> ALL_SCOPES = java.util.List.of(SCOPE_CHAT, SCOPE_CALL, SCOPE_VOICE);
 
     /**
      * 主键ID（UUID）
@@ -38,8 +55,15 @@ public class ApiApp {
     private String id;
 
     /**
-     * API Key（明文，唯一；第三方请求头 X-API-Key 携带）
+     * API Key 的 SHA-256 hex（唯一；鉴权时按 {@code X-API-Key} 现算哈希后等值查库）
      */
+    private String appKeyHash;
+
+    /**
+     * 明文 API Key——**非数据库列**，只在创建成功的响应里出现一次，之后任何路径都取不到。
+     * 标 {@code exist=false} 是刻意的：一旦它还能被持久化，"哈希落库"就只是多存一列。
+     */
+    @TableField(exist = false)
     private String appKey;
 
     /**
@@ -53,7 +77,7 @@ public class ApiApp {
     private String userId;
 
     /**
-     * 能力范围，逗号分隔（chat）
+     * 能力范围，逗号分隔（chat / call / voice）
      */
     private String scopes;
 
@@ -105,6 +129,16 @@ public class ApiApp {
 
     public void setAppKey(String appKey) {
         this.appKey = appKey;
+    }
+
+    /** 哈希不外发：创建响应只需要给一次明文，多带一列不增加任何可用性（v2.45） */
+    @JsonIgnore
+    public String getAppKeyHash() {
+        return appKeyHash;
+    }
+
+    public void setAppKeyHash(String appKeyHash) {
+        this.appKeyHash = appKeyHash;
     }
 
     public String getAppName() {
@@ -177,5 +211,22 @@ public class ApiApp {
 
     public void setIsDeleted(Integer isDeleted) {
         this.isDeleted = isDeleted;
+    }
+
+    /**
+     * 是否具备某项能力（判定单点，避免两个拦截器各写一份逗号串解析）。
+     * scopes 为空一律判 false——**没有"空=全部放行"的兜底**：能力白名单一旦允许空集通配，
+     * 漏配 scopes 就等于授予全部能力，与 v2.45 要收口的正是同一件事。
+     */
+    public boolean hasScope(String scope) {
+        if (scopes == null || scopes.isBlank() || scope == null) {
+            return false;
+        }
+        for (String granted : scopes.split(",")) {
+            if (granted.trim().equals(scope)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
