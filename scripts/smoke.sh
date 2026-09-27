@@ -552,13 +552,26 @@ skip '上传超体积 → 413' '需要 54MB 真实上行流量，冒烟不做；
 section '7.9 开放平台鉴权与握手闸门'
 # 必须带 Accept: text/event-stream：/api/open/chat 的 produces 只有这一个媒体类型，Accept 写成
 # application/json 会在**路由阶段**就不匹配（Spring 抛 HttpMediaTypeNotAcceptableException），
-# 拦截器根本没跑——那样断言到的不是鉴权行为，而是一个与此无关的 500（已登记，见下面 SKIP）。
+# 拦截器根本没跑——那样断言到的不是鉴权行为，而是一个与此无关的 406（v2.49 起该 406 本身也被断言，见下方两条）。
 STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' -X POST \
           -H 'Accept: text/event-stream' -H 'Content-Type: application/json' -d '{}' \
           "$BASE/api/open/chat" 2>/dev/null)" || STATUS="000"
 BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)"
 want_status '无 X-API-Key 调 /api/open/chat → 401' 401 401
-skip 'Accept 写错的开放端点 → 406' '实测为 HTTP 500：HttpMediaTypeNotAcceptableException 未被 GlobalExceptionHandler 收口（v2.37 §7.5 那一族的漏项），已登记为独立缺陷，不在本版顺手改行为'
+# v2.49 · C-108：下面两条在 v2.45~v2.48 是一条登记性 SKIP（实测 HTTP 500）。
+# 形状 (a)：Accept 只写 application/json ⇒ 406 且客户端接受 JSON，响应体写得出，业务码同为 406。
+STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' -X POST \
+          -H 'Accept: application/json' -H 'Content-Type: application/json' -d '{}' \
+          "$BASE/api/open/chat" 2>/dev/null)" || STATUS="000"
+BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)"
+want_status 'Accept 与端点 produces 不符 → 406（不再谎报 500）' 406 406
+# 形状 (b)：Accept: text/plain ⇒ 406 的固有形状，正文写不出去（客户端不收 JSON），故只判状态码。
+# 这条不是冗余：兜底一旦被改回 500，(a) 会红；若有人为 406 补"强制写 JSON 正文"的兼容，(b) 会红。
+STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' -X POST \
+          -H 'Accept: text/plain' -H 'Content-Type: application/json' -d '{}' \
+          "$BASE/api/open/chat" 2>/dev/null)" || STATUS="000"
+BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)"
+want_status 'Accept: text/plain 调 SSE 端点 → 仍是 406（正文允许为空）' 406 -
 STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' -X POST \
           -H 'Accept: text/event-stream' \
           -H 'X-API-Key: smoke-not-a-real-key-00000000000000000000000000' \

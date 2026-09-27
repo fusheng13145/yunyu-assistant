@@ -600,6 +600,7 @@ import { handleChatTurnFrame, initialChatStreamState } from '../utils/chatFrame'
 import { mapHistoryRecord } from '../utils/mapHistoryRecord'
 import { useWebRTC } from '../composables/useWebRTC'
 import { uploadRecording } from '../api/callRecord'
+import { finishRecordingUpload } from '../utils/recordingUpload'
 import { fetchAssistant } from '../api/assistant'
 import { RagflowApi } from '../api/ragflow'
 import { createSession, fetchSessions, updateSession, deleteSession, fetchSessionMessages } from '../api/session'
@@ -878,10 +879,8 @@ const endVoiceCall = async () => {
   webrtc.hangup()
   voiceCallActive.value = false
   asrText.value = ''
-  // 异步上传录音（不阻塞通话收尾）
-  if (callId && blob && blob.size > 0) {
-    uploadRecording(callId, blob).catch((e) => console.error('上传通话录音失败', e))
-  }
+  // 录音上传结果一律可见（v2.49 · C-109）；内部不 await，通话收尾不被网络挡住
+  finishRecordingUpload(callId, blob, uploadRecording, (outcome) => showNotification(outcome.message, outcome.level))
 }
 
 // ==================== 知识库弹窗控制 ====================

@@ -8,6 +8,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.lang.NonNull;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -49,6 +50,8 @@ public class GlobalExceptionHandler {
     private static final String METHOD_NOT_ALLOWED_MSG = "该路径不支持此请求方法";
     /** 请求体类型不被支持提示文案 */
     private static final String UNSUPPORTED_TYPE_MSG = "不支持的请求内容类型";
+    /** 响应媒体类型不被接受提示文案（v2.49 · C-108） */
+    private static final String NOT_ACCEPTABLE_MSG = "不接受的请求媒体类型";
     /** 上传体积超限提示文案（上限由 spring.servlet.multipart 决定，故不写死数值） */
     private static final String UPLOAD_TOO_LARGE_MSG = "上传文件超过服务端大小限制";
 
@@ -175,6 +178,22 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException e) {
         log.warn("不支持的请求 Content-Type：{}", e.getContentType());
         return ApiResponse.result(415, UNSUPPORTED_TYPE_MSG);
+    }
+
+    /**
+     * 处理 `Accept` 与接口 `produces` 不匹配（如给只产 SSE 的端点发 `Accept: application/json`）→ 406（v2.49 · C-108）
+     * <p>
+     * 少了这条声明时它落进下方的 Exception 兜底：Spring 6.2 里该异常带着自己的 406（它实现
+     * {@code ErrorResponse}），但 {@code @RestControllerAdvice} 的兜底优先命中 ⇒ 客户端用错被报成服务端故障，
+     * 每次还留一条带栈 ERROR 日志、并把 406 流量计入服务端错误率（真机证据：冒烟 §7.9 当时只能登记 SKIP）。
+     * 注意 406 的固有形状：请求既然不接受本响应的媒体类型，正文可能写不出去 ⇒
+     * **状态码一定正确、正文允许为空**，本处只收"不再谎报 500"这一半。
+     */
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    @ResponseStatus(HttpStatus.NOT_ACCEPTABLE)
+    public ApiResponse<Void> handleMediaTypeNotAcceptable(HttpMediaTypeNotAcceptableException e) {
+        log.warn("响应媒体类型不被接受，端点可产出：{}", e.getSupportedMediaTypes());
+        return ApiResponse.result(406, NOT_ACCEPTABLE_MSG);
     }
 
     /**

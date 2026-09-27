@@ -3,8 +3,8 @@ name: CI
 # PR 关键路径只放无凭据、无外部依赖的检查：后端单测（已验证不需要可达的 MySQL）、
 # 前端 lint/type-check/构建、文档与配置门禁、冒烟脚本语法检查。
 # 需要真实 key 或数据库的验证（scripts/smoke.sh 全链路）刻意不放在这里，见手册 4.8。
-# v2.43 起 check:notification / check:kb-flag / check:history-record / check:chat-frame
-# 四道 Node 桩测也纳入 frontend job——它们是纯 Node + 类型擦除 import，无外部依赖。
+# v2.43 起四道 Node 桩测（check:notification / kb-flag / history-record / chat-frame）纳入 frontend
+# job，v2.49 再起一道 check:recording-upload ⇒ 共五道。它们是纯 Node + 类型擦除 import，无外部依赖。
 
 on:
   push:
@@ -74,12 +74,13 @@ jobs:
         run: npm run type:check
       - name: 路由鉴权覆盖检查
         run: npm run check:auth
-      - name: 前端桩测（通知 / 检索角标 / 历史还原 / WS 回合收口）
+      - name: 前端桩测（通知 / 检索角标 / 历史还原 / WS 回合收口 / 录音上传可见）
         run: |
           npm run check:notification
           npm run check:kb-flag
           npm run check:history-record
           npm run check:chat-frame
+          npm run check:recording-upload
       - name: 生产构建
         run: npm run build
 
