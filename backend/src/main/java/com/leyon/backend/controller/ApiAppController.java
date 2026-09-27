@@ -69,6 +69,32 @@ public class ApiAppController {
     }
 
     /**
+     * 变更应用能力（v2.46 · 候选 ㉗）：整串替换，下一个请求即生效。
+     * <p>
+     * 之所以必须有这个口：自 v2.45 起明文 Key 不可回读，"吊销后重建"不再是一条可行的调整路径
+     * ——它等于逼调用方换 Key。审计在此记 old→new（{@code auditDetail} 由 {@code AuditAspect} 落进
+     * {@code audit_logs.detail}），因为"谁把外呼能力放开了"与"放开了什么"是两回事。
+     */
+    @Audit(action = "API_APP_SCOPES_UPDATE", targetType = "api_app")
+    @PutMapping("/apps/{id}/scopes")
+    public ApiResponse<Map<String, String>> updateScopes(@PathVariable String id,
+                                                         @RequestBody Map<String, String> body,
+                                                         HttpServletRequest request) {
+        String userId = (String) request.getAttribute("userId");
+        String scopes = body == null ? null : body.get("scopes");
+        try {
+            ApiAppService.ScopeChange change = apiAppService.updateScopes(id, userId, scopes);
+            if (change == null) {
+                return ApiResponse.paramError("应用不存在或无操作权限");
+            }
+            request.setAttribute("auditDetail", Map.of("from", change.previousScopes(), "to", change.scopes()));
+            return ApiResponse.success(Map.of("id", change.appId(), "scopes", change.scopes()));
+        } catch (IllegalArgumentException e) {
+            return ApiResponse.paramError(e.getMessage());
+        }
+    }
+
+    /**
      * 吊销应用（逻辑删除；第三方 API Key 即刻失效）
      */
     @Audit(action = "API_APP_REVOKE", targetType = "api_app")

@@ -331,7 +331,8 @@ CREATE TABLE `quota_daily_usage` (
 -- ----------------------------
 -- 第三方应用表: api_apps（P2-10 开放 OpenAPI）
 -- app_key_hash 为 API Key 的 SHA-256 hex（v2.45 · C-102：明文不落库，创建时只回显一次）；
--- scopes 逗号分隔能力 chat/call/voice，自 v2.45 起真正参与判定，缺能力回 403
+-- scopes 逗号分隔能力 chat/call/voice，自 v2.45 起真正参与判定，缺能力回 403；
+--   v2.46 起可经 PUT /api/openapi/apps/{id}/scopes 整串替换（下一请求即生效），空值仅表示"无任何能力"
 -- ----------------------------
 DROP TABLE IF EXISTS `api_apps`;
 CREATE TABLE `api_apps` (

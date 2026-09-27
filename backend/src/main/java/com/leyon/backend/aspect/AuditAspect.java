@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.util.Map;
+
 /**
  * 操作审计切面
  * 拦截标注了 @Audit 的方法，记录操作人、动作、目标、IP、结果
@@ -40,6 +42,9 @@ public class AuditAspect {
         this.clientIpResolver = clientIpResolver;
     }
 
+    /** 被审计方法可用此 request 属性补充"改了什么"，见 {@link #record} */
+    static final String DETAIL_ATTRIBUTE = "auditDetail";
+
     /**
      * 环绕通知：执行目标方法，记录审计日志（成功/失败）
      */
@@ -56,17 +61,34 @@ public class AuditAspect {
             result = joinPoint.proceed();
         } catch (Throwable t) {
             success = false;
-            record(userId, audit, targetId, ip, success, t.getMessage());
+            record(userId, audit, targetId, ip, success, t.getMessage(), detailOf(request));
             throw t;
         }
-        record(userId, audit, targetId, ip, success, null);
+        // 变更详情由被审计方法自己写入（它才知道改前的值），所以必须在 proceed 之后读
+        record(userId, audit, targetId, ip, success, null, detailOf(request));
         return result;
+    }
+
+    private Object detailOf(HttpServletRequest request) {
+        return request == null ? null : request.getAttribute(DETAIL_ATTRIBUTE);
     }
 
     /**
      * 记录审计日志
+     * <p>
+     * {@code detail} 自 v2.46 起不只是"失败原因"：只有 action + targetId 的审计能指认"谁改过哪个应用"，
+     * 指认不了"改成了什么"，而能力放开（外呼要花钱、语音能建会话）事后必须可追责。
+     * 机制保持最小——被审计方法往 request 放一个 Map，切面原样序列化，不引入表达式或注解参数。
      */
-    private void record(String userId, Audit audit, String targetId, String ip, boolean success, String failReason) {
+    private void record(String userId, Audit audit, String targetId, String ip, boolean success,
+                        String failReason, Object changeDetail) {
+        Map<String, Object> detail = new java.util.LinkedHashMap<>();
+        if (changeDetail instanceof Map<?, ?> payload) {
+            payload.forEach((key, value) -> detail.put(String.valueOf(key), value));
+        }
+        if (!success && failReason != null) {
+            detail.put("failReason", failReason);
+        }
         try {
             AuditLog auditLog = new AuditLog();
             auditLog.setUserId(userId);
@@ -75,12 +97,26 @@ public class AuditAspect {
             auditLog.setTargetId(targetId);
             auditLog.setIp(ip);
             auditLog.setResult(success ? 1 : 0);
-            if (!success && failReason != null) {
-                auditLog.setDetail(objectMapper.writeValueAsString(java.util.Map.of("failReason", failReason)));
-            }
+            auditLog.setDetail(serialiseDetail(audit, detail));
             auditLogService.record(auditLog);
         } catch (Exception e) {
             log.warn("记录审计日志失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 详情序列化失败只丢详情，不丢整行：审计行的价值在"谁在何时动了哪个对象"，
+     * 让一个附加字段的编码问题把这条指认一起带走，等于给失败路径开了免审计的后门。
+     */
+    private String serialiseDetail(Audit audit, Map<String, Object> detail) {
+        if (detail.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(detail);
+        } catch (Exception e) {
+            log.warn("审计详情序列化失败，仅丢弃详情：action={} {}", audit.action(), e.getMessage());
+            return null;
         }
     }
 

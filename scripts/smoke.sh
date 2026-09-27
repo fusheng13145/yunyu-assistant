@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# 云谕助手 —— 接口冒烟（v2.45）
+# 云谕助手 —— 接口冒烟（v2.46）
 #
 # 用途：对"已经跑起来"的实例打一遍关键 HTTP 链路。单测只能证明方法行为，
 #       拦截器顺序、序列化、路由、限流与握手这些只有真进程才暴露的问题靠这里。
@@ -10,8 +10,10 @@
 #   中文到服务端就成了非法 UTF-8；而 curl 压根做不成 WS 握手（旧版 §7 因此永远 SKIP）。
 #
 # 边界（刻意为之）：
-#   - 不碰任何消耗外部额度或不可逆的接口。/api/open/** 与开放语音握手只在 §7.9 打**负向**
-#     （无 Key/错 Key 在拦截器内返回，不进业务、不计费）；检索测试与 POST /api/admin/archive/run 不调用。
+#   - 不碰任何消耗外部额度或不可逆的接口。/api/open/** 的鉴权与握手只在 §7.9 打**负向**
+#     （无 Key/错 Key 在拦截器内返回，不进业务、不计费）；§7.10 打外呼端点时故意用空 body，
+#     让它停在业务侧参数校验（400）之前就扣不到配额、拨不出网关，只用来观测 403→400 的闸门跳变。
+#     检索测试与 POST /api/admin/archive/run 不调用。
 #   - 写路径只写本次刚创建的数据，结尾删除（KEEP=1 可保留）。
 #   - 不打印令牌：失败时只输出 HTTP 状态、业务 code 与 message 字段。
 #
@@ -20,7 +22,7 @@
 #   MGMT_BASE       管理端口地址，默认同 BASE（MANAGEMENT_SERVER_PORT 独立时改为 http://127.0.0.1:9080）
 #   SMOKE_USER      已存在的用户名；留空则注册一次性账号
 #   SMOKE_PASS      配合 SMOKE_USER；留空则用随机口令
-#   SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS   提供时才跑第 8 节管理端只读检查
+#   SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS   提供时才跑第 8 节管理端只读检查与 §7.10 的跨账号/审计断言
 #   SMOKE_INVITE_CODE  邀请码注册模式（REGISTRATION_MODE=invite，默认）下自建一次性账号所需的码；
 #                      未提供但有管理员凭据时，脚本会自己调 /api/admin/invite-codes 发一个并用掉
 #   SMOKE_ORIGIN    正式部署的站点来源（如 https://yunyu.example.com）；用于校验 WS 跨域白名单
@@ -575,6 +577,136 @@ else
     bad '开放语音握手未触发限流' '连续 15 次握手全走完成鉴权链路 ⇒ 握手不经 RateLimitService，可被用来暴力试 Key'
 fi
 
+# ---------- 7.10 能力变更：改完下一个请求即生效（v2.46 · 候选 ㉗） ----------
+# 判据取 /api/open/call 的 403↔400 跳变：403 只可能来自能力闸门（它在业务之前），
+# 400 只可能来自业务侧的空参校验（assistantId 不能为空，且排在扣配额与拨网关之前）。
+# 于是"闸门换了答案"被演成一次可观测的状态跳变，而这条链路既不真拨号也不产生费用。
+# 仍排在 §8.5 之前：本节的 3 次 open/call 与 §7.9 同族，落 EXPENSIVE 桶。
+section '7.10 开放平台能力变更'
+
+# open_call <API Key> → STATUS / BODY：body 故意留空，让"已开通 call"那一支停在 400 而不是真外呼
+open_call() {
+    STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' -X POST \
+              -H 'Accept: application/json' -H "X-API-Key: $1" \
+              -H 'Content-Type: application/json' -d '{}' "$BASE/api/open/call" 2>/dev/null)" || STATUS="000"
+    BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)"
+}
+
+# 跨账号与审计两条断言需要管理员令牌；第 8 节本来就会登录一次，这里提前登录并留给它复用
+if [ -z "$ADMIN_TOKEN" ] && [ -n "${SMOKE_ADMIN_USER:-}" ]; then
+    req_auth POST /api/auth/login '' "$(json username "$SMOKE_ADMIN_USER" password "${SMOKE_ADMIN_PASS:-}")"
+    if api_ok "POST /api/auth/login（管理员 $SMOKE_ADMIN_USER，供 §7.10 跨账号断言）"; then
+        ADMIN_TOKEN="$(jget data.token)"
+    fi
+fi
+
+SCOPE_APP_ID=''
+SCOPE_APP_KEY=''
+req POST /api/openapi/apps "$TOKEN" "$(json appName "冒烟能力应用 $(date +%H%M%S)" webhookUrl '' scopes 'chat')"
+if api_ok 'POST /api/openapi/apps（scopes=chat）'; then
+    SCOPE_APP_ID="$(jget data.id)"
+    SCOPE_APP_KEY="$(jget data.appKey)"
+    [ "$(jget data.scopes)" = 'chat' ] \
+        && ok '创建回显 scopes=chat：勾了什么就是什么' \
+        || bad '创建回显 scopes 漂移' "$(jget data.scopes)"
+fi
+
+if [ -n "$SCOPE_APP_KEY" ]; then
+    open_call "$SCOPE_APP_KEY"
+    want_status '只有 chat 能力调 /api/open/call → 403（能力闸门排在业务之前）' 403 403
+    printf '%s' "$BODY" | grep -qF '未开通此能力' \
+        && ok '403 报文点名缺哪个能力（不引导调用方去换一把同样没权限的 Key）' \
+        || bad '403 报文未说明缺的能力' "$(detail)"
+
+    req PUT "/api/openapi/apps/$SCOPE_APP_ID/scopes" "$TOKEN" "$(json scopes 'chat,call')"
+    if api_ok 'PUT /api/openapi/apps/{id}/scopes（放开 call）'; then
+        [ "$(jget data.scopes)" = 'chat,call' ] \
+            && ok 'PUT 返回改后全量能力串（整串替换，不是"新增了哪几项"）' \
+            || bad 'PUT 返回值不是全量能力串' "$(jget data.scopes)"
+    fi
+    open_call "$SCOPE_APP_KEY"
+    want_status '同一 Key 同一请求 → 400（403→400 跳变即"下一个请求就生效"，无需重启或等待）' 400 400
+    printf '%s' "$BODY" | grep -qF 'assistantId' \
+        && ok '400 来自业务侧空参校验而非能力闸门（未扣配额、未拨网关）' \
+        || bad '400 报文形状漂移' "$(detail)"
+
+    req PUT "/api/openapi/apps/$SCOPE_APP_ID/scopes" "$TOKEN" "$(json scopes 'chat')"
+    api_ok 'PUT scopes=chat（收回 call）'
+    open_call "$SCOPE_APP_KEY"
+    want_status '收回后同请求再 → 403（收回与放开走同一条路，不是单向门）' 403 403
+fi
+
+if [ -n "$SCOPE_APP_ID" ]; then
+    # 管理侧的三条拒绝都是 **HTTP 200 + 业务 code 400**：`ApiResponse.paramError` 只改响应体不改状态行，
+    # 与同控制器的 create/revoke 一致；而上面 /api/open/call 的 400/403 是**真状态码**（开放侧走
+    # ResponseEntity 与拦截器 writeForbidden）。两种写法在本仓并存（4.4 只登记了"异常→状态"那一半），
+    # 断言时必须按各自实际的出口形状写，否则就是一次假红。
+    req PUT "/api/openapi/apps/$SCOPE_APP_ID/scopes" "$TOKEN" "$(json scopes 'chat,teleport')"
+    want_status '未知能力值 → code 400（整体拒绝，不静默丢掉不认识的那一项）' 200 400
+    printf '%s' "$BODY" | grep -qF '未知的能力' \
+        && ok '拒绝文案点名那个不认识的值（运维不必猜是哪一项没生效）' \
+        || bad '未知值拒绝文案未点名' "$(detail)"
+    req PUT "/api/openapi/apps/$SCOPE_APP_ID/scopes" "$TOKEN" "$(json scopes '')"
+    want_status '空集 → code 400（要全停请吊销，不放给用户没点过的能力）' 200 400
+    printf '%s' "$BODY" | grep -qF '吊销' \
+        && ok '空集拒绝给出出口（指向吊销，而不是让人对着"必填"再试一次）' \
+        || bad '空集拒绝未给出出口' "$(detail)"
+    req GET /api/openapi/apps "$TOKEN"
+    if api_ok 'GET /api/openapi/apps（复核两次拒绝没动库）'; then
+        ROW=0
+        ROW_SCOPE=''
+        while true; do
+            ROW_ID="$(jget "data.$ROW.id")"
+            [ -z "$ROW_ID" ] && break
+            if [ "$ROW_ID" = "$SCOPE_APP_ID" ]; then
+                ROW_SCOPE="$(jget "data.$ROW.scope")"
+                break
+            fi
+            ROW=$((ROW + 1))
+        done
+        if [ -z "$ROW_SCOPE" ]; then
+            bad '列表里找不到本次自造应用' "data[] 中没有 id=${SCOPE_APP_ID:0:8}… 的行"
+        elif [ "$ROW_SCOPE" = 'chat' ]; then
+            ok '两次拒绝后库里 scopes 仍为 chat（原子拒绝，无部分写入）'
+        else
+            bad '被拒绝的能力变更写进了库' "实际 scopes=$ROW_SCOPE"
+        fi
+    fi
+    # 明文 Key 自 v2.45 起不可回读，所以"吊销后重建"不再是可行的调整路径；这条是它的前置保障
+    open_call "$SCOPE_APP_KEY"
+    want_status '两次被拒的 PUT 之后 Key 仍是有效凭据（403 而非 401：只缺能力，没掉认证）' 403 403
+
+    if [ -n "$ADMIN_TOKEN" ] && [ "$ADMIN_TOKEN" != "$TOKEN" ]; then
+        req PUT "/api/openapi/apps/$SCOPE_APP_ID/scopes" "$ADMIN_TOKEN" "$(json scopes 'chat,call')"
+        want_status '非属主（管理端令牌）改他人应用能力 → 与"不存在"同形，不透露归属' 200 400
+        req GET '/api/admin/audit-logs?page=1&pageSize=50' "$ADMIN_TOKEN"
+        if api_ok 'GET /api/admin/audit-logs（审计能回看能力变更）'; then
+            printf '%s' "$BODY" | grep -qF '"action":"API_APP_SCOPES_UPDATE"' \
+                && ok '审计已记录 API_APP_SCOPES_UPDATE' \
+                || bad '审计缺 API_APP_SCOPES_UPDATE' '最近 50 条里没有该 action'
+            # detail 是 JSON **字符串列**，随响应下发时被整体转义 ⇒ 匹配的是 \"to\":\"chat,call\" 这一形状
+            printf '%s' "$BODY" | grep -qF '\"to\":\"chat,call\"' \
+                && ok '审计详情带 from→to（能回答"谁把外呼能力放开了"，不只是"改过"）' \
+                || bad '审计详情未记变更前后值' 'detail 里没有 to=chat,call'
+            printf '%s' "$BODY" | grep -qF "\"targetId\":\"$SCOPE_APP_ID\"" \
+                && ok '审计 targetId 指到本次应用（能指认具体是哪一个）' \
+                || bad '审计 targetId 未指向本次应用' 'targetId 不匹配'
+            skip '被拒绝的能力变更在审计里记成 result=1（成功）' 'AuditAspect 按"有没有抛异常"判成败，而 ApiResponse.paramError 是正常返回 ⇒ 上面那条非属主尝试与一次成功变更在台账里同形。开发库实测：同一应用 5 条 API_APP_SCOPES_UPDATE，其中 3 条 detail 为 NULL 的拒绝行同样 result=1。已登记为候选 ㉛（修法要动全局审计形状，不属本批）'
+        fi
+    else
+        skip '非属主改能力 + 审计详情' '没有独立于业务账号的管理员令牌（提供 SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS 后可测）'
+    fi
+
+    if [ "$KEEP" = '1' ]; then
+        skip 'DELETE /api/openapi/apps/{id}' 'KEEP=1'
+    else
+        req DELETE "/api/openapi/apps/$SCOPE_APP_ID" "$TOKEN"
+        api_ok 'DELETE /api/openapi/apps/{id}（清理本次自造应用）'
+    fi
+else
+    skip '能力变更全链' '应用创建失败，后续断言无法进行'
+fi
+
 # ---------- 8. 管理端只读 ----------
 if [ -n "${SMOKE_ADMIN_USER:-}" ]; then
     section '8. 管理端只读检查'
@@ -586,7 +718,7 @@ if [ -n "${SMOKE_ADMIN_USER:-}" ]; then
             [ "$(jget data.role)" = 'admin' ] && ok '登录响应 role=admin' || bad '管理员账号 role 非 admin' "$(jget data.role)"
         fi
     else
-        ok '管理员令牌复用第 2 节发码时的登录会话（未重复消耗 AUTH 桶）'
+        ok '管理员令牌复用本轮已建立的登录会话（第 2 节发码或 §7.10，未重复消耗 AUTH 桶）'
     fi
     if [ -n "$ADMIN_TOKEN" ]; then
         for p in /api/admin/overview '/api/admin/users?page=1&pageSize=1' '/api/admin/audit-logs?page=1&pageSize=1' \

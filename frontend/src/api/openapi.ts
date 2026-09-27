@@ -46,3 +46,15 @@ export function createApp(appName: string, webhookUrl?: string, scopes?: string)
 export async function revokeApp(appId: string): Promise<void> {
   await request<void>(`${API_BASE}/openapi/apps/${appId}`, { method: 'DELETE' })
 }
+
+/**
+ * 变更应用能力（v2.46）：整串替换，不是增量授予——传过去的串就是改完后的全部能力。
+ * 服务端会把未知值整体拒绝、把空集拒绝（要全停请吊销），返回它归一后的实际能力串。
+ * 生效时机：每次请求都重新查库，所以下一个请求即生效；已在进行中的开放语音通话不受影响。
+ */
+export function updateAppScopes(appId: string, scopes: string): Promise<{ id: string; scopes: string }> {
+  return request<{ id: string; scopes: string }>(`${API_BASE}/openapi/apps/${appId}/scopes`, {
+    method: 'PUT',
+    body: JSON.stringify({ scopes }),
+  })
+}

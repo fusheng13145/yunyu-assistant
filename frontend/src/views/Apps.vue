@@ -47,7 +47,7 @@
             <tr v-for="app in apps" :key="app.id" class="border-b geek-divider">
               <td class="px-4 py-2.5" style="color: var(--geek-text)">{{ app.appName }}</td>
               <td class="px-4 py-2.5">
-                <div class="flex flex-wrap gap-1">
+                <div class="flex flex-wrap items-center gap-1">
                   <span
                     v-for="scope in scopeList(app.scope)"
                     :key="scope"
@@ -55,6 +55,14 @@
                     style="background: var(--geek-primary-bg); color: var(--geek-primary)"
                   >{{ scope }}</span>
                   <span v-if="scopeList(app.scope).length === 0" class="text-xs" style="color: var(--geek-text-faint)">无能力</span>
+                  <!-- 能力可编辑（v2.46）：明文 Key 自 v2.45 起不可回读，"吊销后重建"已不再是可行的调整路径 -->
+                  <button
+                    @click="openEditScopes(app)"
+                    class="text-xs px-1.5 py-0.5 rounded hover:opacity-70"
+                    style="color: var(--geek-text-muted)"
+                  >
+                    编辑
+                  </button>
                 </div>
               </td>
               <td class="px-4 py-2.5 text-xs">{{ app.webhookUrl || '—' }}</td>
@@ -85,18 +93,14 @@
           <h3 class="font-display text-lg font-bold mb-4" style="color: var(--geek-text)">创建应用</h3>
           <input v-model="createForm.appName" type="text" maxlength="64" placeholder="应用名称（必填）" class="geek-input w-full px-3 py-2 rounded mb-3" />
           <input v-model="createForm.webhookUrl" type="text" placeholder="Webhook 回调 URL（可选，第三方调用时可接收事件回调）" class="geek-input w-full px-3 py-2 rounded mb-4" />
-          <!-- 能力勾选（v2.45）：勾选即白名单，服务端按端点判定，缺能力回 403 -->
-          <fieldset class="rounded px-3 py-2.5 mb-5" style="border: 1px solid var(--geek-border)">
-            <legend class="text-xs px-1" style="color: var(--geek-text-secondary)">开通能力</legend>
-            <label v-for="option in scopeOptions" :key="option.value" class="flex items-start gap-2 py-1 cursor-pointer">
-              <input v-model="createForm.scopes" type="checkbox" :value="option.value" class="mt-0.5" />
-              <span class="text-xs leading-relaxed">
-                <span class="mono" style="color: var(--geek-text)">{{ option.value }}</span>
-                <span style="color: var(--geek-text-muted)">— {{ option.label }}</span>
-              </span>
-            </label>
-            <p class="text-xs mt-1.5" style="color: var(--geek-text-faint)">全不选＝只开通文本对话；能力后续不可编辑，需要调整请吊销后重建</p>
-          </fieldset>
+          <!-- 能力勾选：勾选即白名单，服务端按端点判定，缺能力回 403（判定全在服务端，这里只负责拼串） -->
+          <ScopePicker
+            v-model="createForm.scopes"
+            :options="scopeOptions"
+            legend="开通能力"
+            hint="全不选＝只开通文本对话；能力之后可以在列表里编辑，不必吊销重建"
+            class="mb-5"
+          />
           <div class="flex justify-end gap-2">
             <button @click="showCreate = false" class="geek-btn geek-btn-ghost geek-btn-sm">取消</button>
             <button @click="onCreate" :disabled="!createForm.appName.trim() || creating" class="geek-btn geek-btn-primary geek-btn-sm" :class="{ 'opacity-40 cursor-not-allowed': !createForm.appName.trim() || creating }">
@@ -116,7 +120,7 @@
           </div>
           <p class="text-xs mb-3" style="color: var(--geek-text-muted)">
             本次开通能力：<span class="mono" style="color: var(--geek-text)">{{ scopeList(createdApp.scopes).join(' / ') || '无' }}</span>
-            （能力创建后不可编辑；调用未开通的端点会返回 403）
+            （调用未开通的端点会返回 403；能力可在列表里随时编辑，改完下一个请求即生效）
           </p>
           <p class="text-xs mb-3" style="color: var(--geek-text-muted)">
             Webhook Secret（用于回调签名校验，同样仅展示一次）：
@@ -126,6 +130,35 @@
           </div>
           <div class="flex justify-end gap-2">
             <button @click="createdApp = null; showCreate = false" class="geek-btn geek-btn-primary geek-btn-sm">我已保存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 编辑能力弹窗（v2.46）：整串替换，服务端拒绝空集，所以全不选时保存按钮不可用 -->
+      <div v-if="editTarget" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.45)">
+        <div class="geek-card rounded-xl p-6 w-full max-w-lg mx-4">
+          <h3 class="font-display text-lg font-bold mb-1" style="color: var(--geek-text)">编辑能力</h3>
+          <p class="text-xs mb-4" style="color: var(--geek-text-muted)">
+            「{{ editTarget.appName }}」当前：
+            <span class="mono" style="color: var(--geek-text)">{{ scopeList(editTarget.scope).join(' / ') || '无能力' }}</span>
+          </p>
+          <ScopePicker
+            v-model="editScopes"
+            :options="scopeOptions"
+            legend="开通能力"
+            hint="保存即整串替换：取消勾选的能力下一请求起返回 403。至少要保留一项，要停掉全部能力请吊销应用。"
+            class="mb-5"
+          />
+          <div class="flex justify-end gap-2">
+            <button @click="editTarget = null" class="geek-btn geek-btn-ghost geek-btn-sm">取消</button>
+            <button
+              @click="onSaveScopes"
+              :disabled="editScopes.length === 0 || savingScopes"
+              class="geek-btn geek-btn-primary geek-btn-sm"
+              :class="{ 'opacity-40 cursor-not-allowed': editScopes.length === 0 || savingScopes }"
+            >
+              {{ savingScopes ? '保存中…' : '保存' }}
+            </button>
           </div>
         </div>
       </div>
@@ -152,9 +185,10 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, Plus, KeyRound } from 'lucide-vue-next'
 import ThemeToggle from '../components/ThemeToggle.vue'
+import ScopePicker from '../components/ScopePicker.vue'
 import { useTheme } from '../composables/useTheme'
 import { useNotification } from '../composables/useNotification'
-import { fetchApps, createApp, revokeApp } from '../api/openapi'
+import { fetchApps, createApp, revokeApp, updateAppScopes } from '../api/openapi'
 import type { ApiAppItem, ApiAppCreated } from '../api/openapi'
 
 const { themeMode, setTheme } = useTheme()
@@ -167,6 +201,9 @@ const creating = ref(false)
 const createForm = ref({ appName: '', webhookUrl: '', scopes: ['chat'] as string[] })
 const createdApp = ref<ApiAppCreated | null>(null)
 const revokeTarget = ref<ApiAppItem | null>(null)
+const editTarget = ref<ApiAppItem | null>(null)
+const editScopes = ref<string[]>([])
+const savingScopes = ref(false)
 
 /** 能力清单与服务端 ApiApp.ALL_SCOPES 同序同名；勾选框只负责拼逗号串，判定全在服务端 */
 const scopeOptions = [
@@ -215,6 +252,27 @@ const onCreate = async () => {
 
 const onRevoke = (app: ApiAppItem) => {
   revokeTarget.value = app
+}
+
+const openEditScopes = (app: ApiAppItem) => {
+  editTarget.value = app
+  editScopes.value = scopeList(app.scope)
+}
+
+const onSaveScopes = async () => {
+  if (!editTarget.value) return
+  savingScopes.value = true
+  try {
+    const result = await updateAppScopes(editTarget.value.id, editScopes.value.join(','))
+    show(`「${editTarget.value.appName}」已开通：${scopeList(result.scopes).join(' / ')}`, 'success')
+    editTarget.value = null
+    await load()
+  } catch (error) {
+    console.error('更新应用能力失败:', error)
+    show(`能力更新失败：${(error as Error).message}`, 'error')
+  } finally {
+    savingScopes.value = false
+  }
 }
 
 const onRevokeConfirm = async () => {

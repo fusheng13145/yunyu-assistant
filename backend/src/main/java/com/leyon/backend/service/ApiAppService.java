@@ -60,34 +60,94 @@ public class ApiAppService {
     }
 
     /**
-     * 能力白名单归一：按 {@link ApiApp#ALL_SCOPES} 的固定顺序重排、去重，未知值拒绝。
-     * 空输入回默认 {@link ApiApp#SCOPE_CHAT}——但**不会**回"全部能力"。
+     * 能力白名单归一（创建侧）：空输入回默认 {@link ApiApp#SCOPE_CHAT}——但**不会**回"全部能力"。
+     * <p>
+     * 与变更侧 {@link #updateScopes} 对"空"的判定刻意相反，见那边的说明。
      */
     private String normalizeScopes(String scopes) {
-        if (!StringUtils.hasText(scopes)) {
-            return ApiApp.SCOPE_CHAT;
-        }
+        List<String> parsed = parseScopes(scopes);
+        return joinOrdered(parsed.isEmpty() ? List.of(ApiApp.SCOPE_CHAT) : parsed);
+    }
+
+    /**
+     * 能力串的解析、校验与去重（创建与变更**共用**）：不认识的值直接抛，不静默丢弃——
+     * 静默丢弃会让调用方以为授予了能力，运行时却吃 403。
+     *
+     * @return 去重后的能力集合，可能为空（调用方决定空集怎么处理）
+     */
+    private List<String> parseScopes(String scopes) {
         List<String> requested = new ArrayList<>();
-        for (String raw : scopes.split(",")) {
-            String scope = raw.trim().toLowerCase();
-            if (scope.isEmpty()) {
-                continue;
-            }
-            if (!ApiApp.ALL_SCOPES.contains(scope)) {
-                throw new IllegalArgumentException("未知的能力: " + scope + "（可选：" + String.join("/", ApiApp.ALL_SCOPES) + "）");
-            }
-            if (!requested.contains(scope)) {
-                requested.add(scope);
+        if (StringUtils.hasText(scopes)) {
+            for (String raw : scopes.split(",")) {
+                String scope = raw.trim().toLowerCase();
+                if (scope.isEmpty()) {
+                    continue;
+                }
+                if (!ApiApp.ALL_SCOPES.contains(scope)) {
+                    throw new IllegalArgumentException("未知的能力: " + scope + "（可选：" + String.join("/", ApiApp.ALL_SCOPES) + "）");
+                }
+                if (!requested.contains(scope)) {
+                    requested.add(scope);
+                }
             }
         }
-        if (requested.isEmpty()) {
-            return ApiApp.SCOPE_CHAT;
-        }
-        // 按白名单顺序输出，保证同一组能力的存储形态唯一（便于比对与台账阅读）
+        return requested;
+    }
+
+    /** 按白名单顺序输出，保证同一组能力的存储形态唯一（便于比对、台账阅读与断言） */
+    private String joinOrdered(List<String> scopes) {
         List<String> ordered = new ArrayList<>(ApiApp.ALL_SCOPES);
-        ordered.retainAll(requested);
+        ordered.retainAll(scopes);
         return String.join(",", ordered);
     }
+
+    /**
+     * 变更应用能力（v2.46 · 候选 ㉗）。整串替换，不做增量授予——"只加不减"的接口
+     * 会让调用方无法表达"停掉外呼"这个真实诉求，而停掉恰恰是这套能力白名单存在的理由。
+     * <p>
+     * 判定每请求查库、无任何缓存，所以改完**下一个请求即生效**；唯一不受此约束的是
+     * 已建立的开放语音会话（握手时一次性判定），口径见手册 6.6。
+     * <p>
+     * 空集在这里是**拒绝**而不是"清空"，与创建侧"空→默认 chat"正好相反：
+     * 两处若共用同一个归一函数，"取消全部勾选"就会变成"只保留 chat"——那是给用户一个
+     * 他们没点过的能力。要停掉全部能力请吊销应用（吊销是终态）。
+     *
+     * @return 变更前后两值（供审计与回显）；应用不存在、已吊销或不属于该用户时返回 null
+     * @throws IllegalArgumentException 能力串含未知值或为空集（此时库里原值不变）
+     */
+    public ScopeChange updateScopes(String id, String userId, String scopes) {
+        if (!StringUtils.hasText(id) || !StringUtils.hasText(userId)) {
+            return null;
+        }
+        // 先校验入参再查库：非法能力串不该产生任何读表与写表动作
+        List<String> requested = parseScopes(scopes);
+        if (requested.isEmpty()) {
+            throw new IllegalArgumentException("至少要保留一项能力；要停掉全部能力请吊销应用（吊销后 API Key 即刻失效且不可恢复）");
+        }
+        ApiApp app = apiAppMapper.selectById(id);
+        if (app == null || !userId.equals(app.getUserId())) {
+            return null;
+        }
+        String normalized = joinOrdered(requested);
+        // 只带 id 与 scopes：MyBatis-Plus 默认跳过 null 字段，凭据列因此不可能被整行覆盖抹掉
+        ApiApp update = new ApiApp();
+        update.setId(id);
+        update.setScopes(normalized);
+        if (apiAppMapper.updateById(update) == 0) {
+            return null;
+        }
+        // 列本身 NOT NULL，这里兜的是"有人手工把库改成 NULL"：改后值已落库，
+        // 若因旧值取不出来抛 NPE，客户端会看到 500 而实际改动已生效——那比读成一个空串糟得多。
+        return new ScopeChange(id, java.util.Objects.toString(app.getScopes(), ""), normalized);
+    }
+
+    /**
+     * 能力变更的结果（改前值 + 改后值）。改前值必须由服务一起交出来：审计要写 old→new，
+     * 而控制器拿不到它就得再查一次库——两次读之间值可能已变，那就不叫"改前"了。
+     */
+    public record ScopeChange(String appId, String previousScopes, String scopes) {
+    }
+
 
     /**
      * Webhook 地址校验：非空时须为可安全访问的公网 http/https 地址（防 SSRF）
