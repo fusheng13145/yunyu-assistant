@@ -1,5 +1,6 @@
-"""文档门禁：手册/README 的目录、表格、链接、遗留标记与变更记录一致性。
+"""文档门禁：手册/README/仓根导读层/ docs/ 各页的目录、表格、链接、遗留标记与变更记录一致性。
 
+新增文档时要把路径加进下面的 FILES，否则它不受任何门禁保护。
 用法：python3 scripts/check-docs.py
 退出码非 0 表示存在 FAIL，CI 与提交前本地检查都以此为准。
 """
@@ -14,7 +15,21 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FILES = ["docs/云谕助手项目手册.md", "README.md"]
+FILES = [
+    "docs/云谕助手项目手册.md",
+    "README.md",
+    "AGENTS.md",
+    "DESIGN.md",
+    "CHANGELOG.md",
+    "TODO.md",
+    "docs/PROJECT-SPEC.md",
+    "docs/ARCHITECTURE.md",
+    "docs/COMPONENT-GUIDELINES.md",
+    "docs/PAGE-STRUCTURE.md",
+    "docs/DEVELOPMENT.md",
+    "docs/REGISTRY.md",
+    "docs/DEPLOYMENT.md",
+]
 
 
 def slug(t):
@@ -124,8 +139,10 @@ for rel in FILES:
 
     # --- 4. 遗留标记 ---
     # 注意：本规则要检的字面词不能出现在被检文档的正文里，否则门禁会扫到自己刚写的说明。
+    # 例外：文件名 TODO.md 是指向导读层清单的链接目标，不是遗留标记；不剥掉它会让任何引用该文件的文档判红。
     hits = [i + 1 for i in range(len(plain))
-            if re.search(r'\b(TODO|FIXME|XXX)\b', plain[i]) or '待补充' in plain[i] or '占位待写' in plain[i]]
+            if re.search(r'\b(TODO|FIXME|XXX)\b', plain[i].replace('TODO.md', ''))
+            or '待补充' in plain[i] or '占位待写' in plain[i]]
     for l in hits[:10]:
         fail += 1
         print(f"[todo] FAIL {rel}:{l} {raw[l - 1][:110]}")

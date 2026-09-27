@@ -48,7 +48,11 @@ yunyu-assistant/
 │                            # 六道前端 Node 桩测（notification / kb-flag / history-record / chat-frame / recording-upload / denial-ledger）自 v2.43 起逐批全部纳入 CI，v2.50 起第六道同进
 ├── .github/workflows/ci.yml # PR 关键路径：后端单测 + 前端 lint/类型/七道 Node 检查（check:auth + 六道桩测）/构建 + 门禁（零凭据、零数据库；v2.33 建线，v2.43 桩测全进）
 ├── deploy/turn/             # TURN(coturn) 部署物料
-├── docs/                    # 项目手册（详见《云谕助手项目手册.md》）
+├── docs/                    # 云谕助手项目手册.md（权威细节层）+ 导读层各页（见「文档」）
+├── AGENTS.md                # 协作与开发硬约束（AI 代理与开发者都读）
+├── DESIGN.md                # 界面视觉规范
+├── CHANGELOG.md             # 版本索引（正文在手册 7.5）
+├── TODO.md                  # 当前进度与待表态事项
 ├── start-backend.bat        # 一键启动后端（双击，内置开发默认值，不读 .env）
 ├── start-frontend.bat       # 一键启动前端（双击）
 └── .env.example             # 环境变量模板（需显式导出，见「配置说明」）
@@ -147,7 +151,21 @@ npm run dev
 
 ## 文档
 
-- 项目手册：[docs/云谕助手项目手册.md](docs/云谕助手项目手册.md)（项目概述 / 功能说明 / 技术架构 / 开发规范 / 部署流程 / 维护指南 / API 与 WS 协议速查）
+**权威层只有一份**：[docs/云谕助手项目手册.md](docs/云谕助手项目手册.md)（项目概述 / 功能说明 / 技术架构 / 开发规范 / 部署流程 / 维护指南 / API 与 WS 协议速查 + 问题追踪 7.4 + 变更记录 7.5）。其余各页是**导读层**——按角色把注意力引到手册对应章节，本身不重复计数值，与手册冲突时以手册为准。
+
+| 页面 | 什么时候看 |
+|---|---|
+| [AGENTS.md](AGENTS.md) | 动手前：交付标准、批次节奏、不可逆资源、安全与验证纪律 |
+| [docs/PROJECT-SPEC.md](docs/PROJECT-SPEC.md) | 判断"该不该做"：定位、范围、明确不做的事 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 动跨模块代码前：分层、拦截器链、WS 通道、三条贯穿全仓的设计决定 |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 日常开发：环境、提交前必跑、判绿的唯一方式、写迁移的规矩 |
+| [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 改页面时：路由 → 视图 → 接口 → WS 的对应关系与逐页真实行为 |
+| [docs/COMPONENT-GUIDELINES.md](docs/COMPONENT-GUIDELINES.md) | 写组件/接口前：命名、错误处理、依赖策略、无障碍现状 |
+| [docs/REGISTRY.md](docs/REGISTRY.md) | 加工具、开放端点、列或依赖时：六张"不登记就等于没生效"的登记表 |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 上线相关：为什么不是边缘托管、拓扑、上线顺序、易漏项 |
+| [DESIGN.md](DESIGN.md) | 改前端样式前：视觉规范（纯白极客 + 暗色） |
+| [CHANGELOG.md](CHANGELOG.md) | 查历史版本：批次索引（正文仍在手册 7.5） |
+| [TODO.md](TODO.md) | 找下一步做什么：进度快照与等用户表态的事项 |
 
 ## 项目现状与迭代方向
 
