@@ -6,12 +6,12 @@
 
 | # | 登记表 | 位置 | 不登记的后果 | 谁把它变成硬约束 |
 |---|---|---|---|---|
-| 1 | AI 工具注册表 | `backend/.../tool/` | 工具名重复 → **启动失败** | `ToolRegistry.init()` |
-| 2 | 开放端点 → 能力表 | `interceptor/OpenApiAuthInterceptor.REQUIRED_SCOPES` | 新端点未登记 → **一律 403**（fail-closed） | 该拦截器 + 台账计数 |
-| 3 | 拒绝台账的"种类"表 | `service/OpenApiDenialMeter.Kind` | 新拒绝场景无处可记 → 只能混进别的格，读数失真（例如关闸存量被查不出来） | 两个拦截器单测逐格断言落点 + `npm run check:denial-ledger` 锁前端分格 |
-| 4 | 数据库迁移账本 | `backend/src/main/resources/db/migrations/` + `schema_migrations` 表 | 实体有列而库没有 → 相关查询整体报错 | `scripts/db-migrate.sh` |
+| 1 | AI 工具注册表 | `backend/.../tool/` | 工具名重复 → **启动失败** | `ToolRegistry.init()`；`npm run check:registries` 核对第 1 节表与代码注册名双向一致 |
+| 2 | 开放端点 → 能力表 | `interceptor/OpenApiAuthInterceptor.REQUIRED_SCOPES` | 新端点未登记 → **一律 403**（fail-closed） | 该拦截器 + 台账计数；`check:registries` 另核对表与 `REQUIRED_SCOPES`、握手处的 `SCOPE_VOICE` 判定、以及"限流 → 验 Key → 验能力"的先后 |
+| 3 | 拒绝台账的"种类"表 | `service/OpenApiDenialMeter.Kind` | 新拒绝场景无处可记 → 只能混进别的格，读数失真（例如关闸存量被查不出来） | 两个拦截器单测逐格断言落点 + `npm run check:denial-ledger` 锁前端分格 + `check:registries` 锁"第 3 节表 ↔ 枚举 ↔ 文档计数"三者相等且前端不抄清单 |
+| 4 | 数据库迁移账本 | `backend/src/main/resources/db/migrations/` + `schema_migrations` 表 | 实体有列而库没有 → 相关查询整体报错 | `scripts/db-migrate.sh`；`check:registries` 核对第 4 节表与目录实际文件同名同序 |
 | 5 | 环境变量登记表 | `application.yaml` ↔ `.env.example` ↔ IDE 元数据 | 见第 5 节 | `scripts/check-config.py` |
-| 6 | 门禁与脚本台账 | `scripts/` ↔ `frontend/package.json` ↔ `.github/workflows/ci.yml` | 未纳 CI 的检查＝只有人手工跑时才生效 | CI 的 `gates` / `frontend` job |
+| 6 | 门禁与脚本台账 | `scripts/` ↔ `frontend/package.json` ↔ `.github/workflows/ci.yml` | 未纳 CI 的检查＝只有人手工跑时才生效 | CI 的 `gates` / `frontend` job；`check:registries` 第 5 组核对"脚本 ↔ 本表 ↔ `package.json` ↔ `ci.yml` ↔ `AGENTS.md` 命令块"四处逐条对上（本批自己就被它判红过一次：先写了 CI 步骤、后补本表行） |
 
 ---
 
@@ -51,7 +51,7 @@
 |---|---|
 | `POST /api/open/chat` | `chat` |
 | `POST /api/open/call` | `call` |
-| `WS /api/open/ws-voice/{assistantId}` | `voice`（握手处判定，`SCOPE_VOICE`） |
+| `WS /api/open/ws-voice/{assistantId}` | `voice`（握手处判定 `SCOPE_VOICE`；**v2.52 起每次 `offer` 与每个 ASR 回合入口再复核一次**，故改小/吊销会终止进行中的通话） |
 | `/api/open/callbacks/**` | 不走此表：由 `AppConfig` 从开放拦截器排除，独立校验 `X-Gateway-Token` |
 
 - 能力全集：`ApiApp.ALL_SCOPES = [chat, call, voice]`（前端 `Apps.vue` 的选项列表必须与之**同名同序**，
@@ -125,6 +125,7 @@
 | `check-chat-frame.mjs` | WS 回合帧分派（error 解冻、解锁只属于终点、视图必须走统一入口） | ✅ | 否 |
 | `check-recording-upload.mjs` | 通话录音收尾结局可见 | ✅ | 否 |
 | `check-denial-ledger.mjs` | 拒绝台账分格与三态 + 接线 | ✅ | 否 |
+| `check-registries.mjs` | **本文件与代码实况的一致性**（第 1/2/3/4/6 节的清单能否被代码逐项指向） | ✅ | 否 |
 
 **Node 桩测的共性**：零依赖、不碰网络与库、用 Node 原生类型擦除直接 `import` 生产模块
 ⇒ 被 import 的模块**只能依赖裸包名或 `import type`**（`utils/websocket.ts` 与 `composables/useWebRTC.ts` 因此不可测）。
@@ -140,6 +141,7 @@
 | 模板类型窄化 | `npm run build`（`type:check` 查不到） |
 | 拦截器顺序 / 序列化 / 限流 / 握手 | `smoke.sh`（人工，上线前） |
 | 文档、配置登记 | 两个 Python 门禁 |
+| 登记表与代码漂移（新增 Kind / 工具 / 迁移 / 开放端点 / 门禁脚本而没在本文件登记） | `check-registries.mjs`（CI `frontend`） |
 
 ## 7. 相关文档
 

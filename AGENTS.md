@@ -22,7 +22,7 @@
     ./mvnw test
   # 前端（注意：上一行之后在 backend/ 里，要回仓根）
   cd ../frontend && npm run lint && npm run type:check && npm run build
-  for c in auth notification kb-flag history-record chat-frame recording-upload denial-ledger; do npm run check:$c; done
+  for c in auth notification kb-flag history-record chat-frame recording-upload denial-ledger registries; do npm run check:$c; done
   # 门禁（在仓根）
   cd .. && python scripts/check-docs.py && python scripts/check-config.py && bash -n scripts/smoke.sh
   ```

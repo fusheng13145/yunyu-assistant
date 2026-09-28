@@ -4,10 +4,12 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.common.QuotaExceededException;
+import com.leyon.backend.entity.ApiApp;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.CallRecord;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.WebhookDelivery;
+import com.leyon.backend.service.ApiAppService;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
 import com.leyon.backend.service.ChatService;
@@ -100,6 +102,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private final QuotaService quotaService;
     private final KnowledgeBaseService knowledgeBaseService;
     private final WebhookService webhookService;
+    private final ApiAppService apiAppService;
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
     private final JwtUtil jwtUtil;
@@ -133,6 +136,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                                  QuotaService quotaService,
                                  KnowledgeBaseService knowledgeBaseService,
                                  WebhookService webhookService,
+                                 ApiAppService apiAppService,
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
                                  JwtUtil jwtUtil,
@@ -147,6 +151,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         this.quotaService = quotaService;
         this.knowledgeBaseService = knowledgeBaseService;
         this.webhookService = webhookService;
+        this.apiAppService = apiAppService;
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
         this.jwtUtil = jwtUtil;
@@ -251,6 +256,13 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
      */
     private void handleOffer(@NonNull WebSocketSession session, @NonNull JsonNode node) {
         String sessionId = session.getId();
+        // 资格复核：握手到 offer 之间可能已被收紧能力或吊销（同一连接可多次发起通话）
+        if (!openApiVoiceStillAllowed(session)) {
+            logger.warn("开放语音通话被拒：会话ID:{} 的应用已不再具备语音能力", sessionId);
+            sendMessage(session, MSG_TYPE_ERROR, "本应用的语音能力已关闭，连接即将结束");
+            closeSession(session);
+            return;
+        }
         String offerSDP = node.get(FIELD_SDP).asText();
         // 助手ID只能来自握手 URL 路径段（/ws-voice/{assistantId}、/api/open/ws-voice/{assistantId}），
         // 不接受消息体传值：避免同一连接内切换到其他助手造成越权
@@ -536,6 +548,14 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             return;
         }
         String sessionId = session.getId();
+        // 每轮开始复核：进行中的通话不该比一次握手活得更久（候选 ㉚）
+        if (!openApiVoiceStillAllowed(session)) {
+            logger.warn("开放语音本轮终止：会话ID:{} 的应用已不再具备语音能力", sessionId);
+            sendMessage(session, MSG_TYPE_QUERY_END,
+                    Map.of(FIELD_MESSAGE, "抱歉，本应用的语音能力已关闭，通话即将结束。", "status", "error"));
+            closeSession(session);
+            return;
+        }
         logger.info("收到语音识别文本，会话ID:{}，内容:{}", sessionId, asrText);
 
         // 回显识别文本到前端（asr_delta 实时转写）
@@ -735,6 +755,16 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             return orgService.isMember(assistant.getOrgId(), userId);
         }
         return userId.equals(assistant.getUserId());
+    }
+
+    /**
+     * 开放语音会话的资格复核（候选 ㉚）：能力与启用状态在握手之后可被管理侧变更，
+     * 而一次通话可以持续很久——只在握手判一次等于"吊销要等对方自己断开才生效"。
+     * 内部会话（无 appId）不查库，返回放行。
+     */
+    private boolean openApiVoiceStillAllowed(WebSocketSession session) {
+        String appId = (String) session.getAttributes().get(SESSION_ATTR_APP_ID);
+        return !StringUtils.hasText(appId) || apiAppService.accessGranted(appId, ApiApp.SCOPE_VOICE);
     }
 
     /**

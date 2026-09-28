@@ -47,6 +47,7 @@ npm run lint && npm run type:check \
   && npm run check:auth && npm run check:notification && npm run check:kb-flag \
   && npm run check:history-record && npm run check:chat-frame \
   && npm run check:recording-upload && npm run check:denial-ledger \
+  && npm run check:registries \
   && npm run build
 
 # 门禁（仓库根目录）
@@ -71,7 +72,7 @@ python scripts/check-docs.py && python scripts/check-config.py && bash -n script
 | job | 内容 | 凭据 |
 |---|---|---|
 | `backend` | JDK 21 + `./mvnw -B test`，失败上传 surefire 报告 | 无库、无仓库 Secrets（自备占位值） |
-| `frontend` | `npm ci` → lint → type:check → 七道 Node 检查 → 生产构建 | 无 |
+| `frontend` | `npm ci` → lint → type:check → 八道 Node 检查（`check:auth` + 七道桩测与一致性检查）→ 生产构建 | 无 |
 | `gates` | 文档门禁 + 配置门禁 + `bash -n scripts/smoke.sh` | 无 |
 
 **刻意不进 CI**：`scripts/smoke.sh` 全链路（要实例、要库）、真实模型调用、语音网关、浏览器级 E2E。
@@ -131,6 +132,12 @@ scripts/smoke.sh              # 分节冒烟；登录失败即 exit 2
 
 `scripts/check-docs.py` 当前检查五类：目录↔标题、表格竖线数、相对链接与跨文件锚点、遗留标记、手册变更记录连续性。
 新增文档时**要把文件加进它的 `FILES`**，否则新文档不受任何门禁保护。
+
+`scripts/check-registries.mjs`（v2.52）查的是**登记表 ↔ 代码**：[docs/REGISTRY.md](REGISTRY.md) 的四张可机判表（迁移账本 /
+开放端点→能力 / 拒绝 Kind / AI 工具）与"门禁脚本台账 ↔ `package.json` ↔ `ci.yml` ↔ `AGENTS.md` 命令块"必须逐条对上，
+文档里写死的计数（"七个枚举值""共七道桩测"）必须等于真实条数。**改了这些面而不同步登记表就会红。**
+它只读仓库内文本，故与其它桩测一样在 CI 的零凭据环境可跑；它也接受 `--registry <路径>` 只替换被检查的那份 markdown
+（代码侧仍读真实源码），用于验证判据真的会红而不必改动受版本控制的文档。
 
 - 手册是权威层；`AGENTS.md` / `README.md` / `docs/*` / `CHANGELOG.md` / `TODO.md` 是导读层，
   **不要在导读层重复计数值**（测试类数、用例数、冒烟项数只写一处）。

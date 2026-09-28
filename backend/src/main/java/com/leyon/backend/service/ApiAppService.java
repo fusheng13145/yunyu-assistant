@@ -208,4 +208,21 @@ public class ApiAppService {
         }
         return app;
     }
+
+    /**
+     * 长连接场景的资格复核：应用**当前**是否仍启用且带某能力。
+     * <p>
+     * 与 {@link #authByApiKey} 的区别只在入口——握手已用 Key 证明过身份，这里按会话里已注入的 appId 回查，
+     * 因此不存在"谁提供了凭据"的问题，只回答"这份资格还在不在"。判定**每次查库、不缓存**：
+     * 缓存等于把"改能力后 N 秒仍可用"写回来（与 v2.42 令牌版本戳同一口径）。
+     * 吊销走逻辑删除 ⇒ {@code selectById} 读不到行 ⇒ 一律拒绝，无需另判。
+     */
+    public boolean accessGranted(String appId, String scope) {
+        if (!StringUtils.hasText(appId) || !StringUtils.hasText(scope)) {
+            return false;
+        }
+        ApiApp app = apiAppMapper.selectById(appId);
+        return app != null && app.getEnabled() != null && app.getEnabled() == ApiApp.ENABLED
+                && app.hasScope(scope);
+    }
 }

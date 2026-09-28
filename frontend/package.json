@@ -19,7 +19,8 @@
     "check:history-record": "node ../scripts/check-history-record.mjs",
     "check:chat-frame": "node ../scripts/check-chat-frame.mjs",
     "check:recording-upload": "node ../scripts/check-recording-upload.mjs",
-    "check:denial-ledger": "node ../scripts/check-denial-ledger.mjs"
+    "check:denial-ledger": "node ../scripts/check-denial-ledger.mjs",
+    "check:registries": "node ../scripts/check-registries.mjs"
   },
   "dependencies": {
     "lucide-vue-next": "^0.525.0",

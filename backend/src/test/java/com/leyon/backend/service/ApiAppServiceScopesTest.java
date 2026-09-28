@@ -210,4 +210,57 @@ class ApiAppServiceScopesTest {
             assertThat(after.getUserId()).isEqualTo(before.getUserId());
         }
     }
+
+    @Nested
+    @DisplayName("资格复核 accessGranted：握手之后的变更也要看得见（候选 ㉚）")
+    class AccessRecheck {
+
+        @Test
+        @DisplayName("按 scopes 列判定：带该能力放行，不带即拒绝")
+        void followsScopesColumn() {
+            String appId = mapper.seed(OWNER, "chat,voice");
+
+            assertThat(service.accessGranted(appId, ApiApp.SCOPE_VOICE)).isTrue();
+            assertThat(service.accessGranted(appId, ApiApp.SCOPE_CALL)).isFalse();
+        }
+
+        @Test
+        @DisplayName("收紧能力的下一个复核点即生效，不必等客户端重连")
+        void narrowingReflectedAtNextRecheck() {
+            String appId = mapper.seed(OWNER, "chat,voice");
+            assertThat(service.accessGranted(appId, ApiApp.SCOPE_VOICE)).isTrue();
+
+            service.updateScopes(appId, OWNER, "chat");
+
+            assertThat(service.accessGranted(appId, ApiApp.SCOPE_VOICE)).isFalse();
+            assertThat(service.accessGranted(appId, ApiApp.SCOPE_CHAT)).isTrue();
+        }
+
+        @Test
+        @DisplayName("吊销后任何能力都不再放行——即使 scopes 列还留着全量旧值")
+        void revokedAppDeniesEverything() {
+            String appId = mapper.seed(OWNER, "chat,call,voice");
+
+            service.revoke(appId, OWNER);
+
+            assertThat(mapper.scopesInDb(appId)).isEqualTo("chat,call,voice");
+            assertThat(service.accessGranted(appId, ApiApp.SCOPE_CHAT)).isFalse();
+        }
+
+        @Test
+        @DisplayName("停用行 / 不存在的 id / 空 id 一律拒绝：判定只认明确放行")
+        void disabledMissingAndBlankAllDeny() {
+            ApiApp disabled = new ApiApp();
+            disabled.setUserId(OWNER);
+            disabled.setScopes("chat,voice");
+            disabled.setEnabled(0);
+            disabled.setIsDeleted(ApiApp.NOT_DELETED);
+            mapper.insert(disabled);
+
+            assertThat(service.accessGranted(disabled.getId(), ApiApp.SCOPE_VOICE)).isFalse();
+            assertThat(service.accessGranted("no-such-app", ApiApp.SCOPE_VOICE)).isFalse();
+            assertThat(service.accessGranted("", ApiApp.SCOPE_VOICE)).isFalse();
+            assertThat(service.accessGranted(null, ApiApp.SCOPE_VOICE)).isFalse();
+        }
+    }
 }

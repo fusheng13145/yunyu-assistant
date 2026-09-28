@@ -4,7 +4,7 @@ name: CI
 # 前端 lint/type-check/构建、文档与配置门禁、冒烟脚本语法检查。
 # 需要真实 key 或数据库的验证（scripts/smoke.sh 全链路）刻意不放在这里，见手册 4.8。
 # v2.43 起四道 Node 桩测（check:notification / kb-flag / history-record / chat-frame）纳入 frontend
-# job，v2.49 起 check:recording-upload、v2.50 起 check:denial-ledger ⇒ 共六道。
+# job，v2.49 起 check:recording-upload、v2.50 起 check:denial-ledger、v2.52 起 check:registries ⇒ 共七道。
 # 它们是纯 Node + 类型擦除 import，无外部依赖。
 
 on:
@@ -75,7 +75,7 @@ jobs:
         run: npm run type:check
       - name: 路由鉴权覆盖检查
         run: npm run check:auth
-      - name: 前端桩测（通知 / 检索角标 / 历史还原 / WS 回合收口 / 录音上传可见 / 拒绝台账分格）
+      - name: 前端桩测（通知 / 检索角标 / 历史还原 / WS 回合收口 / 录音上传可见 / 拒绝台账分格 / 登记表一致性）
         run: |
           npm run check:notification
           npm run check:kb-flag
@@ -83,6 +83,7 @@ jobs:
           npm run check:chat-frame
           npm run check:recording-upload
           npm run check:denial-ledger
+          npm run check:registries
       - name: 生产构建
         run: npm run build
 

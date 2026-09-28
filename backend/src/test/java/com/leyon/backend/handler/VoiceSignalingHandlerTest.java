@@ -1,7 +1,9 @@
 package com.leyon.backend.handler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.leyon.backend.entity.ApiApp;
 import com.leyon.backend.entity.Assistant;
+import com.leyon.backend.service.ApiAppService;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
 import com.leyon.backend.service.KnowledgeBaseService;
@@ -18,6 +20,7 @@ import com.leyon.backend.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -29,6 +32,8 @@ import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -70,6 +75,8 @@ class VoiceSignalingHandlerTest {
     @Mock
     private WebhookService webhookService;
     @Mock
+    private ApiAppService apiAppService;
+    @Mock
     private ToolRegistry toolRegistry;
     @Mock
     private JwtUtil jwtUtil;
@@ -85,7 +92,7 @@ class VoiceSignalingHandlerTest {
     void setUp() throws Exception {
         handler = new VoiceSignalingHandler(rustPBXService, assistantService, modelAdapter, knowledgeProvider,
                 recordService, callRecordService, orgService, quotaService, knowledgeBaseService,
-                webhookService, new ObjectMapper(), toolRegistry, jwtUtil, socketReaper);
+                webhookService, apiAppService, new ObjectMapper(), toolRegistry, jwtUtil, socketReaper);
         when(session.getId()).thenReturn("ws-1");
         when(session.isOpen()).thenReturn(true);
         when(session.getAttributes()).thenReturn(attributes);
@@ -151,5 +158,67 @@ class VoiceSignalingHandlerTest {
         handler.handleTextMessage(session, new TextMessage("{\"type\":\"offer\",\"sdp\":\"offer-sdp\"}"));
 
         verify(knowledgeBaseService).retainVisibleDatasetIds(eq(List.of("d1", "d2")), eq("u1"));
+    }
+
+    /** 开放语音会话：握手拦截器除属主外还注入 appId，据此区分"第三方应用接入" */
+    private void connectOpenApiSession() {
+        when(session.getUri()).thenReturn(URI.create("ws://localhost/api/open/ws-voice/a1"));
+        attributes.put("userId", "u1");
+        attributes.put("appId", "app-1");
+        handler.afterConnectionEstablished(session);
+    }
+
+    @Test
+    void offer_openApiSession_refusedWhenVoiceScopeRevoked() throws Exception {
+        connectOpenApiSession();
+        when(apiAppService.accessGranted("app-1", ApiApp.SCOPE_VOICE)).thenReturn(false);
+
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"offer\",\"sdp\":\"offer-sdp\"}"));
+
+        verifyNoInteractions(rustPBXService);
+        verifyNoInteractions(assistantService);
+        verify(session).close();
+    }
+
+    @Test
+    void offer_openApiSession_proceedsWhileScopeStillGranted() throws Exception {
+        connectOpenApiSession();
+        when(apiAppService.accessGranted("app-1", ApiApp.SCOPE_VOICE)).thenReturn(true);
+        when(assistantService.getById("a1")).thenReturn(personalAssistant(null));
+
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"offer\",\"sdp\":\"offer-sdp\"}"));
+
+        verify(rustPBXService).connectToRustPBX(eq("offer-sdp"), eq("a1"), any(), any(), any(), any());
+        verify(session, never()).close();
+    }
+
+    @Test
+    void offer_internalSession_neverConsultsApiApp() {
+        connectViaPath("ws://localhost/ws-voice/a1");
+        when(assistantService.getById("a1")).thenReturn(personalAssistant(null));
+
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"offer\",\"sdp\":\"offer-sdp\"}"));
+
+        verifyNoInteractions(apiAppService);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void asrRound_terminatedWhenScopeRevokedMidCall() throws Exception {
+        connectOpenApiSession();
+        AtomicBoolean granted = new AtomicBoolean(true);
+        when(apiAppService.accessGranted("app-1", ApiApp.SCOPE_VOICE)).thenAnswer(inv -> granted.get());
+        when(assistantService.getById("a1")).thenReturn(personalAssistant(null));
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"offer\",\"sdp\":\"offer-sdp\"}"));
+
+        ArgumentCaptor<Consumer<String>> asrCallback = ArgumentCaptor.forClass(Consumer.class);
+        verify(rustPBXService).connectToRustPBX(any(), any(), any(), any(), asrCallback.capture(), any());
+
+        granted.set(false);
+        asrCallback.getValue().accept("现在几点了");
+
+        verify(quotaService, never()).checkSendMessage(any());
+        verify(rustPBXService, never()).sendTTS(any(), any(), any());
+        verify(session).close();
     }
 }
