@@ -201,10 +201,15 @@ class QuotaDailyUsageConcurrencyTest {
         AtomicInteger passedCount = new AtomicInteger();
         // 栅栏卡在"读余额之后、写余额之前"：全部线程基于同一快照判断 ⇒ 超发是确定值，不靠调度运气。
         // 栅栏只算工作线程（测试线程不参与，否则 parties 少 1 会全体 deadlock）；
-        // 栅栏动作 trips 仅在 parties 全部到齐后 +1，是"窗口确实开放过"的直接证据。
+        // "窗口确实开放过"的判据必须用 latch 而不是读 trips：arrived 归零只证明"最后一线程读完了快照"，
+        // 它此刻可能还没进到栅栏里，直接读 trips.get() 取的是一个没有同步保证的读数（C-123，CI 上随机红）。
         CountDownLatch arrived = new CountDownLatch(threads);
         AtomicInteger trips = new AtomicInteger();
-        CyclicBarrier afterRead = new CyclicBarrier(threads, trips::incrementAndGet);
+        CountDownLatch barrierTripped = new CountDownLatch(1);
+        CyclicBarrier afterRead = new CyclicBarrier(threads, () -> {
+            trips.incrementAndGet();
+            barrierTripped.countDown();
+        });
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         for (int i = 0; i < threads; i++) {
             pool.submit(() -> {
@@ -225,7 +230,9 @@ class QuotaDailyUsageConcurrencyTest {
         }
         assertThat(arrived.await(10, TimeUnit.SECONDS))
                 .as("全部线程应完成读快照；超时说明任务没跑起来，与竞态无关").isTrue();
-        assertThat(trips.get()).as("栅栏应在超时前被全部线程触发（竞态窗口开放的确证）").isEqualTo(1);
+        assertThat(barrierTripped.await(10, TimeUnit.SECONDS))
+                .as("栅栏应在超时前被全部线程触发（竞态窗口开放的确证）").isTrue();
+        assertThat(trips.get()).as("栅栏动作应恰好执行一次").isEqualTo(1);
         pool.shutdown();
         assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
 

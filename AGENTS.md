@@ -64,6 +64,7 @@
 - 变异测试只用于**把正确实现改窄改错**的方向，且每组跑后按 `sha256` 还原，末尾复核 `git grep MUTATION -- backend/src frontend/src scripts` 为空。
 - 判定"通过/失败"只读原始产物：删掉 surefire 报告后跑，按 `TEST-*.xml` 计数；`mvn` 的退出码不能被管道后的 `echo` 吃掉（用 `./mvnw ... > log 2>&1; echo EXIT=$?`）。**"0 例失败"经常意味着编译失败或根本没跑**（本仓踩过三次，见手册 4.8）。
 - 引用冒烟项数必须带跑法口径：`scripts/smoke.sh` 的断言数随是否提供 `SMOKE_ADMIN_*` 而变，且 §8.5 是"计数相对"断言（前序区段吃掉一个槽位就会改变回报的次数）。
+- **判据的读数必须有保证**：多行结果要逐条点名（不取"扫到的第一条"，同秒行没有二级排序），并发桩里的中间计数要等一个同步对象（latch / 线程终止），不能在读完 countDown 之后直接读——那没有 happens-before，表现就是"本机全绿 / CI 随机红"。要证明这类判据有鉴别力，用**注入延时**把它变成确定红，而不是多跑几次。
 - 后端跑测试要导出与 CI 同源的环境：`DB_PORT=3399 DB_USER=ci DB_PASSWORD=ci-placeholder-unused OPENAI_API_KEY=ci-dummy-key-not-used JWT_SECRET=<64 位十六进制> ./mvnw test`。**唯一的 `@SpringBootTest` 会真加载 `application.yaml`**，缺 `JWT_SECRET` 时 `contextLoads` 报错——那是环境缺失，不是回归。
 - JVM 与 Maven **都不读 `.env`**（无 dotenv 依赖），需要 `set -a && . ./.env && set +a` 显式导出。
 
