@@ -105,7 +105,7 @@ class QuotaDailyUsageConcurrencyTest {
     }
 
     private List<Boolean> hammer(FakeUsageMapper mapper, int threads, int limit) throws Exception {
-        QuotaService service = new QuotaService(null, mapper, null, null, null, null, null);
+        QuotaService service = new QuotaService(null, mapper, null, null, null, null, null, new QuotaPolicy());
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         CountDownLatch startGate = new CountDownLatch(1);
         CountDownLatch doneGate = new CountDownLatch(threads);

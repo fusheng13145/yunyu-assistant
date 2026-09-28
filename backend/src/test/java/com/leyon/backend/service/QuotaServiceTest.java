@@ -76,7 +76,7 @@ class QuotaServiceTest {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Record.class);
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Session.class);
         quotaService = new QuotaService(quotaMapper, quotaDailyUsageMapper, orgService,
-                assistantMapper, callRecordMapper, recordMapper, sessionMapper);
+                assistantMapper, callRecordMapper, recordMapper, sessionMapper, new QuotaPolicy());
         // 纯单测环境无 Spring 注入，手动注入默认配额值（与 application.yaml 约定一致）
         applyDefaults("defaultAssistantLimit", 50);
         applyDefaults("defaultDailyCallLimit", 20);
@@ -148,6 +148,80 @@ class QuotaServiceTest {
     void checkCreateAssistant_withinLimitPasses() {
         when(assistantMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(10L);
         quotaService.checkCreateAssistant("u1");
+    }
+
+    // ===================== 上限为 0＝管理端关闭（v2.57 · C-124） =====================
+
+    /**
+     * "用满"与"被关闭"的用户动作相反（等明天 vs 找管理员），文案混用会让用户等到第二天才发现没人会恢复他。
+     * 关闭判定同时必须<b>不写账本</b>：不建当日行、不推进 used，否则关闭状态会被扣减逻辑改写成"用满"。
+     */
+    @Test
+    void zeroMsgLimitReportsDisabledAndWritesNothing() {
+        when(quotaMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(quota(5, 5, 600, 0));
+        assertThatThrownBy(() -> quotaService.checkSendMessage("u1"))
+                .isInstanceOf(QuotaExceededException.class)
+                .hasMessageContaining("单日消息量")
+                .hasMessageContaining("关闭")
+                .hasMessageNotContaining("明日再试");
+        verify(quotaDailyUsageMapper, never()).updateDailyUsage(any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
+    void zeroAssistantLimitReportsDisabledWithoutCountingRows() {
+        when(quotaMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(quota(0, 5, 600, 50));
+        assertThatThrownBy(() -> quotaService.checkCreateAssistant("u1"))
+                .isInstanceOf(QuotaExceededException.class)
+                .hasMessageContaining("助手数量")
+                .hasMessageContaining("关闭");
+    }
+
+    /**
+     * 时长上限为 0 时不得先扣通话次数：关闭语音是静态配置，不看不原子读数，
+     * 排在扣减之前才不会出现"每次尝试都白烧一通次数"
+     */
+    @Test
+    void zeroSecLimitRejectsBeforeBurningCallCount() {
+        when(quotaMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(quota(5, 5, 0, 50));
+        assertThatThrownBy(() -> quotaService.checkStartCall("u1"))
+                .isInstanceOf(QuotaExceededException.class)
+                .hasMessageContaining("单日通话时长")
+                .hasMessageContaining("关闭");
+        verify(quotaDailyUsageMapper, never()).updateDailyUsage(any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
+    void exhaustedMsgLimitStillReportsTomorrow() {
+        when(quotaMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(quota(5, 5, 600, 5));
+        when(quotaDailyUsageMapper.updateDailyUsage(any(), any(), any(), any(), anyInt())).thenReturn(0);
+        when(quotaDailyUsageMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        assertThatThrownBy(() -> quotaService.checkSendMessage("u1"))
+                .isInstanceOf(QuotaExceededException.class)
+                .hasMessageContaining("单日消息量已达上限（5 条）")
+                .hasMessageContaining("明日再试");
+    }
+
+    /**
+     * 环境变量兜底走的是同一个边界入口：越界配置不得原样进入扣减判定
+     * （否则"以为填了个不限制"的 999999 会变成账本里的 limit，而写侧根本不允许这个值）
+     */
+    @Test
+    void envDefaultAboveBoundIsClampedBeforeConsume() throws Exception {
+        applyDefaults("defaultDailyMsgLimit", 999_999);
+        when(quotaDailyUsageMapper.updateDailyUsage(any(), any(), any(), any(), anyInt())).thenReturn(1);
+        quotaService.checkSendMessage("u1");
+        ArgumentCaptor<Integer> limit = ArgumentCaptor.forClass(Integer.class);
+        verify(quotaDailyUsageMapper).updateDailyUsage(any(), any(), any(), any(), limit.capture());
+        assertThat(limit.getValue()).isEqualTo(QuotaPolicy.MAX_DAILY_MSG_LIMIT);
+    }
+
+    @Test
+    void envDefaultNegativeBecomesDisabled() throws Exception {
+        applyDefaults("defaultDailyCallLimit", -1);
+        assertThatThrownBy(() -> quotaService.checkStartCall("u1"))
+                .isInstanceOf(QuotaExceededException.class)
+                .hasMessageContaining("单日通话次数")
+                .hasMessageContaining("关闭");
     }
 
     @Test

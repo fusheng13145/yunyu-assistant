@@ -19,6 +19,7 @@ import com.leyon.backend.service.ArchiveResult;
 import com.leyon.backend.service.DataArchiveService;
 import com.leyon.backend.service.InviteCodeService;
 import com.leyon.backend.service.QuotaService;
+import com.leyon.backend.service.QuotaPolicy;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
@@ -81,7 +82,7 @@ class AdminControllerTest {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), User.class);
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Quota.class);
         controller = new AdminController(userMapper, assistantMapper, callRecordMapper, recordMapper,
-                sessionMapper, quotaMapper, quotaService, inviteCodeService, auditLogService, dataArchiveService);
+                sessionMapper, quotaMapper, quotaService, new QuotaPolicy(), inviteCodeService, auditLogService, dataArchiveService);
     }
 
     private Quota defaults() {
@@ -282,6 +283,59 @@ class AdminControllerTest {
 
         verify(quotaMapper, never()).insert(any(Quota.class));
         verify(quotaMapper, never()).updateById(any(Quota.class));
+    }
+
+    /**
+     * 数值越界一律先拒后写（v2.57 · C-124）：判据在过去只有界面半边（Admin.vue 校验"不小于 0 的整数"），
+     * 服务端把负数与巨大的数原样落库，而执行侧把 limit&lt;=0 解释成"直接拒绝" ⇒ 手滑即静默锁死整个作用域。
+     * 这条锁的是拒绝必须发生在<b>任何</b>数据库动作之前（连读都不做，拒绝不消耗配额行了再读没意义）。
+     */
+    @Test
+    void upsertQuota_rejectsOutOfRangeNumbersBeforeAnyDbAccess() {
+        Quota negative = new Quota();
+        negative.setScopeType(Quota.SCOPE_USER);
+        negative.setScopeId("u-1");
+        negative.setDailyMsgLimit(-5);
+        ApiResponse<Void> rejected = controller.upsertQuota(negative);
+        assertThat(rejected.getCode()).isEqualTo(400);
+        assertThat(rejected.getMessage()).contains("单日消息量上限").contains("-5").contains("0 表示关闭");
+
+        Quota aboveBound = new Quota();
+        aboveBound.setScopeType(Quota.SCOPE_ORG);
+        aboveBound.setScopeId("org-1");
+        aboveBound.setDailyCallSecLimit(QuotaPolicy.MAX_DAILY_CALL_SEC_LIMIT + 1);
+        ApiResponse<Void> rejectedSec = controller.upsertQuota(aboveBound);
+        assertThat(rejectedSec.getCode()).isEqualTo(400);
+        assertThat(rejectedSec.getMessage()).contains("单日通话时长上限")
+                .contains(String.valueOf(QuotaPolicy.MAX_DAILY_CALL_SEC_LIMIT));
+
+        verify(quotaMapper, never()).selectOne(any());
+        verify(quotaMapper, never()).insert(any(Quota.class));
+        verify(quotaMapper, never()).updateById(any(Quota.class));
+    }
+
+    /**
+     * 反向锚点：0 是管理端<b>显式表达</b>"封禁该维度"的合法值，不得被当成越界拒掉、
+     * 也不得被"好心"抬回兜底值——那会把运维刚做的关闸悄悄撤销
+     */
+    @Test
+    void upsertQuota_acceptsZeroAsExplicitDisableAndStoresItVerbatim() {
+        when(quotaMapper.selectOne(any())).thenReturn(null);
+        when(quotaService.getDefaultQuota()).thenReturn(defaults());
+        when(quotaMapper.insert(any(Quota.class))).thenAnswer(inv -> {
+            inv.getArgument(0, Quota.class).setId("q-zero");
+            return 1;
+        });
+
+        Quota body = new Quota();
+        body.setScopeType(Quota.SCOPE_USER);
+        body.setScopeId("u-2");
+        body.setDailyMsgLimit(0);
+
+        assertThat(controller.upsertQuota(body).getCode()).isEqualTo(200);
+        ArgumentCaptor<Quota> patch = ArgumentCaptor.forClass(Quota.class);
+        verify(quotaMapper).updateById(patch.capture());
+        assertThat(patch.getValue().getDailyMsgLimit()).isZero();
     }
 
     /**

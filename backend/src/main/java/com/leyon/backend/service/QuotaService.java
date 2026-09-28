@@ -29,6 +29,7 @@ import java.util.Map;
  * 用量配额服务（P2-10 用量配额与账单统计；v2.35 起单日额度为原子扣减）
  * 配额粒度：优先组织级（用户有 org 时），无组织按用户级；无配置记录时用环境变量默认值兜底
  * 拦截维度：助手上限（计数）、单日通话次数（扣减）、单日通话时长（只读判定）、单日消息量（扣减）
+ * 数值边界与"上限为 0＝关闭"的文案都在 {@link QuotaPolicy}（v2.57 · C-124），本类不再各写一份
  *
  * @author leyon
  */
@@ -42,6 +43,7 @@ public class QuotaService {
     private final CallRecordMapper callRecordMapper;
     private final RecordMapper recordMapper;
     private final SessionMapper sessionMapper;
+    private final QuotaPolicy quotaPolicy;
 
     @Value("${app.quota.assistant-limit:50}")
     private int defaultAssistantLimit;
@@ -55,7 +57,8 @@ public class QuotaService {
     public QuotaService(QuotaMapper quotaMapper, QuotaDailyUsageMapper quotaDailyUsageMapper,
                         OrgService orgService,
                         AssistantMapper assistantMapper, CallRecordMapper callRecordMapper,
-                        RecordMapper recordMapper, SessionMapper sessionMapper) {
+                        RecordMapper recordMapper, SessionMapper sessionMapper,
+                        QuotaPolicy quotaPolicy) {
         this.quotaMapper = quotaMapper;
         this.quotaDailyUsageMapper = quotaDailyUsageMapper;
         this.orgService = orgService;
@@ -63,6 +66,7 @@ public class QuotaService {
         this.callRecordMapper = callRecordMapper;
         this.recordMapper = recordMapper;
         this.sessionMapper = sessionMapper;
+        this.quotaPolicy = quotaPolicy;
     }
 
     /**
@@ -103,7 +107,8 @@ public class QuotaService {
         q.setDailyCallLimit(defaultDailyCallLimit);
         q.setDailyCallSecLimit(defaultDailyCallSecLimit);
         q.setDailyMsgLimit(defaultDailyMsgLimit);
-        return q;
+        // 环境变量也是外部输入：越界的兜底值若原样透传，"没配配额的用户"会拿到一个库里根本写不进去的值
+        return quotaPolicy.clampEnvDefaults(q);
     }
 
     // ===================== 用量聚合 =====================
@@ -162,9 +167,13 @@ public class QuotaService {
      */
     public void checkCreateAssistant(String userId) {
         Quota quota = getEffective(userId);
+        int limit = quota.getAssistantLimit();
+        if (limit <= 0) {
+            throw new QuotaExceededException(QuotaPolicy.disabledMessage(QuotaPolicy.DIM_ASSISTANT));
+        }
         long current = countAssistants(quota.getScopeType(), quota.getScopeId());
-        if (current >= quota.getAssistantLimit()) {
-            throw new QuotaExceededException("助手数量已达配额上限（" + quota.getAssistantLimit() + " 个），请删除多余助手或联系管理员调整配额");
+        if (current >= limit) {
+            throw new QuotaExceededException("助手数量已达配额上限（" + limit + " 个），请删除多余助手或联系管理员调整配额");
         }
     }
 
@@ -174,12 +183,18 @@ public class QuotaService {
      * 顺序固定为"先扣次数、再查时长"：时长由业务表汇总而来、并非原子值，
      * 若先查时长再扣次数，时长临界时会出现"放行了但次数已烧掉"的中间态；
      * 反序则次数被拒时时长尚未判定，最多少放一次，不透支。
+     * 例外是"时长上限本身为 0"——那是纯配置判定、不看用量，故排在扣减之前（见方法内注释）。
      * 通话时长指标（daily_call_sec）依赖通话结束后的真实秒数，属语音阶段（二阶段）范围，本批不建扣减账本。
      */
     public void checkStartCall(String userId) {
         Quota quota = getEffective(userId);
+        // 时长上限为 0 时先拒再扣：这项判定只看配置、不看用量，没有"非原子读数"的次序问题。
+        // 反过来（沿用"先扣次数"）会让管理端关掉语音后每一次尝试都白烧一通通话次数。
+        if (quota.getDailyCallSecLimit() <= 0) {
+            throw new QuotaExceededException(QuotaPolicy.disabledMessage(QuotaPolicy.DIM_CALL_SEC));
+        }
         consumeOrThrow(quota, QuotaDailyUsage.METRIC_DAILY_CALL, quota.getDailyCallLimit(),
-                "单日通话次数已达上限（" + quota.getDailyCallLimit() + " 次），请明日再试");
+                QuotaPolicy.DIM_CALL_COUNT, "次");
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         long dailyCallSec = sumCallSecSince(quota.getScopeType(), quota.getScopeId(), todayStart);
         if (dailyCallSec >= quota.getDailyCallSecLimit()) {
@@ -193,16 +208,19 @@ public class QuotaService {
     public void checkSendMessage(String userId) {
         Quota quota = getEffective(userId);
         consumeOrThrow(quota, QuotaDailyUsage.METRIC_DAILY_MSG, quota.getDailyMsgLimit(),
-                "单日消息量已达上限（" + quota.getDailyMsgLimit() + " 条），请明日再试");
+                QuotaPolicy.DIM_MSG, "条");
     }
 
-    /** 扣减一次单日额度，用满即抛 403；上限为 0 时直接拒绝（不产生扣减，也不建当日行） */
-    private void consumeOrThrow(Quota quota, String metric, int limit, String exhaustedMessage) {
+    /**
+     * 扣减一次单日额度：用满抛 403；上限为 0 时直接拒绝（不产生扣减，也不建当日行）。
+     * 两种拒绝的用户动作不同——"用满"等明天，"被关闭"要找回管理员——所以文案必须分开。
+     */
+    private void consumeOrThrow(Quota quota, String metric, int limit, String dimension, String unit) {
         if (limit <= 0) {
-            throw new QuotaExceededException(exhaustedMessage);
+            throw new QuotaExceededException(QuotaPolicy.disabledMessage(dimension));
         }
         if (!consumeDaily(quota.getScopeType(), quota.getScopeId(), metric, limit)) {
-            throw new QuotaExceededException(exhaustedMessage);
+            throw new QuotaExceededException(dimension + "已达上限（" + limit + " " + unit + "），请明日再试");
         }
     }
 

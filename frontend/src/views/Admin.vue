@@ -333,7 +333,8 @@
             </div>
           </div>
           <p class="text-xs mt-2" style="color: var(--geek-text-muted)">
-            留空表示该项不修改（新建时后端先用兜底值补齐，避免配置行留空值）；填 0 表示直接封禁该维度。
+            留空表示该项不修改（新建时后端先用兜底值补齐，避免配置行留空值）；填 0 表示直接封禁该维度，<b>不会</b>次日自动恢复。
+            超出后端可执行上界的值会被拒绝并点名上限（校验在服务端，本地输入框不复制这些上界）。
           </p>
           <div class="flex items-center gap-3 mt-3">
             <button
@@ -346,7 +347,7 @@
             </button>
             <button v-if="quotaEditingId" @click="resetQuotaForm" class="geek-btn geek-btn-ghost geek-btn-sm">取消编辑</button>
             <span v-if="quotaError" class="text-xs" style="color: var(--geek-error)">{{ quotaError }}</span>
-            <span v-else-if="quotaSaved" class="text-xs" style="color: var(--geek-success)">已保存并生效（次日零点重置日维度用量）</span>
+            <span v-else-if="quotaSaved" class="text-xs" style="color: var(--geek-success)">已保存并生效（日维度已用量次日零点重置；填 0 关闭的维度不随之恢复）</span>
           </div>
         </div>
       </section>

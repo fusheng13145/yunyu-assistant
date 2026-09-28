@@ -20,6 +20,7 @@ import com.leyon.backend.service.AuditLogService;
 import com.leyon.backend.service.ArchiveResult;
 import com.leyon.backend.service.DataArchiveService;
 import com.leyon.backend.service.InviteCodeService;
+import com.leyon.backend.service.QuotaPolicy;
 import com.leyon.backend.service.QuotaService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
@@ -46,6 +47,7 @@ public class AdminController {
     private final SessionMapper sessionMapper;
     private final QuotaMapper quotaMapper;
     private final QuotaService quotaService;
+    private final QuotaPolicy quotaPolicy;
     private final InviteCodeService inviteCodeService;
     private final AuditLogService auditLogService;
     private final DataArchiveService dataArchiveService;
@@ -57,6 +59,7 @@ public class AdminController {
                            SessionMapper sessionMapper,
                            QuotaMapper quotaMapper,
                            QuotaService quotaService,
+                           QuotaPolicy quotaPolicy,
                            InviteCodeService inviteCodeService,
                            AuditLogService auditLogService,
                            DataArchiveService dataArchiveService) {
@@ -67,6 +70,7 @@ public class AdminController {
         this.sessionMapper = sessionMapper;
         this.quotaMapper = quotaMapper;
         this.quotaService = quotaService;
+        this.quotaPolicy = quotaPolicy;
         this.inviteCodeService = inviteCodeService;
         this.auditLogService = auditLogService;
         this.dataArchiveService = dataArchiveService;
@@ -197,6 +201,12 @@ public class AdminController {
         }
         if (!Quota.SCOPE_ORG.equals(quota.getScopeType()) && !Quota.SCOPE_USER.equals(quota.getScopeType())) {
             return ApiResponse.paramError("scopeType 仅支持 org / user");
+        }
+        // 四项数值越界一律拒并点名上下限：0 是"关闭该维度"、负数没有语义，而"巨大的数"只会让日维度形同不存在
+        try {
+            quotaPolicy.validateForWrite(quota);
+        } catch (IllegalArgumentException e) {
+            return ApiResponse.paramError(e.getMessage());
         }
         Quota exist = quotaMapper.selectOne(new LambdaQueryWrapper<Quota>()
                 .eq(Quota::getScopeType, quota.getScopeType())

@@ -956,6 +956,55 @@ if [ -n "${SMOKE_ADMIN_USER:-}" ]; then
         else
             bad '邀请码台账结构漂移' "$(detail)"
         fi
+        # ---- 8.1 配额写入侧边界（v2.57 · C-124）----
+        # 判据只在 QuotaPolicy：四项都限定在 0~上界，0 的语义是"关闭该维度"（既有口径，见手册 2.11）。
+        # 这一批过去只有界面半边有判据（Admin.vue 校验"不小于 0 的整数"），服务端全链透传 ⇒ curl 就能把
+        # 一个作用域静默锁死。用**哨兵作用域**：产品没有删配额行的接口，跑完只会留一行永不生效的配置，
+        # 而 getEffective 只按真实 org_id/user_id 查，所以它不参与本轮其余断言（清理按精确主键删）。
+        # 判据口径是"越界值没进库"而不是"哨兵行不存在"：冒烟可重复跑，第二轮起上一轮写入的合法行本来就在
+        # 库里（v2.57 真机首跑恰好是第二轮，写成"不存在"当场伪红一次）。
+        Q_SENTINEL='smoke-quota-sentinel'
+        req PUT /api/admin/quotas "$ADMIN_TOKEN" "$(json scopeType user scopeId "$Q_SENTINEL" dailyMsgLimit -5)"
+        want_param 'PUT 单日消息量 -5 → 拒绝并讲清 0 与留空的语义' '不能为负数'
+        req PUT /api/admin/quotas "$ADMIN_TOKEN" "$(json scopeType user scopeId "$Q_SENTINEL" dailyCallSecLimit 86401)"
+        want_param 'PUT 单日通话时长 86401 秒 → 拒绝并报出一天的秒数' '86400'
+        # 反向锚点：0 与合法值都必须原样落库。只写"越界被拒"时，"把可疑值一律改回兜底值"的实现同样全绿，
+        # 而那是把管理员刚做的关闸悄悄撤销——正是本批要防的形状。
+        req PUT /api/admin/quotas "$ADMIN_TOKEN" "$(json scopeType user scopeId "$Q_SENTINEL" assistantLimit 0 dailyMsgLimit 1234)"
+        api_ok 'PUT 哨兵作用域（助手 0＝关闭、消息 1234）'
+        # quotas 有 uk_quota_scope(scope_type,scope_id) 唯一约束 ⇒ 哨兵作用域至多一行，
+        # 所以这里"取第一行"是确定的（与 C-122 那条"同秒行没有二级排序"不同形）
+        req GET /api/admin/quotas "$ADMIN_TOKEN"
+        QUOTA_ROW="$(printf '%s' "$BODY" | tr -d ' \n' | grep -o "\"scopeId\":\"$Q_SENTINEL\"[^}]*}" | head -1)"
+        [ -n "$QUOTA_ROW" ] && ok '哨兵作用域可读回（0 与 1234 那行确实进了库）' \
+            || bad '哨兵配额行读不到' "$(printf '%s' "$BODY" | head -c 160)"
+        case "$QUOTA_ROW" in
+            *'"assistantLimit":0,'*) ok '关闭值 0 原样落库（未被抬回兜底值）' ;;
+            *) bad '关闭值 0 被改写' "$QUOTA_ROW" ;;
+        esac
+        case "$QUOTA_ROW" in
+            *'"dailyMsgLimit":1234,'*) ok '合法值 1234 原样落库（未被钳到默认或上界）' ;;
+            *) bad '合法值 1234 被改写' "$QUOTA_ROW" ;;
+        esac
+        case "$QUOTA_ROW" in
+            *'"dailyMsgLimit":-5,'*|*'"dailyCallSecLimit":86401,'*)
+                bad '越界值进了库（校验没排在写动作之前）' "$QUOTA_ROW" ;;
+            *) ok '两次越界 PUT 未改动库内值（拒绝先于写）' ;;
+        esac
+        # 超出整型域的值走的是消息转换层（HttpMessageNotReadableException 是 RuntimeException 子类），
+        # 判据是"不许退化成 500"：管理员多数数量级手滑长这样，报 500 就等于让人以为是服务坏了
+        req PUT /api/admin/quotas "$ADMIN_TOKEN" "{\"scopeType\":\"user\",\"scopeId\":\"$Q_SENTINEL\",\"dailyMsgLimit\":99999999999}"
+        if [ "$STATUS" = '400' ] && [ "$(jget code)" = '400' ]; then
+            ok 'PUT 单日消息量 1e11（超出整型域）→ HTTP 400 + 业务码 400（不是 500）'
+        else
+            bad 'PUT 超出整型域的配额值' "期望 HTTP 400/code 400，实际 HTTP $STATUS：$(detail)"
+        fi
+        # 逐字段不变而不是"看有没有报错"：转换层拒绝之后仍然要回读，否则"HTTP 400 但半行已写"读不出来
+        req GET /api/admin/quotas "$ADMIN_TOKEN"
+        QUOTA_ROW2="$(printf '%s' "$BODY" | tr -d ' \n' | grep -o "\"scopeId\":\"$Q_SENTINEL\"[^}]*}" | head -1)"
+        [ -n "$QUOTA_ROW2" ] && [ "$QUOTA_ROW2" = "$QUOTA_ROW" ] \
+            && ok '超出整型域的 PUT 之后库内值逐字段不变' \
+            || bad '超出整型域的写入改动了库内值' "$QUOTA_ROW2"
         skip 'POST /api/admin/archive/run' '归档会物理删除源表数据，冒烟不触发'
     else
         skip '管理端接口' '管理员登录失败'

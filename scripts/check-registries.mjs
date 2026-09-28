@@ -2,10 +2,10 @@
  * 登记表与代码实况的一致性验证（v2.52 · C-117 · 候选 ㊱ 的门禁侧）。
  *
  * 这里锁的不是"文档写得好不好"，而是**文档里的每一条清单能不能被代码指向**：
- * 七组判据全部是"集合相等"或"逐项对应"，所以任何一侧单独漂移都会红——
+ * 八组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
  * 加了新 Kind 而没登记 ⇒ 红；登记了一个代码里没有的端点 ⇒ 红；
- * 新增 `check-*.mjs` 而没进 CI ⇒ 红。这正是 ㊱ 描述的失效形态：
- * 导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
+ * 新增 `check-*.mjs` 而没进 CI ⇒ 红；配额上界出现第二份字面量 ⇒ 红。
+ * 这正是 ㊱ 描述的失效形态：导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
  *
  * 与同目录其他脚本的口径一致：零依赖、不碰网络与库、只读源码文本与 markdown。
  * 运行：node scripts/check-registries.mjs
@@ -293,8 +293,12 @@ console.log('\n[7] 助手级成本参数：清单与钳制都只能有一处（v
   check('两处表单的温度输入边界与后端常量逐项相等',
     uiBounds.length === 2 && uiBounds.every(([lo, hi]) => lo === minTemp && hi === maxTemp),
     uiBounds.map(b => b.join('~')).join(' | '))
-  const paramRejects = (SMOKE.match(/^want_param /gm) ?? []).length
-  check('冒烟 §3.5 的四条写侧拒绝锚点在位', paramRejects === 4, `解析到 ${paramRejects}`)
+  // §3.5 与 §8.1 各自锁自己的判据，所以按区段取而不是全文计数——否则加一条别处的 want_param 会假装"§3.5 漂移"。
+  // 前导空白要允许：PUT 侧那条在 `if [ -n "$ASSISTANT_ID" ]` 块内是缩进的，只认行首会把漏登记的余量留给它
+  const region35 = SMOKE.slice(SMOKE.indexOf("section '3.5"), SMOKE.indexOf("section '4. 会话与消息'"))
+  const paramRejects = (region35.match(/^\s*want_param /gm) ?? []).length
+  check('冒烟 §3.5 的五条写侧拒绝锚点在位（四条 POST 越界 + 一条 PUT 越界）',
+    paramRejects === 5, `解析到 ${paramRejects}`)
   check('拒绝判据落在业务码而不是 HTTP 状态（paramError 的 HTTP 仍是 200，只看 status 会永远绿）',
     /want_param\(\) \{[\s\S]*?"400"/.test(SMOKE))
   check('冒烟带反向锚点（合法值须原样读回，否则"一律钳到默认"也能全绿）',
@@ -306,6 +310,88 @@ console.log('\n[7] 助手级成本参数：清单与钳制都只能有一处（v
   // 会随机红。修复方向是逐条都在，写法不能悄悄退回"只看第一条"。
   check('拒绝原因断言按"三条各自点名"判定，不是取排序第一的那条',
     SMOKE.includes('REJECT_REASONS') && !SMOKE.includes('REJECT_DETAIL'))
+}
+
+console.log('\n[8] 配额数值边界：判据入口与关闭语义都只能有一处（v2.57 · C-124）')
+{
+  const SRC = 'backend/src/main/java/com/leyon/backend'
+  const QP_FILE = `${SRC}/service/QuotaPolicy.java`
+  const QP = read(QP_FILE)
+  const SVC = read(`${SRC}/service/QuotaService.java`)
+  const CTRL = read(`${SRC}/controller/AdminController.java`)
+  const ADMIN_VUE = read('frontend/src/views/Admin.vue')
+  const SMOKE = read('scripts/smoke.sh')
+
+  // 配额四项数值直接决定真实开销，而 `limit <= 0` 在运行时被解释成"直接拒绝"。
+  // 此前只有界面半边有判据（Admin.vue 挡负数），服务端全链透传 ⇒ curl 能把一个作用域静默锁死，
+  // 且被拦用户看到的是"请明日再试"（对"被关闭"的维度是错误指引）。
+  // 上界要写成算式（24 * 60 * 60）才带得走判据，所以这里按乘法求值而不是 Number()
+  const exprValue = expr => expr.split('*').reduce((acc, t) => acc * Number(t.replace(/_/g, '').trim()), 1)
+  const bounds = ['MAX_ASSISTANT_LIMIT', 'MAX_DAILY_CALL_LIMIT', 'MAX_DAILY_CALL_SEC_LIMIT', 'MAX_DAILY_MSG_LIMIT']
+    .map(n => exprValue((QP.match(new RegExp(`${n} = ([\\d_ *]+);`)) || [])[1] ?? 'NaN'))
+  check('四项上界常量解析有效（正则失效时本组会静默全绿）',
+    bounds.every(v => Number.isFinite(v) && v > 0), bounds.join(','))
+  const minLimit = Number((QP.match(/MIN_LIMIT = (\d+)/) || [])[1])
+  check('下界统一为 0（0＝关闭该维度是既有口径，负数没有语义）', minLimit === 0, `读到 ${minLimit}`)
+  // 时长上界要写成算式而不是 86400：判据是"一天的秒数"，魔法数会让下次没人知道能不能调
+  check('时长上界写成 24 * 60 * 60（判据是一天的总秒数，不是魔法数）',
+    /MAX_DAILY_CALL_SEC_LIMIT = 24 \* 60 \* 60;/.test(QP))
+  const declSites = javaFiles('backend/src/main/java').filter(f =>
+    /MAX_(ASSISTANT|DAILY_CALL|DAILY_CALL_SEC|DAILY_MSG)_LIMIT\s*=/.test(read(f)))
+  check('上界常量只在 QuotaPolicy 声明（第二份字面量＝两处会各自漂移）',
+    declSites.length === 1 && declSites[0] === QP_FILE, declSites.join(','))
+  const dupBounds = javaFiles('backend/src/main/java')
+    .filter(f => f !== QP_FILE && /100_000|100000|86400/.test(read(f)))
+  check('后端其余源码不复制配额上界数值', dupBounds.length === 0, dupBounds.join(','))
+  check('前端不复制配额上界（界面只挡负数与非整数，放行什么由服务端说）',
+    !/86400|100_000|100000/.test(ADMIN_VUE))
+  check('界面把"0＝关闭不随次日恢复"讲给管理员（只说"明天重置"会让关闸看起来像临时措施）',
+    ADMIN_VUE.includes('不随之恢复'))
+
+  const validates = (CTRL.match(/quotaPolicy\.validateForWrite\(/g) ?? []).length
+  check('AdminController 恰一次写侧校验（POST/PUT 合并成一个 upsert，少一处＝有条路不校验）',
+    validates === 1, `解析到 ${validates}`)
+  // 只在该方法体内比次序：文件里更靠前的 GET /quotas 本来就先读库，拿全文索引会永远判成"校验在后"
+  const upsert = CTRL.slice(CTRL.indexOf('@PutMapping("/quotas")'))
+  const firstDbAction = Math.min(...['quotaMapper.', 'quotaService.']
+    .map(p => upsert.indexOf(p)).filter(i => i >= 0))
+  check('校验先于 upsert 路径内的任何库动作（越界值一旦进库就参与运行时判定）',
+    upsert.indexOf('quotaPolicy.validateForWrite') >= 0 && firstDbAction > 0
+      && upsert.indexOf('quotaPolicy.validateForWrite') < firstDbAction, `首个库动作在 ${firstDbAction}`)
+
+  const disabledCalls = (SVC.match(/QuotaPolicy\.disabledMessage\(/g) ?? []).length
+  check('QuotaService 的三处"上限为 0"分支都走同一关闭文案入口', disabledCalls === 3, `解析到 ${disabledCalls}`)
+  const disabledLiterals = javaFiles('backend/src/main/java').filter(f =>
+    f !== QP_FILE && read(f).includes('已由管理端关闭'))
+  check('关闭文案只在 QuotaPolicy 拼（在别处重写一句就会与写侧提示分叉）',
+    disabledLiterals.length === 0, disabledLiterals.join(','))
+  check('关闭语义与"用满了明天再来"在文案上分家（一侧讲不会自动恢复，一侧保留明日重置）',
+    QP.includes('不会自动恢复') && SVC.includes('请明日再试'))
+
+  // 冒烟 §8.1 的逐值读回之所以确定，靠的是 quotas 的唯一约束；约束没了，"取第一行"就重新变成 C-122 那种随机红
+  check('index.sql 有 uk_quota_scope（冒烟逐值断言"哨兵作用域至多一行"的前提）',
+    read('backend/src/main/resources/index.sql').includes('UNIQUE KEY `uk_quota_scope`'))
+  const region81 = SMOKE.slice(SMOKE.indexOf('# ---- 8.1 配额写入侧边界'), SMOKE.indexOf("skip 'POST /api/admin/archive/run'"))
+  check('冒烟 §8.1 区段在位（区段号是冒烟报数口径的一部分）', region81.length > 200, `取到 ${region81.length} 字`)
+  // §8.1 整段在管理端登录成功的 if 块内，want_param 是缩进的，所以这里允许前导空白
+  const sentinelRejects = (region81.match(/^\s*want_param /gm) ?? []).length
+  check('§8.1 的两条写侧拒绝锚点在位', sentinelRejects === 2, `解析到 ${sentinelRejects}`)
+  check('§8.1 用哨兵作用域而不是真实用户（越界行一旦生效会干扰本轮其余断言）',
+    region81.includes("Q_SENTINEL='smoke-quota-sentinel'"))
+  check('§8.1 带反向锚点（0 与合法值必须原样落库，否则"一律改回兜底值"的实现也能全绿）',
+    region81.includes('关闭值 0 原样落库') && region81.includes('合法值 1234 原样落库'))
+  check('§8.1 锁住"越界值没进库"与"超出整型域不许退化成 500"',
+    region81.includes('越界值进了库') && region81.includes('库内值逐字段不变') && region81.includes('超出整型域'))
+  // 判据必须写成"值没变"而不是"哨兵行不存在"：冒烟可重复跑，第二轮起上一轮的合法行就在库里（v2.57 真机踩过）
+  check('§8.1 的判据不依赖"库里本来没有哨兵行"（重复跑必须结论稳定）',
+    !region81.includes('哨兵作用域不存在'))
+
+  const qpTests = (read('backend/src/test/java/com/leyon/backend/service/QuotaPolicyTest.java')
+    .match(/^\s+@Test/gm) ?? []).length
+  check('QuotaPolicyTest 逐项覆盖四项边界（≥9 例）', qpTests >= 9, `解析到 ${qpTests}`)
+  const ctrlTest = read('backend/src/test/java/com/leyon/backend/controller/AdminControllerTest.java')
+  check('管理端单测锁住"越界回 400 且一次库动作都不发"',
+    /verify\(quotaMapper, never\(\)\)\.selectOne/.test(ctrlTest) && /verify\(quotaMapper, never\(\)\)\.insert/.test(ctrlTest))
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)
