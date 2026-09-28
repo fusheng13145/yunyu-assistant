@@ -2,7 +2,7 @@
  * 登记表与代码实况的一致性验证（v2.52 · C-117 · 候选 ㊱ 的门禁侧）。
  *
  * 这里锁的不是"文档写得好不好"，而是**文档里的每一条清单能不能被代码指向**：
- * 五组判据全部是"集合相等"或"逐项对应"，所以任何一侧单独漂移都会红——
+ * 六组判据全部是"集合相等"或"逐项对应"，所以任何一侧单独漂移都会红——
  * 加了新 Kind 而没登记 ⇒ 红；登记了一个代码里没有的端点 ⇒ 红；
  * 新增 `check-*.mjs` 而没进 CI ⇒ 红。这正是 ㊱ 描述的失效形态：
  * 导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
@@ -43,6 +43,17 @@ function check(name, cond, detail = '') {
     failures++
     console.log(`  FAIL ${name}${detail ? ` — ${detail}` : ''}`)
   }
+}
+
+/** 递归列出 main 源码树里的 .java（相对路径），用于"某个调用点全仓有几处"这类判据 */
+function javaFiles(dir) {
+  const out = []
+  for (const entry of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${entry.name}`
+    if (entry.isDirectory()) out.push(...javaFiles(rel))
+    else if (entry.name.endsWith('.java')) out.push(rel)
+  }
+  return out
 }
 
 /** 取 `## N. 标题` 到下一个 `## ` 之间的正文（编号沿用 REGISTRY.md 的节号） */
@@ -179,6 +190,36 @@ console.log('\n[5] 门禁台账：scripts/ ↔ REGISTRY 第 6 节 ↔ package.js
     agentsChecks.join(','))
   check('smoke.sh 在 CI 只做语法检查（真机冒烟刻意不进关键路径）',
     CI.includes('bash -n') && s6.includes('只做 `bash -n` 语法检查'))
+}
+
+console.log('\n[6] 知识库本地授权登记表：写入面只能有一处（v2.53 · C-118/C-119）')
+{
+  const CONTROLLER_DIR = 'backend/src/main/java/com/leyon/backend/controller'
+  const KB_SERVICE_FILE = 'backend/src/main/java/com/leyon/backend/service/KnowledgeBaseService.java'
+  const KB_SERVICE = read(KB_SERVICE_FILE)
+  // 这张表是 /api/ragflow 唯一的授权依据（转发用一把共享 API Key），所以"谁能写它"＝"谁能定义谁拥有知识库"。
+  // v2.53 删掉的 POST /api/knowledges 正是让任意登录用户自带 datasetId 写一行，真机实测：
+  // 植入一行后 documents 由 403 变 500、retrieval-test 由 403 变 200。
+  check('KnowledgeBaseController 没有回来（授权表不再有余地接受调用方指定的 datasetId）',
+    !readdirSync(join(ROOT, CONTROLLER_DIR)).includes('KnowledgeBaseController.java'))
+  const writers = javaFiles('backend/src/main/java')
+    .filter(f => f !== KB_SERVICE_FILE && read(f).includes('knowledgeBaseService.create('))
+  check('全仓唯一写入点是 RAGFlow 创建回执（datasetId 来自上游响应，不来自请求体）',
+    writers.length === 1 && writers[0].endsWith('RagflowProxyController.java'), writers.join(','))
+  const writes = KB_SERVICE.match(/knowledgeBaseMapper\.(insert|update\w*|delete)\(/g) ?? []
+  check('KnowledgeBaseService 只剩一条写语句（insert），读侧判定里不夹带写口',
+    writes.length === 1 && writes[0].includes('insert'), writes.join(','))
+  const MIG_DIR = 'backend/src/main/resources/db/migrations'
+  const MIG_NAME = '0007_kb_dataset_unique.sql'
+  // 0007 被删掉正是本组要拦的回归之一，所以先列目录再读：缺文件要报成一条具名 FAIL，不能是 ENOENT 堆栈
+  const MIGRATION = readdirSync(join(ROOT, MIG_DIR)).includes(MIG_NAME) ? read(`${MIG_DIR}/${MIG_NAME}`) : ''
+  check('0007 两步齐全：先 yunyu_assert 拦住冲突行，再建 uk_kb_dataset_id',
+    MIGRATION.includes('yunyu_assert') && MIGRATION.includes('uk_kb_dataset_id'))
+  check('index.sql（新环境建表）与迁移同一口径，否则新库天生没有这条约束',
+    read('backend/src/main/resources/index.sql').includes('UNIQUE KEY `uk_kb_dataset_id`'))
+  const SMOKE = read('scripts/smoke.sh')
+  check('冒烟保留 /api/knowledges 的两条 404 锚点（悄悄删掉锚点＝下次加回来无人知晓）',
+    SMOKE.includes('GET /api/knowledges 已下线') && SMOKE.includes('POST /api/knowledges 已下线'))
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)

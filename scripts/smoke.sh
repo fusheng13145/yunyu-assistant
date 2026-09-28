@@ -429,10 +429,20 @@ fi
 
 # ---------- 5. 字典 / 配额 / 统计 ----------
 section '5. 字典、配额与统计'
-for p in /api/models /api/voices /api/tools /api/knowledges /api/orgs /api/openapi/apps /api/call-records '/api/stats/usage?range=day'; do
+for p in /api/models /api/voices /api/tools /api/orgs /api/openapi/apps /api/call-records '/api/stats/usage?range=day'; do
     req GET "$p" "$TOKEN"
     api_ok "GET $p" || true
 done
+# v2.53：/api/knowledges 一组端点整体下线（候选 ㉖ 后半）。留两条 404 锚点而不是悄悄删掉遍历项——
+# 这张本地授权表是 /api/ragflow 唯一的授权依据（转发用共享 Key），谁能接口化地往里写一行，
+# 谁就把别人的知识库变成自己的可见集；改前真机实测过：植入一行后 documents 由 403 变 500、
+# retrieval-test 由 403 变 200。锚点的职责是：以后有人把这类"可编程写入授权表"的接口加回来时，这里先响。
+req GET /api/knowledges "$TOKEN"
+[ "$STATUS" = "404" ] && ok 'GET /api/knowledges 已下线（404，不再有本地授权表的读口）' \
+    || bad 'GET /api/knowledges 期望 404' "实际 HTTP $STATUS：$(detail)"
+req POST /api/knowledges "$TOKEN" '{"name":"锚点","datasetId":"smoke-anchored-dataset"}'
+[ "$STATUS" = "404" ] && ok 'POST /api/knowledges 已下线（404，授权表不可由请求体写入）' \
+    || bad 'POST /api/knowledges 期望 404' "实际 HTTP $STATUS：$(detail)"
 req GET /api/billing/usage "$TOKEN"
 if api_ok 'GET /api/billing/usage（配额 + 用量聚合）'; then
     for k in quota current remaining; do

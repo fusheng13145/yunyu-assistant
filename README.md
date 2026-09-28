@@ -44,7 +44,7 @@ yunyu-assistant/
 │                            # check-chat-frame.mjs（聊天/语音 WS 回合帧收口门禁：error 回执必须提示并解冻，v2.43）
 │                            # check-recording-upload.mjs（通话录音收尾结局门禁：失败与"没录到"都要对用户可见，v2.49）
 │                            # check-denial-ledger.mjs（开放平台拒绝台账读数门禁：三态不混、未归属不挂到应用名下，v2.50）
-│                            # check-registries.mjs（docs/REGISTRY.md 六张登记表与代码实况的一致性门禁：端点→能力、Kind 计数、工具名、迁移清单、门禁接线，v2.52）
+│                            # check-registries.mjs（docs/REGISTRY.md 六张登记表与代码实况的一致性门禁：端点→能力、Kind 计数、工具名、迁移清单、门禁接线，v2.52；v2.53 起另锁知识库授权表的写入面只有一处）
 │                            # check-docs.py、check-config.py（文档与配置门禁，v2.33 入库）
 │                            # 七道前端 Node 检查（notification / kb-flag / history-record / chat-frame / recording-upload / denial-ledger / registries）自 v2.43 起逐批全部纳入 CI，v2.52 起第七道同进
 ├── .github/workflows/ci.yml # PR 关键路径：后端单测 + 前端 lint/类型/八道 Node 检查（check:auth + 七道桩测与一致性检查）/构建 + 门禁（零凭据、零数据库；v2.33 建线，v2.43 桩测全进）

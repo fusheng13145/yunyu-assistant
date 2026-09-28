@@ -90,6 +90,7 @@
 | `0004_invite_code.sql` | 新建 `invite_code`（一次性凭据，**无 `is_deleted`**） | 可（建表） |
 | `0005_user_token_version.sql` | `users.token_version`。⚠️ 缺这一列的后果最重：签发直接抛（登录 500）、校验侧 fail-closed ⇒ **全站 401** | 可（加列） |
 | `0006_api_key_hash.sql` | 回填 `app_key_hash`、加唯一索引、**删除 `app_key` 明文列** | **不可回退**：明文回填不出来，旧代码要读的列已不存在 |
+| `0007_kb_dataset_unique.sql` | `knowledgebases.dataset_id` 加唯一索引；建索引前先 `yunyu_assert` "没有同一 dataset_id 的多行"，有冲突即中止 | 可（索引可 DROP），但退回无约束状态＝退回"能不能访问由存储顺序决定" |
 
 ⇒ 上线顺序固定为**先迁移、再上新代码**；0006 跑之前先整表备份（手册 5.4 / 5.8）。
 
@@ -125,7 +126,7 @@
 | `check-chat-frame.mjs` | WS 回合帧分派（error 解冻、解锁只属于终点、视图必须走统一入口） | ✅ | 否 |
 | `check-recording-upload.mjs` | 通话录音收尾结局可见 | ✅ | 否 |
 | `check-denial-ledger.mjs` | 拒绝台账分格与三态 + 接线 | ✅ | 否 |
-| `check-registries.mjs` | **本文件与代码实况的一致性**（第 1/2/3/4/6 节的清单能否被代码逐项指向） | ✅ | 否 |
+| `check-registries.mjs` | **本文件与代码实况的一致性**（第 1/2/3/4/6 节的清单能否被代码逐项指向）；**另锁一条不由本文件承载的口径**——`knowledgebases` 的写入面只有一处（v2.53 第 6 组，判据来自手册 4.5 第 13 条，落在控制器 / service / 迁移 / `index.sql` / 冒烟五处实况） | ✅ | 否 |
 
 **Node 桩测的共性**：零依赖、不碰网络与库、用 Node 原生类型擦除直接 `import` 生产模块
 ⇒ 被 import 的模块**只能依赖裸包名或 `import type`**（`utils/websocket.ts` 与 `composables/useWebRTC.ts` 因此不可测）。
@@ -142,6 +143,7 @@
 | 拦截器顺序 / 序列化 / 限流 / 握手 | `smoke.sh`（人工，上线前） |
 | 文档、配置登记 | 两个 Python 门禁 |
 | 登记表与代码漂移（新增 Kind / 工具 / 迁移 / 开放端点 / 门禁脚本而没在本文件登记） | `check-registries.mjs`（CI `frontend`） |
+| 授权依据表 `knowledgebases` 多出第二个写入点（含已删的 `/api/knowledges` 控制器悄悄回来、`index.sql` 与迁移不同口径） | `check-registries.mjs` 第 6 组（CI `frontend`）+ `smoke.sh` §5 两条 404 锚点（人工） |
 
 ## 7. 相关文档
 

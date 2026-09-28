@@ -136,6 +136,9 @@ scripts/smoke.sh              # 分节冒烟；登录失败即 exit 2
 `scripts/check-registries.mjs`（v2.52）查的是**登记表 ↔ 代码**：[docs/REGISTRY.md](REGISTRY.md) 的四张可机判表（迁移账本 /
 开放端点→能力 / 拒绝 Kind / AI 工具）与"门禁脚本台账 ↔ `package.json` ↔ `ci.yml` ↔ `AGENTS.md` 命令块"必须逐条对上，
 文档里写死的计数（"七个枚举值""共七道桩测"）必须等于真实条数。**改了这些面而不同步登记表就会红。**
+自 v2.53 起它还锁一条**不由登记表承载**的口径（第 6 组）：`knowledgebases` 是全仓唯一的知识库归属依据，
+故"写入面只有一处"必须成立——判据落在控制器文件不存在、`knowledgeBaseService.create(` 的唯一调用点、
+service 内只剩一条 `insert`、迁移 0007 与 `index.sql` 同口径、冒烟保留两条 404 锚点这五处实况上。
 它只读仓库内文本，故与其它桩测一样在 CI 的零凭据环境可跑；它也接受 `--registry <路径>` 只替换被检查的那份 markdown
 （代码侧仍读真实源码），用于验证判据真的会红而不必改动受版本控制的文档。
 

@@ -99,6 +99,7 @@ CREATE TABLE `knowledgebases` (
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
     PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_kb_dataset_id` (`dataset_id`),
     KEY `idx_kb_user_dataset` (`user_id`, `dataset_id`),
     KEY `idx_kb_org_id` (`org_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库表';
