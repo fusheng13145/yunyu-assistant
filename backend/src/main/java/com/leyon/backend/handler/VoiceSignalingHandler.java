@@ -10,6 +10,7 @@ import com.leyon.backend.entity.CallRecord;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.WebhookDelivery;
 import com.leyon.backend.service.ApiAppService;
+import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
 import com.leyon.backend.service.ChatService;
@@ -107,6 +108,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private final ToolRegistry toolRegistry;
     private final JwtUtil jwtUtil;
     private final UnauthenticatedSocketReaper socketReaper;
+    private final AssistantPolicy assistantPolicy;
 
     // 会话缓存
     /** 会话ID -> 语音网关会话ID */
@@ -140,7 +142,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
                                  JwtUtil jwtUtil,
-                                 UnauthenticatedSocketReaper socketReaper) {
+                                 UnauthenticatedSocketReaper socketReaper,
+                                 AssistantPolicy assistantPolicy) {
         this.rustPBXService = rustPBXService;
         this.assistantService = assistantService;
         this.modelAdapter = modelAdapter;
@@ -156,6 +159,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         this.toolRegistry = toolRegistry;
         this.jwtUtil = jwtUtil;
         this.socketReaper = socketReaper;
+        this.assistantPolicy = assistantPolicy;
     }
 
     // 连接建立
@@ -342,15 +346,17 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         List<String> knowledgeIds = retainVisibleKnowledgeIds(parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
 
         // 初始化对话服务（使用新的抽象接口依赖；工具集按助手白名单裁剪，语音助手若需 LLM 主动挂断须保留 hangup）
+        // 人设与模型参数走 AssistantPolicy 钳制后的值：一次通话可持续数分钟，超限行透传进来的开销收不回来
+        AssistantPolicy.Runtime runtime = assistantPolicy.runtime(assistant);
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
-                assistant.getPersonality(), knowledgeIds,
+                runtime.personality(), knowledgeIds,
                 toolRegistry.resolveToolCallbacks(assistant.getToolList())
         );
         // 注册挂断监听器：LLM 调用 hangup 工具时主动挂断通话
         chatService.setHangupListener(reason -> handleLlmHangup(session, reason));
         // 应用助手级模型参数（覆盖全局默认）
-        chatService.setModelParams(assistant.getModelName(), assistant.getTemperature(), assistant.getMaxTokens());
+        chatService.setModelParams(runtime.model(), runtime.temperature(), runtime.maxTokens());
 
         // 加载历史聊天记录（性能优化：仅加载最近50条）
         try {

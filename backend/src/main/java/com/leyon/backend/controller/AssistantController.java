@@ -5,6 +5,7 @@ import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.common.ForbiddenException;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.Org;
+import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.OrgService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,10 +26,13 @@ public class AssistantController {
 
     private final AssistantService assistantService;
     private final OrgService orgService;
+    private final AssistantPolicy assistantPolicy;
 
-    public AssistantController(AssistantService assistantService, OrgService orgService) {
+    public AssistantController(AssistantService assistantService, OrgService orgService,
+                               AssistantPolicy assistantPolicy) {
         this.assistantService = assistantService;
         this.orgService = orgService;
+        this.assistantPolicy = assistantPolicy;
     }
 
     /**
@@ -39,6 +43,12 @@ public class AssistantController {
     @PostMapping
     public ApiResponse<Assistant> create(@RequestBody Assistant assistant, HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");
+        // 越界的模型/温度/最大输出/人设在写库前拒掉并讲清上限：静默改写用户刚填的配置不可诊断
+        try {
+            assistantPolicy.validateForWrite(assistant);
+        } catch (IllegalArgumentException e) {
+            return ApiResponse.paramError(e.getMessage());
+        }
         assistant.setUserId(userId);
         assistant.setOrgId(resolveCreateOrg(assistant.getOrgId(), userId));
         Assistant created = assistantService.create(assistant);
@@ -135,6 +145,11 @@ public class AssistantController {
             return ApiResponse.paramError("助手不存在或无操作权限");
         }
         requireManage(exist.getOrgId(), exist.getUserId(), userId);
+        try {
+            assistantPolicy.validateForWrite(assistant);
+        } catch (IllegalArgumentException e) {
+            return ApiResponse.paramError(e.getMessage());
+        }
         assistant.setUserId(exist.getUserId());
         assistant.setOrgId(exist.getOrgId());
         boolean result = assistantService.update(assistant);

@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.entity.ApiApp;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.service.ApiAppService;
+import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
 import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
+import com.leyon.backend.service.ModelCatalog;
 import com.leyon.backend.service.OrgService;
 import com.leyon.backend.service.QuotaService;
 import com.leyon.backend.service.RecordService;
@@ -92,7 +94,8 @@ class VoiceSignalingHandlerTest {
     void setUp() throws Exception {
         handler = new VoiceSignalingHandler(rustPBXService, assistantService, modelAdapter, knowledgeProvider,
                 recordService, callRecordService, orgService, quotaService, knowledgeBaseService,
-                webhookService, apiAppService, new ObjectMapper(), toolRegistry, jwtUtil, socketReaper);
+                webhookService, apiAppService, new ObjectMapper(), toolRegistry, jwtUtil, socketReaper,
+                new AssistantPolicy(new ModelCatalog()));
         when(session.getId()).thenReturn("ws-1");
         when(session.isOpen()).thenReturn(true);
         when(session.getAttributes()).thenReturn(attributes);

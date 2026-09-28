@@ -7,6 +7,7 @@ import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.Session;
 import com.leyon.backend.entity.WebhookDelivery;
+import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.KnowledgeProvider;
@@ -62,6 +63,7 @@ public class OpenApiChatController {
     private final KnowledgeProvider knowledgeProvider;
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
+    private final AssistantPolicy assistantPolicy;
 
     public OpenApiChatController(AssistantService assistantService,
                                  OrgService orgService,
@@ -72,7 +74,8 @@ public class OpenApiChatController {
                                  ModelAdapter modelAdapter,
                                  KnowledgeProvider knowledgeProvider,
                                  ObjectMapper objectMapper,
-                                 ToolRegistry toolRegistry) {
+                                 ToolRegistry toolRegistry,
+                                 AssistantPolicy assistantPolicy) {
         this.assistantService = assistantService;
         this.orgService = orgService;
         this.quotaService = quotaService;
@@ -83,6 +86,7 @@ public class OpenApiChatController {
         this.knowledgeProvider = knowledgeProvider;
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
+        this.assistantPolicy = assistantPolicy;
     }
 
     /**
@@ -147,12 +151,13 @@ public class OpenApiChatController {
 
         // 复用 ChatService 流式逻辑（与 WS 通道同装配），加载历史注入上下文实现多轮
         List<String> knowledgeIds = parseKnowledgeIds(assistant.getKnowledgeIds());
+        AssistantPolicy.Runtime runtime = assistantPolicy.runtime(assistant);
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
-                assistant.getPersonality(), knowledgeIds,
+                runtime.personality(), knowledgeIds,
                 toolRegistry.resolveToolCallbacks(assistant.getToolList())
         );
-        chatService.setModelParams(assistant.getModelName(), assistant.getTemperature(), assistant.getMaxTokens());
+        chatService.setModelParams(runtime.model(), runtime.temperature(), runtime.maxTokens());
         List<Record> history = recordService.listBySessionIdLimit(bizSessionId, HISTORY_LIMIT);
         if (!history.isEmpty()) {
             chatService.loadChatHistory(history);

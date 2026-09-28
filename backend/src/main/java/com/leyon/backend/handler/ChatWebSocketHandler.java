@@ -8,6 +8,7 @@ import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.Org;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.Session;
+import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.KnowledgeBaseService;
@@ -104,6 +105,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final JwtUtil jwtUtil;
     private final ToolRegistry toolRegistry;
     private final UnauthenticatedSocketReaper socketReaper;
+    private final AssistantPolicy assistantPolicy;
 
     // 会话内存缓存
     /** 会话ID -> 聊天实例 */
@@ -128,7 +130,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
                                 ToolRegistry toolRegistry,
-                                UnauthenticatedSocketReaper socketReaper) {
+                                UnauthenticatedSocketReaper socketReaper,
+                                AssistantPolicy assistantPolicy) {
         this.modelAdapter = modelAdapter;
         this.knowledgeProvider = knowledgeProvider;
         this.assistantService = assistantService;
@@ -141,6 +144,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.jwtUtil = jwtUtil;
         this.toolRegistry = toolRegistry;
         this.socketReaper = socketReaper;
+        this.assistantPolicy = assistantPolicy;
     }
 
     // 连接建立
@@ -220,13 +224,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
 
         // 初始化聊天实例（工具集按助手白名单裁剪，白名单为空即全部可用）
+        // 人设与三个模型参数一律取钳制后的运行时值：库里可能有本批之前的超限行，透传等于把成本上界交给历史数据
+        AssistantPolicy.Runtime runtime = assistantPolicy.runtime(assistant);
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
-                assistant.getPersonality(), knowledgeIds,
+                runtime.personality(), knowledgeIds,
                 toolRegistry.resolveToolCallbacks(assistant.getToolList())
         );
         // 应用助手级模型参数（覆盖全局默认）
-        chatService.setModelParams(assistant.getModelName(), assistant.getTemperature(), assistant.getMaxTokens());
+        chatService.setModelParams(runtime.model(), runtime.temperature(), runtime.maxTokens());
 
         // 加载历史聊天记录（优先按会话维度，未指定会话时按助手维度，限制最近50条避免内存溢出）
         List<Record> chatHistory;

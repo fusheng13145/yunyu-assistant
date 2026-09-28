@@ -7,6 +7,7 @@ import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.mapper.AssistantMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -41,7 +42,9 @@ class AssistantServiceTest {
     @BeforeEach
     void setUp() {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Assistant.class);
-        assistantService = new AssistantService(assistantMapper, quotaService);
+        // 用真实策略而非桩：这一层要验的正是"落库前值已被钳制"，桩会把被测行为本身桩掉
+        assistantService = new AssistantService(assistantMapper, quotaService,
+                new AssistantPolicy(new ModelCatalog()));
     }
 
     @Test
@@ -141,5 +144,51 @@ class AssistantServiceTest {
     void countByUser_emptyIdReturnsZero() {
         assertThat(assistantService.countByUser("", "kw")).isZero();
         assertThat(assistantService.countByUser(null, null)).isZero();
+    }
+
+    /**
+     * v2.54：落库前钳制。这里测的是"库里不可能有超限值"，而不是 AssistantPolicy 的边界本身
+     * （后者由 AssistantPolicyTest 直接断言），所以只取一条越界项验证服务真的调了策略。
+     */
+    @Nested
+    class CostClampBeforeWrite {
+
+        @Test
+        void create_clampsOversizedValuesBeforeInsert() {
+            Assistant a = new Assistant();
+            a.setName("越界助手");
+            a.setUserId("u1");
+            a.setModelName("gpt-9-mega");
+            a.setMaxTokens(999_999);
+            assistantService.create(a);
+
+            assertThat(a.getModelName()).isNull();
+            assertThat(a.getMaxTokens()).isEqualTo(AssistantPolicy.MAX_OUTPUT_TOKENS);
+            verify(assistantMapper).insert(a);
+        }
+
+        @Test
+        void update_clampsPersonalityBeforeUpdate() {
+            Assistant a = new Assistant();
+            a.setId("a1");
+            a.setPersonality("啊".repeat(AssistantPolicy.MAX_PERSONALITY_CHARS + 1));
+            when(assistantMapper.updateById(a)).thenReturn(1);
+
+            assertThat(assistantService.update(a)).isTrue();
+            assertThat(a.getPersonality()).hasSize(AssistantPolicy.MAX_PERSONALITY_CHARS);
+        }
+
+        @Test
+        void update_keepsUnsetModelFieldsNullSoPartialUpdateStillSkipsThem() {
+            Assistant a = new Assistant();
+            a.setId("a1");
+            a.setName("只改名字");
+            when(assistantMapper.updateById(a)).thenReturn(1);
+
+            assertThat(assistantService.update(a)).isTrue();
+            assertThat(a.getModelName()).isNull();
+            assertThat(a.getTemperature()).isNull();
+            assertThat(a.getMaxTokens()).isNull();
+        }
     }
 }

@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.Org;
+import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
+import com.leyon.backend.service.ModelCatalog;
 import com.leyon.backend.service.OrgService;
 import com.leyon.backend.service.QuotaService;
 import com.leyon.backend.service.RecordService;
@@ -90,7 +92,7 @@ class ChatWebSocketHandlerTest {
     void setUp() throws Exception {
         handler = new ChatWebSocketHandler(modelAdapter, knowledgeProvider, assistantService, recordService,
                 sessionService, orgService, quotaService, knowledgeBaseService, objectMapper, jwtUtil, toolRegistry,
-                socketReaper);
+                socketReaper, new AssistantPolicy(new ModelCatalog()));
         when(session.getId()).thenReturn("ws-1");
         when(session.isOpen()).thenReturn(true);
         when(session.getAttributes()).thenReturn(attributes);

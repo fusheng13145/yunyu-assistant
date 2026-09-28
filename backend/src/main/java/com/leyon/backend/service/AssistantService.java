@@ -19,10 +19,13 @@ public class AssistantService {
 
     private final AssistantMapper assistantMapper;
     private final QuotaService quotaService;
+    private final AssistantPolicy assistantPolicy;
 
-    public AssistantService(AssistantMapper assistantMapper, QuotaService quotaService) {
+    public AssistantService(AssistantMapper assistantMapper, QuotaService quotaService,
+                            AssistantPolicy assistantPolicy) {
         this.assistantMapper = assistantMapper;
         this.quotaService = quotaService;
+        this.assistantPolicy = assistantPolicy;
     }
 
     /**
@@ -33,6 +36,8 @@ public class AssistantService {
     public Assistant create(Assistant assistant) {
         // 创建前校验助手数量配额（QuotaService 内部按 org 优先 / user 兜底定位作用域），超限抛 403
         quotaService.checkCreateAssistant(assistant.getUserId());
+        // 落库前钳制：HTTP 之外的写入入口（WS 收尾回写人设）没有可拒绝的请求方，只能在这一层封住
+        assistantPolicy.clampForStorage(assistant);
         // MP 已配置 ASSIGN_UUID，无需手动生成ID，移除重复UUID逻辑
         assistantMapper.insert(assistant);
         return assistant;
@@ -144,6 +149,7 @@ public class AssistantService {
         if (assistant == null || !StringUtils.hasText(assistant.getId())) {
             return false;
         }
+        assistantPolicy.clampForStorage(assistant);
         return assistantMapper.updateById(assistant) > 0;
     }
 }

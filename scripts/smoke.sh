@@ -203,6 +203,20 @@ want_status() {
     ok "$1"
 }
 
+# want_param <描述> <原因子串>：写侧拒绝的真实形状＝HTTP 200 + 业务码 400 + message 点名越界项。
+# 只断言 HTTP 状态会永远绿（paramError 不改 HTTP 码，见手册 4.4）；只断言 code 会把"拒绝了但说不清为什么"
+# 也判成通过，所以原因子串是这条判据的第二半。子串用 case 比对而不是 grep：
+# Git Bash 下 grep.exe 的中文 argv 会被按本地代码页重编码，跟响应体（UTF-8）比不上。
+want_param() {
+    if [ "$STATUS" != "200" ]; then bad "$1" "期望 HTTP 200，实际 $(detail)"; return 1; fi
+    if [ "$(jget code)" != "400" ]; then bad "$1" "期望业务码 400，实际 $(detail)"; return 1; fi
+    local msg; msg="$(jget message)"
+    case "$msg" in
+        *"$2"*) ok "$1 — 原因：$msg" ;;
+        *) bad "$1" "原因里没有「$2」— $msg" ;;
+    esac
+}
+
 mgmt_req '/actuator/health'
 if [ "$STATUS" = "000" ]; then
     echo "服务不可达：$MGMT_BASE/actuator/health —— 后端没启动，还是端口/地址不对？"
@@ -401,6 +415,41 @@ if [ -n "$ASSISTANT_ID" ]; then
     [ "$(jget data.name)" = '冒烟助手-改名' ] && ok '写后读一致' || bad '写后读不一致' "实际 $(jget data.name)"
 else
     skip '助手读写链路' '未创建出助手（配额 403？见上一条）'
+fi
+
+# ---------- 3.5 助手级成本参数越界拒绝（v2.54 · 候选 ㉔） ----------
+# 配额按"条数"计量，而单条真实开销由助手配置决定：模型、最大输出 Token、每条消息都注入的人设提示词。
+# 这里只打**写侧**（validateForWrite）：越界必须回业务码 400 并点名上限，且不产生任何写库动作。
+# 读侧的回落/截断（runtime()）由单测覆盖：冒烟若要观测它就得真跑一次对话，那会真调外部模型、白烧额度。
+# 四条负向都走 POST 且刻意只带被测字段：校验排在配额与归属解析之前，所以它们既不进库也不占助手配额。
+section '3.5 助手成本参数越界拒绝（不进库）'
+req POST /api/assistants "$TOKEN" "$(json name '越界-maxTokens' maxTokens 999999)"
+want_param 'POST 最大输出 999999 → 拒绝并报出上限' '8192'
+req POST /api/assistants "$TOKEN" "$(json name '越界-模型' modelName 'gpt-4-32k-forever')"
+want_param 'POST 清单外模型名 → 拒绝并报出可选清单' '不在可用清单内'
+req POST /api/assistants "$TOKEN" "$(json name '越界-温度' temperature 2.5)"
+want_param 'POST 温度 2.5 → 拒绝并报出合法域' '2.0'
+LONG_PERSONALITY="$(printf 'a%.0s' {1..5000})"
+req POST /api/assistants "$TOKEN" "$(json name '越界-人设' personality "$LONG_PERSONALITY")"
+want_param 'POST 人设 5000 字 → 拒绝并报出上限' '4000'
+if [ -n "$ASSISTANT_ID" ]; then
+    # 反向锚点：合法值必须原样落库。缺了它，"把一切都钳到默认值"的实现同样能让上面四条一直绿——
+    # 而那才是用户真正会感知的故障（配置界面填了等于没填）。
+    req PUT /api/assistants "$TOKEN" "$(json id "$ASSISTANT_ID" modelName 'deepseek-chat' temperature 1.5 maxTokens 4096)"
+    api_ok 'PUT 合法成本参数（deepseek-chat / 1.5 / 4096）'
+    req GET "/api/assistants/$ASSISTANT_ID" "$TOKEN"
+    [ "$(jget data.modelName)" = 'deepseek-chat' ] && ok '清单内模型未被改写' \
+        || bad '合法模型名被钳制改写' "实际 $(jget data.modelName)"
+    [ "$(jget data.maxTokens)" = '4096' ] && ok '合法 maxTokens 未被钳到上限或默认' \
+        || bad '合法 maxTokens 被改写' "实际 $(jget data.maxTokens)"
+    # 拒绝先于写库：越界 PUT 之后回读，库里得还是刚写进去的 4096，而不是 999999
+    req PUT /api/assistants "$TOKEN" "$(json id "$ASSISTANT_ID" maxTokens 999999)"
+    want_param 'PUT 越界 maxTokens → 拒绝（鉴权已过、校验仍先于写库）' '8192'
+    req GET "/api/assistants/$ASSISTANT_ID" "$TOKEN"
+    [ "$(jget data.maxTokens)" = '4096' ] && ok '越界 PUT 未改动库内值' \
+        || bad '越界 PUT 仍写进了库' "实际 $(jget data.maxTokens)"
+else
+    skip 'PUT 侧成本参数锚点' '未创建出助手（见第 3 节）'
 fi
 
 # ---------- 4. 会话与历史 ----------
@@ -725,7 +774,7 @@ if [ -n "$SCOPE_APP_ID" ]; then
             IDX=0
             REJECTED=0
             ACCEPTED=0
-            REJECT_DETAIL=''
+            REJECT_REASONS=''
             while true; do
                 ACTION="$(jget "data.list.$IDX.action")"
                 [ -z "$ACTION" ] && break
@@ -733,7 +782,7 @@ if [ -n "$SCOPE_APP_ID" ]; then
                    && [ "$(jget "data.list.$IDX.targetId")" = "$SCOPE_APP_ID" ]; then
                     if [ "$(jget "data.list.$IDX.result")" = '0' ]; then
                         REJECTED=$((REJECTED + 1))
-                        [ -z "$REJECT_DETAIL" ] && REJECT_DETAIL="$(jget "data.list.$IDX.detail")"
+                        REJECT_REASONS="$REJECT_REASONS$(jget "data.list.$IDX.detail")"$'\n'
                     else
                         ACCEPTED=$((ACCEPTED + 1))
                     fi
@@ -750,9 +799,16 @@ if [ -n "$SCOPE_APP_ID" ]; then
             else
                 bad '成功变更未记 result=1' "result=1 的行只有 $ACCEPTED 条，期望 ≥2"
             fi
-            printf '%s' "$REJECT_DETAIL" | grep -qF '应用不存在或无操作权限' \
-                && ok '拒绝行的 detail 带业务侧原因（不只"失败了"，还答得出"为什么"）' \
-                || bad '拒绝行缺可解释的原因' "detail=$(printf '%s' "$REJECT_DETAIL" | head -c 80)"
+            # 三条拒绝各点名自己的原因，且**与行的返回顺序无关**（v2.54 实测撞出的脆弱写法：原先只取
+            # 扫到的第一条 result=0 行的 detail 去匹配"非属主"那句，而这三条的 created_at 常落在同一秒，
+            # `ORDER BY created_at DESC` 对同秒行不设二级排序 ⇒ 谁在前由存储顺序决定，同一个断言会随机红）。
+            MISSING=''
+            for r in '未知的能力' '至少要保留一项能力' '应用不存在或无操作权限'; do
+                printf '%s' "$REJECT_REASONS" | grep -qF "$r" || MISSING="$MISSING「$r」"
+            done
+            [ -z "$MISSING" ] \
+                && ok '拒绝行的 detail 逐条带业务侧原因（不只"失败了"，还答得出"为什么"）' \
+                || bad '有拒绝行只有"失败了"没有"为什么"' "缺少$MISSING"
         fi
     else
         skip '非属主改能力 + 审计详情' '没有独立于业务账号的管理员令牌（提供 SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS 后可测）'

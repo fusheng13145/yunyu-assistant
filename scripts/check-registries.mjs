@@ -2,7 +2,7 @@
  * 登记表与代码实况的一致性验证（v2.52 · C-117 · 候选 ㊱ 的门禁侧）。
  *
  * 这里锁的不是"文档写得好不好"，而是**文档里的每一条清单能不能被代码指向**：
- * 六组判据全部是"集合相等"或"逐项对应"，所以任何一侧单独漂移都会红——
+ * 七组判据全部是"集合相等"或"逐项对应"，所以任何一侧单独漂移都会红——
  * 加了新 Kind 而没登记 ⇒ 红；登记了一个代码里没有的端点 ⇒ 红；
  * 新增 `check-*.mjs` 而没进 CI ⇒ 红。这正是 ㊱ 描述的失效形态：
  * 导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
@@ -220,6 +220,92 @@ console.log('\n[6] 知识库本地授权登记表：写入面只能有一处（v
   const SMOKE = read('scripts/smoke.sh')
   check('冒烟保留 /api/knowledges 的两条 404 锚点（悄悄删掉锚点＝下次加回来无人知晓）',
     SMOKE.includes('GET /api/knowledges 已下线') && SMOKE.includes('POST /api/knowledges 已下线'))
+}
+
+console.log('\n[7] 助手级成本参数：清单与钳制都只能有一处（v2.54 · C-120/C-121）')
+{
+  const SRC = 'backend/src/main/java/com/leyon/backend'
+  const POLICY = read(`${SRC}/service/AssistantPolicy.java`)
+  const CATALOG = read(`${SRC}/service/ModelCatalog.java`)
+  const SVC = read(`${SRC}/service/AssistantService.java`)
+  const CTRL = read(`${SRC}/controller/AssistantController.java`)
+  const MODELS_CTRL = read(`${SRC}/controller/ModelController.java`)
+  const ROBOT = read('frontend/src/views/SmartRobot.vue')
+  const SMOKE = read('scripts/smoke.sh')
+  const ASSEMBLIES = [`${SRC}/handler/ChatWebSocketHandler.java`,
+    `${SRC}/handler/VoiceSignalingHandler.java`, `${SRC}/controller/OpenApiChatController.java`]
+
+  // 模型清单同时是"界面能选什么"和"后端放行什么"。分成两份时的失效形态不是报错，
+  // 而是选得到却用不了（清单外值被读侧静默回落成默认模型，用户以为换了这个模型在跑）。
+  const catalogIds = [...CATALOG.matchAll(/new ModelInfo\("([^"]+)"/g)].map(m => m[1])
+  check('清单解析到 ≥4 项（正则失效时本组会静默全绿）', catalogIds.length >= 4, `解析到 ${catalogIds.length}`)
+  const literals = javaFiles('backend/src/main/java').filter(f => /new ModelInfo\(/.test(read(f)))
+  check('ModelInfo 字面量只在 ModelCatalog 构造（其余位置一律转发同一份）',
+    literals.length === 1 && literals[0].endsWith('ModelCatalog.java'), literals.join(','))
+  check('ModelController 下发的是清单本身，不是第二份字面量',
+    MODELS_CTRL.includes('ModelCatalog') && !/new ModelInfo\(/.test(MODELS_CTRL))
+  check('前端不复制模型 id（选项全部由 /api/models 下发）',
+    !catalogIds.some(id => ROBOT.includes(id)))
+  // 冒烟的两个模型 id 是写死在脚本里的：清单调整时这一条先红，而不是等到 §3 整节塌掉才发现
+  const defaultModel = (SMOKE.match(/SMOKE_MODEL:-([a-z0-9-]+)/) || [])[1]
+  check('冒烟创建助手的默认模型在清单内（否则 §3 起后面每一节都拿不到助手）',
+    !!defaultModel && catalogIds.includes(defaultModel), defaultModel ?? '未解析到')
+  const smokeModel = (SMOKE.match(/modelName '([a-z0-9-]+)' temperature/) || [])[1]
+  check('冒烟 §3.5 正向锚点用的模型在清单内',
+    !!smokeModel && catalogIds.includes(smokeModel), smokeModel ?? '未解析到')
+
+  // 唯一判据入口：任何一处直接读实体值，就是绕过钳制（与 ClientIpResolver、accessGranted 同形）
+  const RAW = ['getModelName()', 'getPersonality()', 'getMaxTokens()', 'getTemperature()']
+  const rawSites = javaFiles('backend/src/main/java').filter(f =>
+    !f.endsWith('AssistantPolicy.java') && !f.includes('/entity/Assistant.java')
+    && RAW.some(g => read(f).includes(g)))
+  check('除 AssistantPolicy 与实体自身外，全仓无人裸读四项成本参数',
+    rawSites.length === 0, rawSites.join(','))
+  for (const f of ASSEMBLIES) {
+    const src = read(f)
+    check(`${basename(f)} 由 runtime() 取钳制后的参数装配`,
+      src.includes('assistantPolicy.runtime(assistant)')
+      && src.includes('setModelParams(runtime.model(), runtime.temperature(), runtime.maxTokens())')
+      && !/setModelParams\(\s*assistant\./.test(src))
+  }
+
+  const runtimeBody = POLICY.slice(POLICY.indexOf('public Runtime runtime'),
+    POLICY.indexOf('public void validateForWrite'))
+  check('读侧入口内不抛异常（装配发生在回合进行中，拒绝＝把已有脏数据的助手整体冻住）',
+    !/throw\s+new/.test(runtimeBody))
+  const clamps = (SVC.match(/assistantPolicy\.clampForStorage\(/g) ?? []).length
+  check('AssistantService 的 create/update 两条写路径都过落库前钳制', clamps === 2, `解析到 ${clamps}`)
+  const validates = (CTRL.match(/assistantPolicy\.validateForWrite\(/g) ?? []).length
+  check('AssistantController 的 POST/PUT 两条写路径都过写侧拒绝', validates === 2, `解析到 ${validates}`)
+  const postBody = CTRL.slice(CTRL.indexOf('@PostMapping'), CTRL.indexOf('@GetMapping'))
+  check('POST 侧拒绝先于建库写入（校验失败不消耗助手配额、不留半行）',
+    postBody.indexOf('validateForWrite') >= 0 && postBody.indexOf('validateForWrite') < postBody.indexOf('assistantService.create('))
+  const putBody = CTRL.slice(CTRL.indexOf('@PutMapping'))
+  check('PUT 侧鉴权排在参数校验之前（越权者问不出"这个值合不合法"）',
+    putBody.indexOf('requireManage') >= 0 && putBody.indexOf('requireManage') < putBody.indexOf('validateForWrite'))
+  const maxTokens = Number((POLICY.match(/MAX_OUTPUT_TOKENS = (\d+)/) || [])[1])
+  const minTemp = Number((POLICY.match(/MIN_TEMPERATURE = ([\d.]+)/) || [])[1])
+  const maxTemp = Number((POLICY.match(/MAX_TEMPERATURE = ([\d.]+)/) || [])[1])
+  check('上限常量解析有效（>0 的温度域才是"有边界"）',
+    maxTokens > 0 && minTemp === 0 && maxTemp === 2, `tokens=${maxTokens} temp=${minTemp}~${maxTemp}`)
+  // 界面上的 min/max 是用户读到"能填什么"的地方，后端常量是"实际放行什么"；分叉的表象是填得进却报错
+  const uiBounds = [...ROBOT.matchAll(/min="(-?[\d.]+)"\s+max="(-?[\d.]+)"/g)].map(m => [Number(m[1]), Number(m[2])])
+  check('两处表单的温度输入边界与后端常量逐项相等',
+    uiBounds.length === 2 && uiBounds.every(([lo, hi]) => lo === minTemp && hi === maxTemp),
+    uiBounds.map(b => b.join('~')).join(' | '))
+  const paramRejects = (SMOKE.match(/^want_param /gm) ?? []).length
+  check('冒烟 §3.5 的四条写侧拒绝锚点在位', paramRejects === 4, `解析到 ${paramRejects}`)
+  check('拒绝判据落在业务码而不是 HTTP 状态（paramError 的 HTTP 仍是 200，只看 status 会永远绿）',
+    /want_param\(\) \{[\s\S]*?"400"/.test(SMOKE))
+  check('冒烟带反向锚点（合法值须原样读回，否则"一律钳到默认"也能全绿）',
+    SMOKE.includes('合法 maxTokens 未被钳到上限或默认') && SMOKE.includes('越界 PUT 未改动库内值'))
+  check('§3.5 区段标题在位（区段号是冒烟报数口径的一部分）',
+    SMOKE.includes("section '3.5 助手成本参数越界拒绝（不进库）'"))
+  // v2.54 冒烟实测撞出的既有脆弱写法（C-122）：三条 result=0 的审计行常落在同一秒，
+  // 而管理端 `ORDER BY created_at DESC` 对同秒行不设二级排序 ⇒ "取扫到的第一条原因去匹配非属主那句"
+  // 会随机红。修复方向是逐条都在，写法不能悄悄退回"只看第一条"。
+  check('拒绝原因断言按"三条各自点名"判定，不是取排序第一的那条',
+    SMOKE.includes('REJECT_REASONS') && !SMOKE.includes('REJECT_DETAIL'))
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)
