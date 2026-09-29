@@ -1,8 +1,10 @@
 package com.leyon.backend.handler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.leyon.backend.common.QuotaExceededException;
 import com.leyon.backend.entity.ApiApp;
 import com.leyon.backend.entity.Assistant;
+import com.leyon.backend.entity.CallRecord;
 import com.leyon.backend.service.ApiAppService;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
@@ -39,7 +41,9 @@ import java.util.function.Consumer;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -222,6 +226,39 @@ class VoiceSignalingHandlerTest {
 
         verify(quotaService, never()).checkSendMessage(any());
         verify(rustPBXService, never()).sendTTS(any(), any(), any());
+        verify(session).close();
+    }
+
+    /**
+     * 时长配额在回合边界复核（C-126）：进行中的通话不进已结算时长，发起前那一次判定管不了一整通超长通话。
+     * 断言三件事：复核带上了本通通话ID（否则算不出"本通已活秒数"）、被拒这一轮不烧消息配额、
+     * 用户是被播报＋挂断而不是只收到一条读不到的错误帧。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void asrRound_terminatedWhenDailyCallSecExhaustedMidCall() throws Exception {
+        connectOpenApiSession();
+        when(apiAppService.accessGranted("app-1", ApiApp.SCOPE_VOICE)).thenReturn(true);
+        when(assistantService.getById("a1")).thenReturn(personalAssistant(null));
+        when(callRecordService.create(any(CallRecord.class))).thenAnswer(inv -> {
+            CallRecord created = inv.getArgument(0);
+            created.setId("c1");
+            return created;
+        });
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"offer\",\"sdp\":\"offer-sdp\"}"));
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"webrtc_connected\"}"));
+
+        ArgumentCaptor<Consumer<String>> asrCallback = ArgumentCaptor.forClass(Consumer.class);
+        verify(rustPBXService).connectToRustPBX(any(), any(), any(), any(), asrCallback.capture(), any());
+
+        doThrow(new QuotaExceededException("单日通话时长已达上限（1 分钟），请明日再试"))
+                .when(quotaService).checkOngoingCallSec("u1", "c1");
+
+        asrCallback.getValue().accept("现在几点了");
+
+        verify(quotaService).checkOngoingCallSec("u1", "c1");
+        verify(quotaService, never()).checkSendMessage(any());
+        verify(rustPBXService).sendTTS(eq("gw-1"), contains("通话时长"), any());
         verify(session).close();
     }
 }

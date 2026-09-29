@@ -2,7 +2,7 @@
  * 登记表与代码实况的一致性验证（v2.52 · C-117 · 候选 ㊱ 的门禁侧）。
  *
  * 这里锁的不是"文档写得好不好"，而是**文档里的每一条清单能不能被代码指向**：
- * 九组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
+ * 十组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
  * 加了新 Kind 而没登记 ⇒ 红；登记了一个代码里没有的端点 ⇒ 红；
  * 新增 `check-*.mjs` 而没进 CI ⇒ 红；配额上界出现第二份字面量 ⇒ 红。
  * 这正是 ㊱ 描述的失效形态：导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
@@ -454,5 +454,90 @@ console.log('\n[9] 知识库可见性求交：三条对话通道共用同一判�
     writeSide.length === 0, writeSide.join(','))
 }
 
+console.log('\n[10] 通话时长配额：发起前与回合边界共用同一判据，通话中不烧次数（v2.59 · C-126 · 方案 A）')
+{
+  const SRC = 'backend/src/main/java/com/leyon/backend'
+  const QS_FILE = `${SRC}/service/QuotaService.java`
+  const QS = read(QS_FILE)
+  const VOICE_FILE = `${SRC}/handler/VoiceSignalingHandler.java`
+  const VOICE = read(VOICE_FILE)
+  const TEST_DIR = 'backend/src/test/java/com/leyon/backend'
+
+  const defs = javaFiles('backend/src/main/java').filter(f => /void checkOngoingCallSec\(/.test(read(f)))
+  check('通话中时长复核判据恰一处定义（两处＝一条通路会漏，成因同 ㊷）',
+    defs.length === 1 && defs[0] === QS_FILE, defs.join(','))
+  // 时长维度有"被关闭"和"用满了"两种拒绝，用户动作不同（找管理员 / 等明天），所以两个判据各自只许一个出口
+  const disabledDefs = javaFiles('backend/src/main/java')
+    .filter(f => /private void rejectIfCallSecDisabled\(/.test(read(f)))
+  check('时长"关闭"判据只在 QuotaService 有一个出口',
+    disabledDefs.length === 1 && disabledDefs[0] === QS_FILE, disabledDefs.join(','))
+  const disabledCalls = (QS.match(/rejectIfCallSecDisabled\(quota\);/g) ?? []).length
+  check('发起前与通话中两处都调用同一"关闭"判据', disabledCalls === 2, `解析到 ${disabledCalls}`)
+  const overCalls = (QS.match(/rejectIfCallSecOver\(quota, /g) ?? []).length
+  check('发起前与通话中两处都调用同一"越界"判据', overCalls === 2, `解析到 ${overCalls}`)
+  const overLiterals = javaFiles('backend/src/main/java')
+    .filter(f => read(f).includes('单日通话时长已达上限（'))
+  check('越界文案只拼一处（第二份会在两个入口给出不同的分钟数）',
+    overLiterals.length === 1 && overLiterals[0] === QS_FILE, overLiterals.join(','))
+  check('前端不复制时长越界文案', !read('frontend/src/views/Admin.vue').includes('单日通话时长已达上限'))
+
+  const ongoing = QS.slice(QS.indexOf('public void checkOngoingCallSec('),
+    QS.indexOf('private void rejectIfCallSecDisabled('))
+  // 本批的修法之所以能逐轮复用，关键就是它只读不扣：一旦顺手接上扣减，回合会把次数配额当秒表烧掉
+  check('通话中复核体内不出现任何扣减调用',
+    !/consumeOrThrow|consumeDaily|updateDailyUsage/.test(ongoing))
+  check('通话中的用量＝当日已结算秒 + 本通已活秒数',
+    ongoing.includes('sumCallSecSince(') && ongoing.includes('liveCallSecSince(callId, todayStart)'))
+  check('跨零点的通话只计今日那一段（昨夜那部分属于昨天的配额日）',
+    /isBefore\(todayStart\)\s*\?\s*todayStart/.test(QS))
+  check('通话ID 缺失时退化为"只判已结算量"，不拿空 ID 去查库',
+    /if \(!StringUtils\.hasText\(callId\)\)\s*\{\s*return 0;/.test(QS))
+
+  const asr = VOICE.slice(VOICE.indexOf('private void handleAsrResult('),
+    VOICE.indexOf('public void onVoiceResponseComplete'))
+  const iScope = asr.indexOf('openApiVoiceStillAllowed(session)')
+  const iSec = asr.indexOf('quotaService.checkOngoingCallSec(')
+  const iMsg = asr.indexOf('quotaService.checkSendMessage(')
+  check('回合边界三道复核的次序固定：能力 → 时长 → 消息（时长排在扣减之后会白烧一条消息额度）',
+    iScope >= 0 && iSec > iScope && iMsg > iSec, `能力=${iScope} 时长=${iSec} 消息=${iMsg}`)
+  check('时长复核传入本通通话ID（不传就只能看到已结算量，等于没修）',
+    asr.includes('checkOngoingCallSec(userId, sessionCallRecordMap.get(sessionId))'))
+  const secBlock = asr.slice(iSec, iMsg)
+  const iFrame = secBlock.indexOf('MSG_TYPE_QUERY_END')
+  const iTts = secBlock.indexOf('sendTTS')
+  const iClose = secBlock.indexOf('closeSession(session)')
+  check('时长用尽的收场是"送原因帧 → 播报 → 挂断"（通话里读不到帧，只发帧等于没告知）',
+    iFrame >= 0 && iTts > iFrame && iClose > iTts, `帧=${iFrame} TTS=${iTts} 挂断=${iClose}`)
+  check('回合边界不改用 checkStartCall（逐轮扣次数是错误修法）', !asr.includes('checkStartCall('))
+
+  const startSites = javaFiles('backend/src/main/java')
+    .filter(f => f !== QS_FILE && read(f).includes('checkStartCall('))
+  check('发起侧判定仍是两处（通话创建 + 开放外呼），第三处出现＝有通路被逐轮复用',
+    startSites.length === 2, startSites.join(','))
+
+  const QT = read(`${TEST_DIR}/service/QuotaServiceTest.java`)
+  const V_TEST = read(`${TEST_DIR}/handler/VoiceSignalingHandlerTest.java`)
+  const ANCHORS = ['ongoingCallSec_countsLiveCallSecondsAndThrows',
+    'ongoingCallSec_settledPlusLiveStillWithinLimitPasses', 'ongoingCallSec_neverBurnsDailyCallCount',
+    'ongoingCallSec_zeroLimitReportsDisabledNotTomorrow',
+    'ongoingCallSec_countsOnlyTodayPartOfCrossMidnightCall',
+    'ongoingCallSec_withoutCallIdFallsBackToSettledOnly']
+  const missing = ANCHORS.filter(n => !QT.includes(n))
+  check('六条通话中复核用例都在（少一条，对应方向的变异就能悄悄复活）',
+    missing.length === 0, missing.join(','))
+  const qtTests = (QT.match(/^\s+@Test/gm) ?? []).length
+  check('QuotaServiceTest 用例数 ≥ 26（v2.57 起 20 例 + 本批 6 例）', qtTests >= 26, `解析到 ${qtTests}`)
+  check('处理器用例锁住"带ID复核 + 不烧消息配额 + 播报并挂断"',
+    V_TEST.includes('asrRound_terminatedWhenDailyCallSecExhaustedMidCall')
+      && V_TEST.includes('checkOngoingCallSec("u1", "c1")'))
+
+  // 本批选的是方案 A（回合边界复核）：PSTN 外呼没有回合、静音到底的通话没有新轮次，两者都归候选 ㊻
+  const wallClock = [`${SRC}/service/OutboundCallService.java`, `${SRC}/controller/PstnCallbackController.java`,
+    `${SRC}/controller/OpenApiCallController.java`].filter(f => read(f).includes('checkOngoingCallSec'))
+  check('PSTN 外呼链路不接回合复核（要做墙钟上限得先立口径，不许顺手加）',
+    wallClock.length === 0, wallClock.join(','))
+  check('语音处理器没有为时长新增定时器（方案 A 明确只在回合边界判）',
+    !/ScheduledExecutorService|new Timer|scheduleAtFixedRate/.test(VOICE))
+}
+
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)
-process.exit(failures === 0 ? 0 : 1)

@@ -28,6 +28,7 @@ import org.mockito.quality.Strictness;
 import org.springframework.dao.DuplicateKeyException;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -263,6 +264,98 @@ class QuotaServiceTest {
         assertThatThrownBy(() -> quotaService.checkStartCall("u1"))
                 .isInstanceOf(QuotaExceededException.class)
                 .hasMessageContaining("通话时长");
+    }
+
+    // ===================== 通话中时长复核（v2.59 · C-126） =====================
+
+    /**
+     * 进行中的通话在 call_records 里 durationSec=0（结算只发生在挂断时），
+     * 只靠发起前那一次判定的话，一整通超长通话可以整轮穿透日上限——
+     * 所以回合边界必须把"这通电话今天已经活的秒数"补进用量里再判。
+     */
+    @Test
+    void ongoingCallSec_countsLiveCallSecondsAndThrows() {
+        when(quotaMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(quota(5, 5, 600, 50));
+        when(callRecordMapper.selectById("c1")).thenReturn(liveCall("c1", LocalDateTime.now().minusSeconds(700)));
+        assertThatThrownBy(() -> quotaService.checkOngoingCallSec("u1", "c1"))
+                .isInstanceOf(QuotaExceededException.class)
+                .hasMessageContaining("通话时长")
+                .hasMessageContaining("明日再试");
+    }
+
+    @Test
+    void ongoingCallSec_settledPlusLiveStillWithinLimitPasses() {
+        when(quotaMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(quota(5, 5, 600, 50));
+        CallRecord settled = new CallRecord();
+        settled.setDurationSec(500);
+        when(callRecordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(settled));
+        when(callRecordMapper.selectById("c1")).thenReturn(liveCall("c1", LocalDateTime.now().minusSeconds(50)));
+        // 500（已结算）+ 50（本通已活）< 600
+        quotaService.checkOngoingCallSec("u1", "c1");
+    }
+
+    /**
+     * 复核只看时长、不烧次数：回合边界每轮都会进来，
+     * 若沿用 checkStartCall 会把"单日通话次数"当秒表烧掉。
+     */
+    @Test
+    void ongoingCallSec_neverBurnsDailyCallCount() {
+        when(quotaMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(quota(5, 5, 600, 50));
+        when(callRecordMapper.selectById("c1")).thenReturn(liveCall("c1", LocalDateTime.now().minusSeconds(50)));
+        quotaService.checkOngoingCallSec("u1", "c1");
+
+        verify(quotaDailyUsageMapper, never()).updateDailyUsage(any(), any(), any(), any(), anyInt());
+        verify(quotaDailyUsageMapper, never()).insert(any(QuotaDailyUsage.class));
+    }
+
+    @Test
+    void ongoingCallSec_zeroLimitReportsDisabledNotTomorrow() {
+        when(quotaMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(quota(5, 5, 0, 50));
+        when(callRecordMapper.selectById("c1")).thenReturn(liveCall("c1", LocalDateTime.now().minusSeconds(50)));
+        assertThatThrownBy(() -> quotaService.checkOngoingCallSec("u1", "c1"))
+                .isInstanceOf(QuotaExceededException.class)
+                .hasMessageContaining("单日通话时长")
+                .hasMessageContaining("关闭");
+    }
+
+    /**
+     * 跨零点口径：本通话昨日 23:00 开始，昨日那一段属于昨天的配额日，
+     * 未做当日裁剪的话会在今天 00:00 之后立刻把一整夜的秒数计进今日并挂断。
+     * 上限取"今日已过秒数 + 1800"：裁剪后必然放行、未裁剪（多出 3600 秒）必然拒绝。
+     */
+    @Test
+    void ongoingCallSec_countsOnlyTodayPartOfCrossMidnightCall() {
+        long sinceMidnight = java.time.Duration.between(
+                LocalDate.now().atStartOfDay(), LocalDateTime.now()).getSeconds();
+        when(quotaMapper.selectOne(any(LambdaQueryWrapper.class)))
+                .thenReturn(quota(5, 5, sinceMidnight + 1800, 50));
+        when(callRecordMapper.selectById("c1")).thenReturn(liveCall("c1",
+                LocalDate.now().atStartOfDay().minusSeconds(3600)));
+
+        quotaService.checkOngoingCallSec("u1", "c1");
+    }
+
+    /** 通话ID 缺失（记录创建失败的降级路径）＝没有"本通已活秒数"可补，只判当日已结算量 */
+    @Test
+    void ongoingCallSec_withoutCallIdFallsBackToSettledOnly() {
+        when(quotaMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(quota(5, 5, 600, 50));
+        CallRecord settled = new CallRecord();
+        settled.setDurationSec(600);
+        when(callRecordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(settled));
+
+        assertThatThrownBy(() -> quotaService.checkOngoingCallSec("u1", null))
+                .isInstanceOf(QuotaExceededException.class)
+                .hasMessageContaining("通话时长");
+        verify(callRecordMapper, never()).selectById(any());
+    }
+
+    private CallRecord liveCall(String id, LocalDateTime startedAt) {
+        CallRecord record = new CallRecord();
+        record.setId(id);
+        record.setStatus(CallRecord.STATUS_IN_PROGRESS);
+        record.setStartedAt(startedAt);
+        record.setDurationSec(0);
+        return record;
     }
 
     @Test

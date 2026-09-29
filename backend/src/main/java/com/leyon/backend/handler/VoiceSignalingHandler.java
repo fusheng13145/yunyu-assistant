@@ -564,6 +564,19 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         // P2-19：语音配额逐条拦截（单日消息量超限时终止本轮，不发流）
         String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
         String voice = sessionVoiceMap.get(sessionId);
+        // 时长配额逐轮复核（C-126）：进行中的通话在 call_records 里 durationSec 恒为 0，
+        // 只在发起前判一次的话，一整通超长通话可以整轮穿透日上限。
+        // 排在消息配额之前：被时长拒掉的那一轮不该再烧掉一条消息额度。
+        try {
+            quotaService.checkOngoingCallSec(userId, sessionCallRecordMap.get(sessionId));
+        } catch (QuotaExceededException e) {
+            logger.warn("语音通话单日时长已达上限，终止通话，会话ID:{}，{}", sessionId, e.getMessage());
+            sendMessage(session, MSG_TYPE_QUERY_END,
+                    Map.of(FIELD_MESSAGE, e.getMessage(), "status", "error"));
+            rustPBXService.sendTTS(rustpbxSessionId, "抱歉，本日通话时长已达上限，通话即将结束。", voice);
+            closeSession(session);
+            return;
+        }
         try {
             quotaService.checkSendMessage(userId);
         } catch (QuotaExceededException e) {

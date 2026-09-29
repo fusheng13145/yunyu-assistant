@@ -19,6 +19,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -184,20 +185,53 @@ public class QuotaService {
      * 若先查时长再扣次数，时长临界时会出现"放行了但次数已烧掉"的中间态；
      * 反序则次数被拒时时长尚未判定，最多少放一次，不透支。
      * 例外是"时长上限本身为 0"——那是纯配置判定、不看用量，故排在扣减之前（见方法内注释）。
-     * 通话时长指标（daily_call_sec）依赖通话结束后的真实秒数，属语音阶段（二阶段）范围，本批不建扣减账本。
+     * 通话时长指标（daily_call_sec）不建扣减账本：判据读的是业务表汇总，通话中的复核走 {@link #checkOngoingCallSec}。
      */
     public void checkStartCall(String userId) {
         Quota quota = getEffective(userId);
         // 时长上限为 0 时先拒再扣：这项判定只看配置、不看用量，没有"非原子读数"的次序问题。
         // 反过来（沿用"先扣次数"）会让管理端关掉语音后每一次尝试都白烧一通通话次数。
-        if (quota.getDailyCallSecLimit() <= 0) {
-            throw new QuotaExceededException(QuotaPolicy.disabledMessage(QuotaPolicy.DIM_CALL_SEC));
-        }
+        rejectIfCallSecDisabled(quota);
         consumeOrThrow(quota, QuotaDailyUsage.METRIC_DAILY_CALL, quota.getDailyCallLimit(),
                 QuotaPolicy.DIM_CALL_COUNT, "次");
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         long dailyCallSec = sumCallSecSince(quota.getScopeType(), quota.getScopeId(), todayStart);
-        if (dailyCallSec >= quota.getDailyCallSecLimit()) {
+        rejectIfCallSecOver(quota, dailyCallSec);
+    }
+
+    /**
+     * 通话进行中复核单日通话时长（语音回合边界调用），超限抛 403
+     * <p>
+     * 与 {@link #checkStartCall} 的区别有两层，都不能省：
+     * 一是这里<b>不扣通话次数</b>——回合每轮都会进来，沿用 checkStartCall 等于把"单日通话次数"当秒表烧掉；
+     * 二是进行中的通话在 {@code call_records} 里 durationSec 恒为 0（时长只在挂断时结算），
+     * 只靠发起前那一次判定的话，一整通超长通话可以整轮穿透日上限，所以必须把"本通今天已经活的秒数"补进用量。
+     * 跨零点的通话只计今日那一段：昨夜的部分属于昨天的配额日。
+     *
+     * @param callId 本通通话记录ID；为空（记录创建失败的降级路径）时退化为"只判当日已结算量"
+     */
+    public void checkOngoingCallSec(String userId, String callId) {
+        Quota quota = getEffective(userId);
+        rejectIfCallSecDisabled(quota);
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        long settled = sumCallSecSince(quota.getScopeType(), quota.getScopeId(), todayStart);
+        rejectIfCallSecOver(quota, settled + liveCallSecSince(callId, todayStart));
+    }
+
+    /**
+     * 时长维度的"关闭"判据与文案出口（发起前排在扣减之前，通话中排在查量之前）
+     */
+    private void rejectIfCallSecDisabled(Quota quota) {
+        if (quota.getDailyCallSecLimit() <= 0) {
+            throw new QuotaExceededException(QuotaPolicy.disabledMessage(QuotaPolicy.DIM_CALL_SEC));
+        }
+    }
+
+    /**
+     * 时长维度的"用满"判据与文案出口：发起前判已结算量，通话中判已结算量＋本通已活秒数
+     */
+    private void rejectIfCallSecOver(Quota quota, long usedSec) {
+        if (usedSec >= quota.getDailyCallSecLimit()) {
             throw new QuotaExceededException("单日通话时长已达上限（" + (quota.getDailyCallSecLimit() / 60) + " 分钟），请明日再试");
         }
     }
@@ -293,6 +327,21 @@ public class QuotaService {
             }
         }
         return total;
+    }
+
+    /**
+     * 本通通话今日已活的秒数（进行中的记录 durationSec 恒为 0，只能按开始时间推）
+     */
+    private long liveCallSecSince(String callId, LocalDateTime todayStart) {
+        if (!StringUtils.hasText(callId)) {
+            return 0;
+        }
+        CallRecord record = callRecordMapper.selectById(callId);
+        if (record == null || record.getStartedAt() == null) {
+            return 0;
+        }
+        LocalDateTime from = record.getStartedAt().isBefore(todayStart) ? todayStart : record.getStartedAt();
+        return Math.max(0, Duration.between(from, LocalDateTime.now()).getSeconds());
     }
 
     private long countMessagesSince(String scopeType, String scopeId, LocalDateTime since) {
