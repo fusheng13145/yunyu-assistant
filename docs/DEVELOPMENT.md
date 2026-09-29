@@ -83,7 +83,7 @@ python scripts/check-docs.py && python scripts/check-config.py && bash -n script
 读码/评估 → 定主题与编号 C-xx → 测试先行（RED）→ 实现 → 全部门禁
   → 手册 §7.5 加一行 + 头部版本戳 bump（涉及面还须改 1.x/2.x/4.x/5.x/6.x 相应小节）
   → README 同步（配置表 / 目录树 / 文档节）
-  → git diff 敏感串扫描 → 一次本地提交 → 汇报并等推送批准 → 推送 → 核 CI
+  → git diff 敏感串扫描 → 一次本地提交 → 汇报 → 推送 → 核 CI（每轮收口后即推送，2026-09-29 起长期授权）
 ```
 
 提交信息沿用既有风格：`feat: v2.51 主题（C-112 一句话 / C-113 一句话）`（纯修复用 `fix:`，纯文档批次也占一个版本号）。

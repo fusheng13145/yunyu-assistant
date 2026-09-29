@@ -27,7 +27,7 @@
   cd .. && python scripts/check-docs.py && python scripts/check-config.py && bash -n scripts/smoke.sh
   ```
 
-- **推送逐批单独等用户明确批准**，走 SSH origin（HTTPS 在本机 DNS 失败）。汇报必须区分"已提交"与"已推送"。
+- **每批收口并本地提交后直接推送**（用户 2026-09-29 起长期授权："以后每一轮完毕都要推送"，不必逐批再问），走 SSH origin（HTTPS 在本机 DNS 失败；本机代理没开时用 `GIT_SSH_COMMAND='ssh -o ProxyCommand=none'` 直连）。汇报仍必须区分"已提交"与"已推送"。
 - 推送后用 `git ls-remote origin refs/heads/main` 核对落地；CI 结论用匿名 `GET /repos/.../commits/<full-sha>/check-runs`（要完整 SHA）。
 
 ## 文档索引
