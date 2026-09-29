@@ -2,7 +2,7 @@
  * 登记表与代码实况的一致性验证（v2.52 · C-117 · 候选 ㊱ 的门禁侧）。
  *
  * 这里锁的不是"文档写得好不好"，而是**文档里的每一条清单能不能被代码指向**：
- * 十一组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
+ * 十二组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
  * 加了新 Kind 而没登记 ⇒ 红；登记了一个代码里没有的端点 ⇒ 红；
  * 新增 `check-*.mjs` 而没进 CI ⇒ 红；配额上界出现第二份字面量 ⇒ 红。
  * 这正是 ㊱ 描述的失效形态：导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
@@ -616,6 +616,91 @@ console.log('\n[11] 助手模型的三态：没带＝不改、空串＝清空、
   check('§3.6 全部围绕同一个已建助手读写（不新建行、不占助手配额，重复跑结论才稳定）',
     !region36.includes('POST /api/assistants') && reuse >= 5,
     `引用 ${reuse} 次`)
+}
+
+console.log('\n[12] 模型出站地址的合成口径 + 流式失败的可见出口（v2.62 · C-128/C-129 · 候选 ㊼ ㊽）')
+{
+  const SRC = 'backend/src/main/java/com/leyon/backend'
+  const GUARD_FILE = `${SRC}/config/ModelBaseUrlGuard.java`
+  const GUARD = read(GUARD_FILE)
+  const WS = read(`${SRC}/handler/ChatWebSocketHandler.java`)
+  const GT = read('backend/src/test/java/com/leyon/backend/config/ModelBaseUrlGuardTest.java')
+  const WT = read('backend/src/test/java/com/leyon/backend/handler/ChatWebSocketHandlerTest.java')
+  const YAML = read('backend/src/main/resources/application.yaml')
+  const ENVX = read('.env.example')
+  const README = read('README.md')
+  const MANUAL = read('docs/云谕助手项目手册.md')
+
+  // ---- ㊼：base-url 只能填主机根，四处口径必须同源 ----
+  // 上游默认出站路径自带 /v1（本地 jar 的 spring-configuration-metadata.json 实测），
+  // 所以任何一处仍写 .../v1 的示例值，照它配出来的实例就是"每次对话都失败且没有崩溃迹象"。
+  const yamlDefault = (YAML.match(/base-url:\s*\$\{OPENAI_BASE_URL:([^}]*)\}/) ?? [])[1]
+  check('yaml 里 base-url 默认值解析有效（正则失效时本组会静默全绿）', yamlDefault !== undefined, String(yamlDefault))
+  const envExample = (ENVX.match(/^OPENAI_BASE_URL=(.*)$/m) ?? [])[1]
+  check('.env.example 的 OPENAI_BASE_URL 行解析有效', envExample !== undefined, String(envExample))
+  const manualRow = (MANUAL.match(/^\| `OPENAI_BASE_URL` \|[^\n]*/m) ?? [])[0]
+  const readmeRow = (README.match(/^\| `OPENAI_BASE_URL`[^\n]*/m) ?? [])[0]
+  check('手册 5.3 与 README 的口径行都解析到（只改代码不改文档＝下一个人照文档再配错一次）',
+    manualRow !== undefined && readmeRow !== undefined, `${!!manualRow}/${!!readmeRow}`)
+  const v1Sites = [['yaml 默认值', yamlDefault], ['.env.example', envExample], ['手册 5.3', manualRow], ['README', readmeRow]]
+    .filter(([, v]) => /(?:openai\.com|deepseek\.com)\/v1/.test(v ?? ''))
+    .map(([n]) => n)
+  check('四处口径都不把 /v1 写进 base-url（少一处就留下一份会合成 /v1/v1 的示例）',
+    v1Sites.length === 0, v1Sites.join('、'))
+  const docSites = [['手册 5.3', manualRow], ['README', readmeRow]]
+    .filter(([, v]) => !/主机根/.test(v ?? ''))
+    .map(([n]) => n)
+  check('两处文档都写明"只填主机根"（口径要能被读到，不是只藏在代码注释里）',
+    docSites.length === 0, docSites.join('、'))
+
+  // 判据单点：合成规则若有第二份实现，两处会各自漂移，而"哪个对"要看上游版本
+  const judges = javaFiles('backend/src/main/java')
+    .filter(f => /static String check\(String baseUrl, String completionsPath\)/.test(read(f)))
+  check('出站地址合成判据恰一处定义（两处＝同一个误配有两种结论）',
+    judges.length === 1 && judges[0] === GUARD_FILE, judges.join(','))
+  check('上游默认路径常量只有一份（别处复制＝上游改默认值时只有一处会跟着变）',
+    (javaFiles('backend/src/main/java').filter(f => /\/v1\/chat\/completions/.test(read(f))).length) === 1
+    && javaFiles('backend/src/main/java').filter(f => /\/v1\/chat\/completions/.test(read(f)))[0] === GUARD_FILE,
+    javaFiles('backend/src/main/java').filter(f => /\/v1\/chat\/completions/.test(read(f))).join(','))
+
+  const vStart = GUARD.indexOf('public void validate()')
+  const vBody = GUARD.slice(vStart, GUARD.indexOf('\n    }', vStart))
+  check('validate() 解析到方法体（按方法体取界，扫到文件尾会让别处的字面量冒充）', vStart >= 0 && vBody.length > 40)
+  check('误配走告警而非阻断（配置笔误不该放大成整站起不来）',
+    vBody.includes('logger.warn(warning)') && !vBody.includes('throw '))
+  check('启动即打印合成后的出站地址（公网实例没有真实 Key 时，这是唯一的可核对读数）',
+    vBody.includes('模型出站地址:'))
+  check('守卫已接线为启动期 Bean（@Component + @PostConstruct）',
+    GUARD.includes('@Component') && GUARD.includes('@PostConstruct'))
+
+  const GT_ANCHORS = ['v1SuffixIsFlagged', 'hostRootIsAccepted', 'gatewayPathPrefixIsAccepted',
+    'shortenedCompletionsPathIsAccepted', 'validateWarnsInsteadOfThrowing']
+  const gtMissing = GT_ANCHORS.filter(n => !GT.includes(n))
+  check('五条判据用例都在（缺一条＝对应方向的回归能悄悄复活）', gtMissing.length === 0, gtMissing.join(','))
+  // 反向锚点：把合规值也判成误配的"更严格实现"同样不可信
+  check('反向锚点在位：主机根与网关前缀都必须判为合规',
+    GT.includes('assertNull(ModelBaseUrlGuard.check("https://platform.deepseek.com", null))')
+      && GT.includes('assertNull(ModelBaseUrlGuard.check("https://gw.example.com/proxy/ai", null))'))
+
+  // ---- ㊽：流式失败的可见出口 ----
+  const legStart = WS.indexOf('error -> {')
+  const leg = legStart < 0 ? '' : WS.slice(legStart, WS.indexOf('\n                        },', legStart))
+  check('流式 error 回调解析到方法体（按回调体取界，扫到文件尾会命中别的 MSG_TYPE_ERROR）',
+    legStart >= 0 && leg.length > 40, `取到 ${leg.length} 字符`)
+  const eIdx = leg.indexOf('MSG_TYPE_ERROR')
+  const aIdx = leg.indexOf('MSG_TYPE_ASSISTANT_MSG')
+  const qIdx = leg.indexOf('MSG_TYPE_QUERY_END')
+  check('失败出口三帧齐全且顺序为 error → 收尾标记 → query_end（收尾帧必须最后，前端靠它解除打字态）',
+    eIdx >= 0 && eIdx < aIdx && aIdx < qIdx, `error=${eIdx} assistant=${aIdx} queryEnd=${qIdx}`)
+  check('异常详情仍进服务端日志（帧给可见性、日志给排障）', leg.includes('logger.error('))
+  check('反向锚点：error 帧不回显上游异常原文（异常消息可能含 Key、内网地址、供应商名）',
+    !/error\.getMessage\(\)|\.getLocalizedMessage\(\)/.test(leg))
+  const WT_ANCHORS = ['chat_error_surfacesErrorFrameBeforeClosingFrames',
+    'chat_error_errorFrameDoesNotEchoUpstreamDetail']
+  const wtMissing = WT_ANCHORS.filter(n => !WT.includes(n))
+  check('两条 WS 用例都在（少一条＝"只补收尾帧"的旧形态可以改回去）', wtMissing.length === 0, wtMissing.join(','))
+  check('WS 用例锁住顺序与"最后一帧仍是 query_end"',
+    WT.includes('types.indexOf("query_end")') && WT.includes('types.get(types.size() - 1)'))
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)

@@ -181,6 +181,31 @@ class ChatWebSocketHandlerTest {
     }
 
     @Test
+    void chat_error_surfacesErrorFrameBeforeClosingFrames() throws Exception {
+        when(chatService.chatStream(anyString())).thenReturn(Flux.error(new RuntimeException("模型不可用")));
+
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"你好\"}"));
+
+        List<String> types = sentMessages().stream().map(m -> m.path("type").asText()).toList();
+        int errorIdx = types.indexOf("error");
+        // 只补收尾帧时，用户看到的是一段戛然而止的空白回答，失败与"模型就是这么短"无从分辨
+        assertThat(errorIdx).as("上游失败必须下发 error 帧，实际: %s", types).isNotNegative();
+        assertThat(types.indexOf("query_end")).as("error 帧要先于收尾帧: %s", types).isGreaterThan(errorIdx);
+        assertThat(types.get(types.size() - 1)).isEqualTo("query_end");
+    }
+
+    @Test
+    void chat_error_errorFrameDoesNotEchoUpstreamDetail() throws Exception {
+        when(chatService.chatStream(anyString())).thenReturn(Flux.error(new RuntimeException("模型不可用")));
+
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"你好\"}"));
+
+        // 上游异常原文可能带 Key、内网地址或供应商名，只进日志不外发
+        List<String> payloads = sentMessages().stream().map(JsonNode::toString).toList();
+        assertThat(payloads).noneMatch(p -> p.contains("模型不可用"));
+    }
+
+    @Test
     void chat_blankContent_rejectedWithoutModelCall() throws Exception {
         handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"   \"}"));
 

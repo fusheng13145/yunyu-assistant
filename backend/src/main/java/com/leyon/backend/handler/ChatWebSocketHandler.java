@@ -380,6 +380,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                         },
                         error -> {
                             logger.error("流式对话异常，会话ID:{}", sessionId, error);
+                            // 只补收尾帧时用户看到的是一段戛然而止的空白回答，失败与"模型就答了这么短"无从分辨；
+                            // 上游异常原文可能含 Key 与内网地址，外发只给类别，细节留在上面那条日志
+                            sendMessage(session, MSG_TYPE_ERROR, "对话失败：模型服务暂时不可用，请稍后重试");
                             sendMessage(session, MSG_TYPE_ASSISTANT_MSG, endChunkOrMarker(endChunkRef.get()));
                             sendMessage(session, MSG_TYPE_QUERY_END, endChunkOrMarker(endChunkRef.get()));
                             activeSubscriptions.remove(sessionId);

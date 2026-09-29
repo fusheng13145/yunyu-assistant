@@ -48,7 +48,9 @@ spring:
   ai:
     openai:
       api-key: ${OPENAI_API_KEY}
-      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+      # base-url 只填主机根：Spring AI 1.0.0 的 spring.ai.openai.chat.completions-path 默认值自带 /v1，
+      # 这里再写 /v1 会合成出 /v1/v1/chat/completions（v2.62 收口的 ㊼；启动时由 ModelBaseUrlGuard 自检告警）
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
       chat:
         options:
           model: ${AI_MODEL:deepseek-chat}
