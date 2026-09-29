@@ -10,6 +10,7 @@ import com.leyon.backend.entity.WebhookDelivery;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
+import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
 import com.leyon.backend.service.OrgService;
@@ -64,6 +65,7 @@ public class OpenApiChatController {
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
     private final AssistantPolicy assistantPolicy;
+    private final KnowledgeBaseService knowledgeBaseService;
 
     public OpenApiChatController(AssistantService assistantService,
                                  OrgService orgService,
@@ -75,7 +77,8 @@ public class OpenApiChatController {
                                  KnowledgeProvider knowledgeProvider,
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
-                                 AssistantPolicy assistantPolicy) {
+                                 AssistantPolicy assistantPolicy,
+                                 KnowledgeBaseService knowledgeBaseService) {
         this.assistantService = assistantService;
         this.orgService = orgService;
         this.quotaService = quotaService;
@@ -87,6 +90,7 @@ public class OpenApiChatController {
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
         this.assistantPolicy = assistantPolicy;
+        this.knowledgeBaseService = knowledgeBaseService;
     }
 
     /**
@@ -150,7 +154,9 @@ public class OpenApiChatController {
         final String bizSessionId = effectiveSessionId;
 
         // 复用 ChatService 流式逻辑（与 WS 通道同装配），加载历史注入上下文实现多轮
-        List<String> knowledgeIds = parseKnowledgeIds(assistant.getKnowledgeIds());
+        // 知识库范围与两条内部通道同一判据：按**调用方**（应用属主）可见集求交，不因为"整轮都是属主身份"就跳过
+        List<String> knowledgeIds = knowledgeBaseService.retainVisibleDatasetIds(
+                parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
         AssistantPolicy.Runtime runtime = assistantPolicy.runtime(assistant);
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,

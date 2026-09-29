@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.leyon.backend.entity.KnowledgeBase;
 import com.leyon.backend.entity.Org;
 import com.leyon.backend.mapper.KnowledgeBaseMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -21,6 +23,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class KnowledgeBaseService {
+
+    private static final Logger logger = LoggerFactory.getLogger(KnowledgeBaseService.class);
 
     private final KnowledgeBaseMapper knowledgeBaseMapper;
     private final OrgService orgService;
@@ -88,7 +92,8 @@ public class KnowledgeBaseService {
 
     /**
      * 收敛数据集ID列表：仅保留对当前用户可见的项（个人知识库 + 所属组织共享知识库）
-     * 供对话链路（HTTP/REST/WebSocket）注入检索范围前调用，避免越权读取他人知识库内容
+     * 三条对话通道（文本 WS / 语音 WS / 开放 OpenAPI）装配 ChatService 前都必须经此单点，
+     * 丢弃项在此记 WARN——把手写在调用方就会漏一条通道（㊷ 的成因，v2.58 收口）
      *
      * @param datasetIds 候选 RAGFlow 数据集ID，可为 null
      * @param userId     当前用户ID
@@ -99,7 +104,12 @@ public class KnowledgeBaseService {
             return List.of();
         }
         Set<String> visibleIds = listVisibleDatasetIds(userId);
-        return datasetIds.stream().filter(visibleIds::contains).toList();
+        List<String> retained = datasetIds.stream().filter(visibleIds::contains).toList();
+        if (retained.size() < datasetIds.size()) {
+            logger.warn("用户:{} 请求的数据集 {} 个中有 {} 个不可见，已按可见范围收敛",
+                    userId, datasetIds.size(), datasetIds.size() - retained.size());
+        }
+        return retained;
     }
 
     /**

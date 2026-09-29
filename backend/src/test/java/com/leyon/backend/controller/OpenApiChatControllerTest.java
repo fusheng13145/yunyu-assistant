@@ -10,6 +10,7 @@ import com.leyon.backend.interceptor.OpenApiAuthInterceptor;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
+import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
 import com.leyon.backend.service.ModelCatalog;
@@ -32,6 +33,7 @@ import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -39,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -70,6 +73,11 @@ class OpenApiChatControllerTest {
     private KnowledgeProvider knowledgeProvider;
     @Mock
     private ToolRegistry toolRegistry;
+    @Mock
+    private KnowledgeBaseService knowledgeBaseService;
+
+    /** 每轮检索实际传入 KnowledgeProvider 的数据集ID（由 setUp 里的 thenAnswer 记录） */
+    private final List<List<String>> queriedDatasets = new ArrayList<>();
 
     private OpenApiChatController controller;
     private HttpServletRequest request;
@@ -78,11 +86,16 @@ class OpenApiChatControllerTest {
     void setUp() {
         controller = new OpenApiChatController(assistantService, orgService, quotaService,
                 sessionService, recordService, webhookService, modelAdapter, knowledgeProvider, new ObjectMapper(),
-                toolRegistry, new AssistantPolicy(new ModelCatalog()));
+                toolRegistry, new AssistantPolicy(new ModelCatalog()), knowledgeBaseService);
         request = org.mockito.Mockito.mock(HttpServletRequest.class);
         lenient().when(request.getAttribute(OpenApiAuthInterceptor.ATTR_USER_ID)).thenReturn("u-owner");
         lenient().when(toolRegistry.resolveToolCallbacks(any())).thenReturn(List.of());
         lenient().when(recordService.listBySessionIdLimit(any(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(List.of());
+        // 记录检索真正拿到的数据集ID（断言"可见子集才进检索"要看下游读数，不能只看桩被调用几次）
+        lenient().when(knowledgeProvider.queryKnowledgeBaseWithDetail(any(), any())).thenAnswer(invocation -> {
+            queriedDatasets.add(new ArrayList<>(invocation.getArgument(1)));
+            return KnowledgeProvider.KnowledgeHit.empty();
+        });
     }
 
     private Assistant personalAssistant() {
@@ -243,5 +256,58 @@ class OpenApiChatControllerTest {
                 .assertNext(ev -> assertThat(ev.data().get("streamEnd")).isEqualTo(Boolean.TRUE))
                 .expectComplete()
                 .verify();
+    }
+
+    // ===================== ㊷ / C-125：开放通道的知识库可见性求交 =====================
+
+    /** 组织助手（属主 u-other）携带属主的私有数据集：调用方 u-owner 看不见的项必须被收敛掉 */
+    private Assistant orgAssistantWithDatasets(String... datasetIds) {
+        Assistant a = orgAssistant("org1");
+        a.setKnowledgeIdList(List.of(datasetIds));
+        lenient().when(orgService.isMember("org1", "u-owner")).thenReturn(true);
+        lenient().when(sessionService.getOwned("s1", "u-owner")).thenReturn(ownedSession("s1", "a1", "u-owner"));
+        return a;
+    }
+
+    /** 走完一轮开放通道对话（模型侧空流），不断言事件内容；检索读数由 setUp 的记录桩采集 */
+    private void runOpenApiTurn(Assistant assistant) {
+        mockEmptyModelStream();
+        when(assistantService.getById("a1")).thenReturn(assistant);
+        StepVerifier.create(controller.chat(
+                        Map.of("assistantId", "a1", "message", "你好", "sessionId", "s1"), request))
+                .expectNextCount(1)
+                .expectComplete()
+                .verify();
+    }
+
+    @Test
+    void chat_onlyVisibleDatasetsReachRetrieval() {
+        when(knowledgeBaseService.retainVisibleDatasetIds(eq(List.of("ds-owner-private", "ds-shared")), eq("u-owner")))
+                .thenReturn(List.of("ds-shared"));
+        runOpenApiTurn(orgAssistantWithDatasets("ds-owner-private", "ds-shared"));
+        assertThat(queriedDatasets).containsExactly(List.of("ds-shared"));
+    }
+
+    @Test
+    void chat_visibilityJudgedAgainstCallerRatherThanAssistantOwner() {
+        when(knowledgeBaseService.retainVisibleDatasetIds(any(), eq("u-owner")))
+                .thenReturn(List.of("ds-shared"));
+        runOpenApiTurn(orgAssistantWithDatasets("ds-owner-private", "ds-shared"));
+        // 助手属主是 u-other，判定身份必须是发起调用的应用属主 u-owner（与配额/requireRead 同一口径）
+        verify(knowledgeBaseService).retainVisibleDatasetIds(eq(List.of("ds-owner-private", "ds-shared")), eq("u-owner"));
+        verify(knowledgeBaseService, never()).retainVisibleDatasetIds(any(), eq("u-other"));
+    }
+
+    @Test
+    void chat_whenNoDatasetVisible_retrievalSkippedEntirely() {
+        when(knowledgeBaseService.retainVisibleDatasetIds(any(), eq("u-owner"))).thenReturn(List.of());
+        runOpenApiTurn(orgAssistantWithDatasets("ds-owner-private"));
+        verify(knowledgeProvider, never()).queryKnowledgeBaseWithDetail(any(), any());
+    }
+
+    @Test
+    void chat_assistantWithoutDatasets_skipsRetrieval() {
+        runOpenApiTurn(personalAssistant());
+        verify(knowledgeProvider, never()).queryKnowledgeBaseWithDetail(any(), any());
     }
 }

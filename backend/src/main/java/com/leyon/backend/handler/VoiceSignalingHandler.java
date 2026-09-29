@@ -343,7 +343,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         }
 
         // 从服务端持久化的 knowledge_ids 加载知识库关联（与通话者可见数据集求交）
-        List<String> knowledgeIds = retainVisibleKnowledgeIds(parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
+        List<String> knowledgeIds = knowledgeBaseService.retainVisibleDatasetIds(
+                parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
 
         // 初始化对话服务（使用新的抽象接口依赖；工具集按助手白名单裁剪，语音助手若需 LLM 主动挂断须保留 hangup）
         // 人设与模型参数走 AssistantPolicy 钳制后的值：一次通话可持续数分钟，超限行透传进来的开销收不回来
@@ -386,21 +387,6 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             return null;
         }
         return path.substring(lastSlashIndex + 1);
-    }
-
-    /**
-     * 收敛知识库范围：仅保留通话者可见的 RAGFlow 数据集ID（与 ChatWebSocketHandler 同一套归属语义）
-     */
-    private List<String> retainVisibleKnowledgeIds(List<String> datasetIds, String userId) {
-        if (datasetIds == null || datasetIds.isEmpty()) {
-            return new ArrayList<>();
-        }
-        List<String> retained = knowledgeBaseService.retainVisibleDatasetIds(datasetIds, userId);
-        if (retained.size() < datasetIds.size()) {
-            logger.warn("用户:{} 的助手数据集 {} 个中有 {} 个不可见，已按可见范围收敛",
-                    userId, datasetIds.size(), datasetIds.size() - retained.size());
-        }
-        return retained;
     }
 
     /**

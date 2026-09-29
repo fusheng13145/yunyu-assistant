@@ -220,7 +220,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
 
         // 从服务端持久化的 knowledge_ids 加载知识库关联（与当前用户可见数据集求交后再注入）
-        List<String> knowledgeIds = retainVisibleKnowledgeIds(
+        List<String> knowledgeIds = knowledgeBaseService.retainVisibleDatasetIds(
                 parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
 
         // 初始化聊天实例（工具集按助手白名单裁剪，白名单为空即全部可用）
@@ -427,7 +427,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 new TypeReference<List<String>>() {}
         );
         String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
-        chatService.updateDataset(retainVisibleKnowledgeIds(kbIds, userId));
+        chatService.updateDataset(knowledgeBaseService.retainVisibleDatasetIds(kbIds, userId));
     }
 
     /**
@@ -523,26 +523,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return orgService.hasRoleAtLeast(assistant.getOrgId(), userId, Org.ROLE_EDITOR);
         }
         return userId.equals(assistant.getUserId());
-    }
-
-    /**
-     * 收敛知识库范围：仅保留当前用户可见的 RAGFlow 数据集ID
-     * 助手持久化的 knowledge_ids 与客户端上报的 selectedKbIds 均可能携带他人数据集，须服务端求交
-     *
-     * @param datasetIds 候选数据集ID列表
-     * @param userId     当前用户ID
-     * @return 可见的数据集ID列表（全不可见时为空，即本轮不检索知识库）
-     */
-    private List<String> retainVisibleKnowledgeIds(List<String> datasetIds, String userId) {
-        if (datasetIds == null || datasetIds.isEmpty()) {
-            return new ArrayList<>();
-        }
-        List<String> retained = knowledgeBaseService.retainVisibleDatasetIds(datasetIds, userId);
-        if (retained.size() < datasetIds.size()) {
-            logger.warn("用户:{} 请求的数据集 {} 个中有 {} 个不可见，已按可见范围收敛",
-                    userId, datasetIds.size(), datasetIds.size() - retained.size());
-        }
-        return retained;
     }
 
     /**

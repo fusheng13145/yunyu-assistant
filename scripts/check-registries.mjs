@@ -2,7 +2,7 @@
  * 登记表与代码实况的一致性验证（v2.52 · C-117 · 候选 ㊱ 的门禁侧）。
  *
  * 这里锁的不是"文档写得好不好"，而是**文档里的每一条清单能不能被代码指向**：
- * 八组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
+ * 九组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
  * 加了新 Kind 而没登记 ⇒ 红；登记了一个代码里没有的端点 ⇒ 红；
  * 新增 `check-*.mjs` 而没进 CI ⇒ 红；配额上界出现第二份字面量 ⇒ 红。
  * 这正是 ㊱ 描述的失效形态：导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
@@ -392,6 +392,66 @@ console.log('\n[8] 配额数值边界：判据入口与关闭语义都只能有�
   const ctrlTest = read('backend/src/test/java/com/leyon/backend/controller/AdminControllerTest.java')
   check('管理端单测锁住"越界回 400 且一次库动作都不发"',
     /verify\(quotaMapper, never\(\)\)\.selectOne/.test(ctrlTest) && /verify\(quotaMapper, never\(\)\)\.insert/.test(ctrlTest))
+}
+
+console.log('\n[9] 知识库可见性求交：三条对话通道共用同一判据单点（v2.58 · C-125 · 候选 ㊷）')
+{
+  const SRC = 'backend/src/main/java/com/leyon/backend'
+  const KB_FILE = `${SRC}/service/KnowledgeBaseService.java`
+  const KB = read(KB_FILE)
+  const CHANNELS = [`${SRC}/handler/ChatWebSocketHandler.java`,
+    `${SRC}/handler/VoiceSignalingHandler.java`, `${SRC}/controller/OpenApiChatController.java`]
+  const TEST_DIR = 'backend/src/test/java/com/leyon/backend'
+
+  const defs = javaFiles('backend/src/main/java')
+    .filter(f => /List<String> retainVisibleDatasetIds\(/.test(read(f)))
+  check('求交判据恰有一处定义（两处定义＝一条通道会漏，㊷ 的成因）',
+    defs.length === 1 && defs[0] === KB_FILE, defs.join(','))
+
+  const body = KB.slice(KB.indexOf('public List<String> retainVisibleDatasetIds('),
+    KB.indexOf('public boolean canManageDataset'))
+  const shortCircuit = body.indexOf('return List.of()')
+  check('空输入短路排在查库之前（无知识库的助手不该为判定付一次查询）',
+    shortCircuit >= 0 && shortCircuit < body.indexOf('listVisibleDatasetIds'), `短路在 ${shortCircuit}`)
+  check('丢弃计数 WARN 落在判据内部（否则新通道会静默吞掉越权数据集）',
+    /logger\.warn\([^)]*不可见/s.test(body))
+  const warnLiterals = javaFiles('backend/src/main/java').filter(f =>
+    f !== KB_FILE && read(f).includes('不可见，已按可见范围收敛'))
+  check('WARN 文案不在调用方各写一份', warnLiterals.length === 0, warnLiterals.join(','))
+
+  for (const f of CHANNELS) {
+    const src = read(f)
+    check(`${basename(f)} 把数据集交给 ChatService 前先过同一判据`,
+      src.includes('knowledgeBaseService.retainVisibleDatasetIds(')
+        && !/new ChatService\([\s\S]{0,200}parseKnowledgeIds\(/.test(src))
+  }
+  const wrappers = javaFiles('backend/src/main/java').filter(f => read(f).includes('retainVisibleKnowledgeIds('))
+  check('调用方私有包装归零（包装就是"第二条通道各改各的"的入口）',
+    wrappers.length === 0, wrappers.join(','))
+  const callSites = javaFiles('backend/src/main/java')
+    .flatMap(f => Array.from(read(f).matchAll(/knowledgeBaseService\.retainVisibleDatasetIds\(/g)).map(() => f))
+  check('装配侧调用点解析到 4 处（三通道装配 + 文本 WS 的运行中改选）',
+    callSites.length === 4, `解析到 ${callSites.length}`)
+
+  // ㊷ 的三条用例名是判据的鉴别力所在：悄悄删掉任一条，本行先红而不是等下一次越权读取
+  const OPEN_TEST = read(`${TEST_DIR}/controller/OpenApiChatControllerTest.java`)
+  check('开放通道单测锁住"只有可见子集进检索"与"按调用方判定"',
+    OPEN_TEST.includes('chat_onlyVisibleDatasetsReachRetrieval')
+      && OPEN_TEST.includes('chat_visibilityJudgedAgainstCallerRatherThanAssistantOwner'))
+  const WS_TEST = read(`${TEST_DIR}/handler/ChatWebSocketHandlerTest.java`)
+  const VOICE_TEST = read(`${TEST_DIR}/handler/VoiceSignalingHandlerTest.java`)
+  check('两条内部通道的求交用例仍在（回归会以"某条通道不再收敛"的形态复活）',
+    WS_TEST.includes('selectedKbIds_areIntersectedWithVisibleDatasets')
+      && VOICE_TEST.includes('offer_dropsKnowledgeDatasetsInvisibleToCaller'))
+  const KB_TEST = read(`${TEST_DIR}/service/KnowledgeBaseServiceTest.java`)
+  const kbTests = (KB_TEST.match(/^\s+@Test/gm) ?? []).length
+  check('判据自身有单测覆盖（≥13 例：可见集 + 归属闸门 + 求交契约）', kbTests >= 13, `解析到 ${kbTests}`)
+
+  // 写入侧不做可见性校验是本批刻意保留的口径（会改变助手保存行为）；漂移要先经过这里
+  const writeSide = [`${SRC}/service/AssistantService.java`, `${SRC}/controller/AssistantController.java`]
+    .filter(f => read(f).includes('retainVisibleDatasetIds'))
+  check('助手保存侧仍不做可见性校验（要做需先立口径，不许顺手改写入行为）',
+    writeSide.length === 0, writeSide.join(','))
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)

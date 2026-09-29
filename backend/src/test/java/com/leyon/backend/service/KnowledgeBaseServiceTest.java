@@ -159,4 +159,50 @@ class KnowledgeBaseServiceTest {
             verify(knowledgeBaseMapper, never()).selectOne(any());
         }
     }
+
+    /**
+     * 对话侧收敛单点（v2.58）：三条通道（文本 WS / 语音 WS / 开放 OpenAPI）交给 ChatService 前
+     * 都只经这一个方法，因此"空输入不查库""保序""全不可见即空"三条原先写在各调用方私有包装里的
+     * 行为必须在这里成立——包装已删除，这里红等价于某条通道把别人的知识库读进提示词。
+     */
+    @Nested
+    class VisibilityIntersection {
+
+        private void visibleDatasets(String... datasetIds) {
+            when(orgService.listMyOrgs("u1")).thenReturn(List.of());
+            when(knowledgeBaseMapper.selectList(any(LambdaQueryWrapper.class)))
+                    .thenReturn(java.util.Arrays.stream(datasetIds).map(d -> kb(d, "u1", null)).toList());
+        }
+
+        @Test
+        void nullOrEmptyInput_returnsEmptyWithoutQuerying() {
+            assertThat(knowledgeBaseService.retainVisibleDatasetIds(null, "u1")).isEmpty();
+            assertThat(knowledgeBaseService.retainVisibleDatasetIds(List.of(), "u1")).isEmpty();
+
+            verify(knowledgeBaseMapper, never()).selectList(any(LambdaQueryWrapper.class));
+        }
+
+        @Test
+        void invisibleDatasets_droppedAndOrderPreserved() {
+            visibleDatasets("d1", "d3");
+
+            assertThat(knowledgeBaseService.retainVisibleDatasetIds(List.of("d3", "d9", "d1"), "u1"))
+                    .containsExactly("d3", "d1");
+        }
+
+        @Test
+        void noneVisible_returnsEmptySoTurnSkipsRetrieval() {
+            visibleDatasets("other-owner-dataset");
+
+            assertThat(knowledgeBaseService.retainVisibleDatasetIds(List.of("d1", "d2"), "u1")).isEmpty();
+        }
+
+        @Test
+        void allVisible_returnsSameSet() {
+            visibleDatasets("d1", "d2");
+
+            assertThat(knowledgeBaseService.retainVisibleDatasetIds(List.of("d1", "d2"), "u1"))
+                    .containsExactly("d1", "d2");
+        }
+    }
 }
