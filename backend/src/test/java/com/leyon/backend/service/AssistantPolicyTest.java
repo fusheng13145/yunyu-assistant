@@ -42,7 +42,10 @@ class AssistantPolicyTest {
 
         @Test
         void blankModelMeansServerDefaultAndStaysNull() {
+            // 读侧口径（v2.54 已有）：空白一律按"未指定"处理。清空动作落在库里就是空串，
+            // 读出来仍然必须走服务端默认模型，故这一条是修复后的回归锚点，不是新要求
             assertThat(policy.runtime(assistant(null, null, null, null)).model()).isNull();
+            assertThat(policy.runtime(assistant("", null, null, null)).model()).isNull();
             assertThat(policy.runtime(assistant("   ", null, null, null)).model()).isNull();
         }
 
@@ -170,6 +173,25 @@ class AssistantPolicyTest {
             assertThat(a.getTemperature()).isNull();
             assertThat(a.getMaxTokens()).isNull();
             assertThat(a.getPersonality()).isNull();
+        }
+
+        @Test
+        void keepsExplicitEmptyModelAsEmptySoPartialUpdateCanClearIt() {
+            // 候选 ㊸：前端下拉里"默认模型"那一项的值就是空串。若钳制时把它归一成 null，
+            // updateById 会跳过该列 ⇒ 用户在界面上选了"默认模型"，库里却永远留着原来的模型名
+            Assistant a = assistant("", null, null, null);
+            a.setId("a1");
+            policy.clampForStorage(a);
+            assertThat(a.getModelName()).isEmpty();
+        }
+
+        @Test
+        void normalizesWhitespaceOnlyModelToTheSameExplicitClearToken() {
+            // 空白只认一个写法：清掉就存 ""，避免库里同时存在 null / "" / "   " 三种"默认模型"
+            Assistant a = assistant("   ", null, null, null);
+            a.setId("a1");
+            policy.clampForStorage(a);
+            assertThat(a.getModelName()).isEmpty();
         }
     }
 }

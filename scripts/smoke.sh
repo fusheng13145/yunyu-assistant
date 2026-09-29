@@ -452,6 +452,33 @@ else
     skip 'PUT 侧成本参数锚点' '未创建出助手（见第 3 节）'
 fi
 
+# ---------- 3.6 助手模型清空：缺字段＝不改 / 空串＝显式清空（v2.60 · 候选 ㊸） ----------
+# MyBatis-Plus 的 updateById 跳过 null 列 ⇒ 界面选了"默认模型"却发 undefined 时，SQL 里根本没有 model_name 这一列。
+# 两条锚点互为反向：先证明空串真的能清空（改前会把 "" 归成 null ⇒ 库内仍是 deepseek-chat）；
+# 再证明"不带这一列"不会顺带清空（否则保存人设/音色就会把助手配置一起抹掉）。
+section '3.6 助手模型清空（空串＝显式清空）'
+if [ -n "$ASSISTANT_ID" ]; then
+    req PUT /api/assistants "$TOKEN" "$(json id "$ASSISTANT_ID" modelName '')"
+    api_ok 'PUT modelName="" → 接受（空串不是越界值）'
+    req GET "/api/assistants/$ASSISTANT_ID" "$TOKEN"
+    [ -z "$(jget data.modelName)" ] && ok '清空生效：模型已不是 deepseek-chat' \
+        || bad '选"默认模型"没清空库内模型' "实际 $(jget data.modelName)"
+    # 空串与 null 都必须能分辨：""＝显式清空、null＝从未指定，折成一个态就退回 ㊸
+    case "$BODY" in
+        *'"modelName":""'*) ok '读回是空串形状（不是 null／不是缺键）' ;;
+        *) bad '清空后读回不是空串' "$(printf '%s' "$BODY" | head -c 120)" ;;
+    esac
+    req PUT /api/assistants "$TOKEN" "$(json id "$ASSISTANT_ID" modelName 'deepseek-chat')"
+    api_ok 'PUT 换回清单内模型 deepseek-chat'
+    req PUT /api/assistants "$TOKEN" "$(json id "$ASSISTANT_ID" name '冒烟助手-只改名')"
+    api_ok 'PUT 只改名（请求体不带 modelName）'
+    req GET "/api/assistants/$ASSISTANT_ID" "$TOKEN"
+    [ "$(jget data.modelName)" = 'deepseek-chat' ] && ok '只改名的 PUT 未清空库内模型' \
+        || bad '只改名把模型一起清了（缺字段被当成清空）' "实际 $(jget data.modelName)"
+else
+    skip '助手模型清空锚点' '未创建出助手（见第 3 节）'
+fi
+
 # ---------- 4. 会话与历史 ----------
 section '4. 会话与消息'
 if [ -n "$ASSISTANT_ID" ]; then

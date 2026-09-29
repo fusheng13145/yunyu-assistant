@@ -190,5 +190,19 @@ class AssistantServiceTest {
             assertThat(a.getTemperature()).isNull();
             assertThat(a.getMaxTokens()).isNull();
         }
+
+        @Test
+        void update_forwardsExplicitEmptyModelToTheMapper() {
+            // 候选 ㊸ 的服务层一侧：MP 的 updateById 只写非 null 列，所以"选了默认模型"必须是 "" 送到 mapper；
+            // 这一层被归成 null，SQL 里就没有 model_name 这一列，清空永远不会发生
+            Assistant a = new Assistant();
+            a.setId("a1");
+            a.setModelName("");
+            when(assistantMapper.updateById(a)).thenReturn(1);
+
+            assertThat(assistantService.update(a)).isTrue();
+            assertThat(a.getModelName()).isEmpty();
+            verify(assistantMapper).updateById(a);
+        }
     }
 }

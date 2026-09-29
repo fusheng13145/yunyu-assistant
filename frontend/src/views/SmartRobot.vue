@@ -1394,9 +1394,9 @@ const addAssistant = async () => {
     return
   }
   try {
+    // 整份表单直发：modelName 为空串时必须带过去，服务端才认得出"显式选默认模型"（把它折成 undefined 就等于"没这一列"）
     await createAssistant({
       ...formData.value,
-      modelName: formData.value.modelName || undefined,
     })
     // 新助手排在列表最前，跳回第一页刷新
     assistantPage.value = 1
@@ -1542,7 +1542,8 @@ const saveModelParams = async () => {
       description: bot.description,
       personality: bot.personality,
       voice: bot.voice,
-      modelName: settingsModelName.value || undefined,
+      // 空串要原样发出去：服务端把"缺字段"当不改、把空串当显式清空，折成 undefined 就永远清不掉模型
+      modelName: settingsModelName.value,
       temperature: settingsTemperature.value,
       maxTokens: settingsMaxTokens.value,
       knowledgeIds: normalizeKnowledgeIds(bot.knowledgeIds),

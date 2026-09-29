@@ -111,16 +111,31 @@ public class AssistantPolicy {
 
     /**
      * 落库前钳制：就地把实体字段改到边界内，保证库里不可能存在超限值（含 WS 收尾自动回写人设那条路径）
+     * <p>
+     * {@code modelName} 有三个状态，不能压成两个：{@code null}＝请求没带这一列（MyBatis-Plus 的
+     * {@code updateById} 跳过 null，"只改名字"的 PUT 才不会顺带改写模型）；空白＝用户显式选了"默认模型"，
+     * 归一成 {@code ""} 让它真的落库；其余＝按 {@link #runtime(Assistant)} 的钳制值。缺了这一态，界面上的
+     * "默认模型"永远点不动（候选 ㊸）。
      */
     public void clampForStorage(Assistant assistant) {
         if (assistant == null) {
             return;
         }
         Runtime rt = runtime(assistant);
-        assistant.setModelName(rt.model());
+        assistant.setModelName(clampModelForStorage(assistant.getModelName(), rt.model()));
         assistant.setTemperature(rt.temperature());
         assistant.setMaxTokens(rt.maxTokens());
         assistant.setPersonality(rt.personality());
+    }
+
+    private String clampModelForStorage(String raw, String clamped) {
+        if (raw == null) {
+            return null;
+        }
+        if (!StringUtils.hasText(raw)) {
+            return "";
+        }
+        return clamped;
     }
 
     private Double clampTemperature(Double temperature) {

@@ -128,6 +128,23 @@ class AssistantControllerTest {
     }
 
     @Test
+    void updateAcceptsExplicitEmptyModelAndHandsItThroughToTheWrite() {
+        when(assistantService.getById("a1")).thenReturn(ownedAssistant());
+        when(assistantService.update(any(Assistant.class))).thenReturn(true);
+
+        Assistant body = new Assistant();
+        body.setId("a1");
+        body.setModelName("");
+
+        // 候选 ㊸：选"默认模型"发的是空串。写侧闸门若把它当越界值拒掉，界面就只剩"能改不能清"
+        ApiResponse<Void> response = controller.update(body, request);
+
+        assertThat(response.getCode()).isEqualTo(200);
+        verify(assistantService).update(body);
+        assertThat(body.getModelName()).isEmpty();
+    }
+
+    @Test
     void updateDoesNotWriteForNonOwner() {
         Assistant other = ownedAssistant();
         other.setUserId("u-other");

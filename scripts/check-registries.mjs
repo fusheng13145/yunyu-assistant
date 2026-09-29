@@ -2,7 +2,7 @@
  * 登记表与代码实况的一致性验证（v2.52 · C-117 · 候选 ㊱ 的门禁侧）。
  *
  * 这里锁的不是"文档写得好不好"，而是**文档里的每一条清单能不能被代码指向**：
- * 十组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
+ * 十一组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
  * 加了新 Kind 而没登记 ⇒ 红；登记了一个代码里没有的端点 ⇒ 红；
  * 新增 `check-*.mjs` 而没进 CI ⇒ 红；配额上界出现第二份字面量 ⇒ 红。
  * 这正是 ㊱ 描述的失效形态：导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
@@ -538,6 +538,84 @@ console.log('\n[10] 通话时长配额：发起前与回合边界共用同一判
     wallClock.length === 0, wallClock.join(','))
   check('语音处理器没有为时长新增定时器（方案 A 明确只在回合边界判）',
     !/ScheduledExecutorService|new Timer|scheduleAtFixedRate/.test(VOICE))
+}
+
+console.log('\n[11] 助手模型的三态：没带＝不改、空串＝清空、值＝换成它（v2.60 · C-127 · 候选 ㊸）')
+{
+  const SRC = 'backend/src/main/java/com/leyon/backend'
+  const POLICY_FILE = `${SRC}/service/AssistantPolicy.java`
+  const POLICY = read(POLICY_FILE)
+  const ROBOT = read('frontend/src/views/SmartRobot.vue')
+  const SMOKE = read('scripts/smoke.sh')
+  const TEST_DIR = 'backend/src/test/java/com/leyon/backend'
+
+  // 为什么值得立门禁：MyBatis-Plus 的 updateById 跳过 null 列，所以"清空"必须有第三种值；
+  // 而这一态一旦在链路任何一处被折成 null（后端归一、前端 undefined），失效形态是"点了没反应"而不是报错。
+  const defs = javaFiles('backend/src/main/java')
+    .filter(f => /private String clampModelForStorage\(/.test(read(f)))
+  check('三态判据恰一处定义（两处＝写侧会给出两种"清空"）',
+    defs.length === 1 && defs[0] === POLICY_FILE, defs.join(','))
+  const setters = javaFiles('backend/src/main/java').filter(f => /\.setModelName\(/.test(read(f)))
+  check('落库侧只有 AssistantPolicy 写 modelName 这一列（别处写就等于绕过三态）',
+    setters.length === 1 && setters[0] === POLICY_FILE, setters.join(','))
+
+  const mStart = POLICY.indexOf('private String clampModelForStorage(')
+  // 必须按方法体取界：扫到文件尾会让别处的 `return null;` 冒充"缺字段那一态还在"（M4 变异当场抓到的形状）
+  const body = POLICY.slice(mStart, POLICY.indexOf('\n    }', mStart))
+  check('三态各有出口：null 保留（不动列）、空白归一为 ""（显式清空）、其余用钳制值',
+    mStart >= 0 && body.includes('return null;') && body.includes('return "";') && body.includes('return clamped;'))
+  check('落库侧仍复用 runtime() 的钳制值，不另算一份模型合法性',
+    POLICY.includes('clampModelForStorage(assistant.getModelName(), rt.model())'))
+  const clampBody = POLICY.slice(POLICY.indexOf('public void clampForStorage'),
+    POLICY.indexOf('private String clampModelForStorage'))
+  check('clampForStorage 里 temperature/maxTokens/personality 三列仍直取钳制值（本批改的只有 model）',
+    clampBody.includes('assistant.setTemperature(rt.temperature());')
+      && clampBody.includes('assistant.setMaxTokens(rt.maxTokens());')
+      && clampBody.includes('assistant.setPersonality(rt.personality());'))
+
+  const PT = read(`${TEST_DIR}/service/AssistantPolicyTest.java`)
+  const ST = read(`${TEST_DIR}/service/AssistantServiceTest.java`)
+  const CT = read(`${TEST_DIR}/controller/AssistantControllerTest.java`)
+  const ANCHORS = [
+    ['keepsExplicitEmptyModelAsEmptySoPartialUpdateCanClearIt', PT],
+    ['normalizesWhitespaceOnlyModelToTheSameExplicitClearToken', PT],
+    ['update_forwardsExplicitEmptyModelToTheMapper', ST],
+    ['updateAcceptsExplicitEmptyModelAndHandsItThroughToTheWrite', CT]]
+  const missing = ANCHORS.filter(([n, src]) => !src.includes(n)).map(([n]) => n)
+  check('四条正向用例都在（少一条，对应方向的回归就能悄悄复活）',
+    missing.length === 0, missing.join(','))
+  // 反向锚点：三态的另一半是"没带这一列不许动它"，被改成"永远写空串"时清空会顺带毁掉配置
+  check('两条"缺字段仍保持 null"的反向用例仍在（policy 层 + service 层各一条）',
+    PT.includes('keepsUnsetFieldsUnsetSoPartialUpdateStillSkipsThem')
+      && ST.includes('update_keepsUnsetModelFieldsNullSoPartialUpdateStillSkipsThem'))
+  check('读侧锚点锁住 ""（库里存的就是空串，读出来必须仍走服务端默认）',
+    PT.includes('policy.runtime(assistant("", null, null, null)).model()).isNull()'))
+
+  // 前端两个提交点是这条链路的起点：折成 undefined 就等于"没带这一列"，后端再怎么改也收不到清空
+  check('两处提交都不再把 modelName 折成 undefined',
+    !/modelName:[^\n]*\|\|\s*undefined/.test(ROBOT), (ROBOT.match(/modelName:[^\n]*\|\| undefined/g) ?? []).join(' | '))
+  check('保存模型参数那一处确实把空串发出去（settingsModelName 直填）',
+    ROBOT.includes('modelName: settingsModelName.value,'))
+  const putBlocks = ROBOT.split('updateAssistant({').slice(1).map(s => s.slice(0, s.indexOf('})')))
+  const withModel = putBlocks.filter(b => b.includes('modelName:'))
+  check('五处 PUT 里只有"保存模型参数"带 modelName（其余四处带上＝保存音色/工具顺手清空模型）',
+    putBlocks.length === 5 && withModel.length === 1, `${putBlocks.length} 处 / 带列 ${withModel.length} 处`)
+  const createBlock = ROBOT.slice(ROBOT.indexOf('await createAssistant({'))
+  check('创建侧整份表单直发（不再逐字段挑）', createBlock.slice(0, 120).includes('...formData.value,'))
+
+  const region36 = SMOKE.slice(SMOKE.indexOf("section '3.6"), SMOKE.indexOf("section '4. 会话与消息'"))
+  check('§3.6 区段在位（区段号是冒烟报数口径的一部分）',
+    SMOKE.includes("section '3.6 助手模型清空（空串＝显式清空）'"))
+  check('§3.6 的正反两条真机锚点都在：空串能清空、只改名不清空',
+    region36.includes('清空生效：模型已不是 deepseek-chat')
+      && region36.includes('只改名的 PUT 未清空库内模型'))
+  check('§3.6 分辨 "" 与 null（折成一态就退回 ㊸，光看 jget 的空串读数看不出来）',
+    region36.includes('"modelName":""'))
+  // 计的是"请求次数"而不是带引号的变量名：三次 PUT（清空/换回/只改名）+ 两次按 ID 读回
+  const reuse = (region36.match(/\$ASSISTANT_ID/g) ?? []).length
+  check('§3.6 全部围绕同一个已建助手读写（不新建行、不占助手配额，重复跑结论才稳定）',
+    !region36.includes('POST /api/assistants') && reuse >= 5,
+    `引用 ${reuse} 次`)
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)
