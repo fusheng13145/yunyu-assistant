@@ -415,7 +415,9 @@ public class RagflowProxyController {
 
     /**
      * 返回 RAGFlow endpoint 配置信息（不含 apiKey）
-     * 前端通过此接口获取 RAGFlow 服务地址，用于 WebSocket 等直连场景
+     * <p>
+     * 消费者是冒烟探针与运维（{@code smoke.sh} 用它判"知识库是否接入"），不是前端页面：
+     * 前端那份 {@code RagflowApi.getConfig()} 全仓零调用，已随 v2.68 · C-135 删除
      */
     @GetMapping("/config")
     public ApiResponse<Map<String, String>> getConfig() {

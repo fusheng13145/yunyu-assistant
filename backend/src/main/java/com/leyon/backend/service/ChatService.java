@@ -526,8 +526,8 @@ public class ChatService {
             } else if (Record.ROLE_ASSISTANT == record.getRole()) {
                 conversationHistory.add(new AssistantMessage(record.getMessage()));
             } else {
-                conversationHistory.add(new ToolResponseMessage(List.of(
-                        new ToolResponseMessage.ToolResponse("", "", record.getMessage()))));
+                // 写入侧只产生 role 0/1；未知角色折成 ToolResponseMessage 会往请求里塞一条对不上任何 tool_call 的悬空回执
+                log.warn("会话历史存在未知角色，跳过注入上下文，recordId:{}，role:{}", record.getId(), record.getRole());
             }
         }
     }

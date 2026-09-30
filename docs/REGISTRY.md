@@ -105,7 +105,7 @@
 | 单向 | yaml 的每一个 `app.*` 叶键必须出现在 IDE 元数据 `additional-spring-configuration-metadata.json` |
 
 新增环境变量的完整改动面（少一处就会有"能配但读不到"或"读得到但没人知道"）：
-`application.yaml` 默认值 → `.env.example` → 元数据 json → 手册 5.3 表 → README 配置表 → 若影响行为再改手册 2.x/6.x。
+`application.yaml` 默认值 → `.env.example` → 元数据 json（**仅 `app.*` 叶键**；`spring.*` 由 Boot 自带元数据，门禁也不查它）→ 手册 5.3 表 → README 配置表 → 若影响行为再改手册 2.x/6.x。
 
 ## 6. 门禁与脚本台账
 

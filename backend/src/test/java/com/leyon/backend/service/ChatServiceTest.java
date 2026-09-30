@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.entity.Record;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
@@ -20,6 +21,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -141,6 +143,41 @@ class ChatServiceTest {
         StepVerifier.create(chatService.chatStream("新问题")).expectNextCount(2).verifyComplete();
         // 落库记录仅包含本轮新消息（历史不重复落库）
         assertThat(chatService.drainPendingRecords()).hasSize(2);
+    }
+
+    /**
+     * v2.68 · C-135：写入侧只产生 role 0/1，所以旧实现的 else 分支把"其它 role"折成
+     * {@code ToolResponseMessage(id="", name="")} 注入上下文——那是一条对不上任何 tool_call 的悬空工具回执。
+     */
+    @Test
+    void loadChatHistory_unknownRoleIsNotInjectedAsToolResponse() {
+        Record toolCallRow = new Record();
+        toolCallRow.setId("rec_role2");
+        toolCallRow.setRole(Record.ROLE_TOOL_CALL);
+        toolCallRow.setMessage("伪造的工具调用行");
+        Record dirtyRow = new Record();
+        dirtyRow.setId("rec_role9");
+        dirtyRow.setRole(9);
+        dirtyRow.setMessage("库里手工塞进来的脏行");
+        Record userRow = new Record();
+        userRow.setId("rec_role0");
+        userRow.setRole(Record.ROLE_USER);
+        userRow.setMessage("正常历史问题");
+
+        chatService.loadChatHistory(List.of(toolCallRow, dirtyRow, userRow));
+
+        Generation gen = new Generation(new AssistantMessage("结合历史回答"));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(new ChatResponse(List.of(gen))));
+        StepVerifier.create(chatService.chatStream("新问题")).thenConsumeWhile(x -> true).verifyComplete();
+
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(modelAdapter).stream(captor.capture());
+        List<Message> instructions = captor.getValue().getInstructions();
+        assertThat(instructions).noneMatch(m -> m instanceof ToolResponseMessage);
+        assertThat(instructions).noneMatch(m -> "伪造的工具调用行".equals(m.getText())
+                || "库里手工塞进来的脏行".equals(m.getText()));
+        // 反向锚点：已知 role 照常注入，否则这条判据会被"全都不注入"的写法蒙过
+        assertThat(instructions).anyMatch(m -> "正常历史问题".equals(m.getText()));
     }
 
     // ===================== 知识库检索失败必须与"无命中"可辨（v2.39） =====================

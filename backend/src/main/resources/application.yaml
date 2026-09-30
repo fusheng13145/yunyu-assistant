@@ -55,7 +55,7 @@ spring:
         options:
           model: ${AI_MODEL:deepseek-chat}
           temperature: ${AI_TEMPERATURE:0.7}
-          max-tokens: 2048
+          max-tokens: ${AI_MAX_TOKENS:2048}
 
 # MyBatis-Plus 配置
 mybatis-plus:
@@ -129,7 +129,8 @@ app:
     dir: ${RECORDING_DIR:./data/recordings}
   # 数据归档（P2-9）：管理端手动触发 + 可选定时任务（默认关闭）
   archive:
-    # 定时归档开关，默认关闭；开启后按 cron 自动执行（单实例调度，跨实例防重未做）
+    # 定时归档开关，默认关闭；开启后按 cron 自动执行
+    # 跨实例防重已做（v2.19）：Redis 启用时用带 TTL 的 SETNX 锁，未启用/异常时降级进程内锁（见 ArchiveLockService）
     schedule-enabled: ${ARCHIVE_SCHEDULE_ENABLED:false}
     # 每日凌晨 3 点执行
     cron: ${ARCHIVE_CRON:0 0 3 * * ?}

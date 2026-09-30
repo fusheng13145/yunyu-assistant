@@ -27,6 +27,8 @@
 #                      未提供但有管理员凭据时，脚本会自己调 /api/admin/invite-codes 发一个并用掉
 #   SMOKE_ORIGIN    正式部署的站点来源（如 https://yunyu.example.com）；用于校验 WS 跨域白名单
 #   SMOKE_MODEL     创建助手使用的模型 id，默认 qwen-turbo
+#   SMOKE_HISTORY_SESSION_ID  该账号名下**已有消息**的会话 id；提供时 §4.5 才跑历史响应形状断言。
+#                      留空时该节整段 SKIP——本轮自建的会话是空的，对空响应断言"没有 toolName 键"必绿而无意义
 #   KEEP=1          保留本次创建的助手与会话
 #   TIMEOUT         单请求超时秒数，默认 10
 #
@@ -348,6 +350,11 @@ if api_ok 'GET /api/auth/me'; then
     printf '%s' "$BODY" | grep -qF '"password"' \
         && bad 'me 仍带 password 键（实体级抑制未生效）' "$(printf '%s' "$BODY" | head -c 120)" \
         || ok 'me 响应体无 password 键（抑制在实体上，不靠出口手写）'
+    # isDeleted 与 password 同属"形状"而非"值"：逻辑删除位是内部状态，一旦外发前端类型就会长出
+    # 一个没人读的字段（v2.68 · C-135）。自 v2.48 起的判据形态一样是"键不存在"
+    printf '%s' "$BODY" | grep -qF '"isDeleted"' \
+        && bad 'me 仍带 isDeleted 键（逻辑删除位外发）' "$(printf '%s' "$BODY" | head -c 160)" \
+        || ok 'me 响应体无 isDeleted 键'
 fi
 
 if [ -n "$REFRESH_TOKEN" ]; then
@@ -504,6 +511,28 @@ if [ -n "$SESSION_ID" ]; then
     else req DELETE "/api/sessions/$SESSION_ID" "$TOKEN"; api_ok 'DELETE /api/sessions/{id}'; fi
 else
     skip '会话读写链路' '未创建出会话'
+fi
+
+# ---------- 4.5 历史响应的形状（v2.68 · C-135；只读，且只在真有历史消息时执行） ----------
+section '4.5 历史响应形状（只读）'
+if [ -n "${SMOKE_HISTORY_SESSION_ID:-}" ]; then
+    req GET "/api/sessions/$SMOKE_HISTORY_SESSION_ID/messages?page=1&pageSize=10" "$TOKEN"
+    if api_ok 'GET /api/sessions/{id}/messages（SMOKE_HISTORY_SESSION_ID 指定的会话）'; then
+        HISTORY_TOTAL="$(jget data.total)"
+        if [ "$HISTORY_TOTAL" = "0" ]; then
+            skip '历史响应的 tool*/isDeleted 键形状' '该会话 0 条消息——对空响应断言"没有某键"必绿而无意义，请指一个真聊过天的会话'
+        else
+            for withheld in '"toolName"' '"toolArgs"' '"toolResult"' '"isDeleted"'; do
+                if printf '%s' "$BODY" | grep -qF "$withheld"; then
+                    bad "历史响应仍带 $withheld 键（零写入列/内部状态外发）" "$(printf '%s' "$BODY" | head -c 160)"
+                else
+                    ok "历史响应（共 $HISTORY_TOTAL 条）无 $withheld 键"
+                fi
+            done
+        fi
+    fi
+else
+    skip '历史响应形状' '未提供 SMOKE_HISTORY_SESSION_ID（本轮自建的会话是空的，空响应跑这条判据等于没跑）'
 fi
 
 # ---------- 5. 字典 / 配额 / 统计 ----------
@@ -1020,6 +1049,10 @@ if [ -n "${SMOKE_ADMIN_USER:-}" ]; then
         printf '%s' "$BODY" | grep -qF '"password"' \
             && bad '用户列表仍带 password 键（实体级抑制未生效）' "$(printf '%s' "$BODY" | head -c 120)" \
             || ok '用户列表整页响应体无 password 键'
+        # 这一页一次扫出多行，是 §2 单行形状断言的加强版（v2.68 · C-135）
+        printf '%s' "$BODY" | grep -qF '"isDeleted"' \
+            && bad '用户列表仍带 isDeleted 键（逻辑删除位外发）' "$(printf '%s' "$BODY" | head -c 160)" \
+            || ok '用户列表整页响应体无 isDeleted 键'
         # 未使用的邀请码等同"一个可注册的凭据"，台账必须在管理端鉴权之后才可见
         req GET '/api/admin/invite-codes?page=1&pageSize=1'
         want_status '无令牌读邀请码台账 → 401（未使用的码不对外可枚举）' 401 401

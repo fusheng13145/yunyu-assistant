@@ -114,7 +114,10 @@ public class AdminController {
     }
 
     /**
-     * 用户列表（分页 + 关键词搜索用户名/昵称）
+     * 用户列表（分页 + 按用户名搜索）
+     * <p>
+     * 刻意不按昵称搜：{@code users.nickname} 全仓零写入路径（注册写不到、也没有资料编辑口），
+     * 只有演示种子行有值 ⇒ 生产库里按昵称搜永远回零结果，而"零结果"与"查无此人"逐字同形（v2.68 · C-135）
      */
     @GetMapping("/users")
     public ApiResponse<Map<String, Object>> users(
@@ -128,9 +131,7 @@ public class AdminController {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<User>()
                 .orderByDesc(User::getCreatedAt);
         if (StringUtils.hasText(keyword)) {
-            String kw = keyword.trim();
-            wrapper.and(w -> w.like(User::getUsername, kw)
-                    .or().like(User::getNickname, kw));
+            wrapper.like(User::getUsername, keyword.trim());
         }
         // 列表用克隆副本追加分页，避免 LIMIT 污染 count 查询
         // 密码不外发由 User 实体注解负责，此处不改写查出来的行（v2.48 · C-107）

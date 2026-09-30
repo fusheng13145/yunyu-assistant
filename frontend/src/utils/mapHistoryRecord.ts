@@ -10,7 +10,6 @@ import type { ChatRecordMessage } from '../api/session'
 export function mapHistoryRecord(r: ChatRecordMessage): DisplayMessage | null {
   if (r.role === 0) return { role: 'user', text: r.message }
   if (r.role === 1) return { role: 'assistant', text: r.message, costTime: r.costTime, knowledgebase: r.knowledgebase }
-  if (r.role === 2) return { role: 'tool_call', toolName: r.toolName, text: r.toolArgs || r.message }
-  if (r.role === 3) return { role: 'tool_result', toolName: r.toolName, toolResult: r.toolResult || r.message, text: r.toolResult || r.message }
+  // 落库侧只产生 role 0/1（工具轨迹是否入库是产品决定，登记在手册 7.4 候选 S-19），这里不再预留 2/3 分支
   return null
 }

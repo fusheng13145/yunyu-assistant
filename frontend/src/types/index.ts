@@ -92,11 +92,6 @@ export interface KnowledgeBase {
   tokenCount?: number
 }
 
-export interface RAGFlowConfig {
-  endpoint: string
-  apiKey: string
-}
-
 export interface VoiceInfo {
   id: string
   name: string
@@ -201,10 +196,11 @@ export interface AuthResponse {
 export interface User {
   id: string
   username: string
-  nickname: string
-  avatar: string
-  email: string
-  phone: string
+  /** 这四列产品里没有任何写入路径，只有演示种子行有值（v2.68 · C-135，见手册 7.4 候选 S-20） */
+  nickname: string | null
+  avatar: string | null
+  email: string | null
+  phone: string | null
   role?: string
   createdAt: string
   updatedAt: string

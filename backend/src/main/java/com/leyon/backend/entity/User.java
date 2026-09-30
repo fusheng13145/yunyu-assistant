@@ -203,6 +203,7 @@ public class User {
         this.updatedAt = updatedAt;
     }
 
+    @JsonIgnore
     public Integer getIsDeleted() {
         return isDeleted;
     }

@@ -218,6 +218,7 @@ public class ApiApp {
         this.updatedAt = updatedAt;
     }
 
+    @JsonIgnore
     public Integer getIsDeleted() {
         return isDeleted;
     }

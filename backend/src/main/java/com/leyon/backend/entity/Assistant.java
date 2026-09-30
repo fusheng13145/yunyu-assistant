@@ -302,6 +302,7 @@ public class Assistant {
         this.updatedAt = updatedAt;
     }
 
+    @JsonIgnore
     public Integer getIsDeleted() {
         return isDeleted;
     }

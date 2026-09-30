@@ -175,6 +175,13 @@ public class Record {
         this.message = message;
     }
 
+    /**
+     * 外发抑制（v2.68 · C-135）：这三列全仓零写入点，实测 {@code records} 与 {@code records_archive}
+     * 里非空行数均为 0，外发出去就是每条历史消息带三个 {@code null}——前端曾按它们渲染"历史里的工具卡片"，
+     * 那份渲染永远走不到。列保留（工具轨迹落库是候选能力，见手册 7.4），但对外不再承诺。
+     * MyBatis 与归档 SQL 走 Java getter，不受 {@code @JsonIgnore} 影响。
+     */
+    @JsonIgnore
     public String getToolName() {
         return toolName;
     }
@@ -183,6 +190,7 @@ public class Record {
         this.toolName = toolName;
     }
 
+    @JsonIgnore
     public String getToolArgs() {
         return toolArgs;
     }
@@ -191,6 +199,7 @@ public class Record {
         this.toolArgs = toolArgs;
     }
 
+    @JsonIgnore
     public String getToolResult() {
         return toolResult;
     }
@@ -263,6 +272,7 @@ public class Record {
         this.createdAt = createdAt;
     }
 
+    @JsonIgnore
     public Integer getIsDeleted() {
         return isDeleted;
     }

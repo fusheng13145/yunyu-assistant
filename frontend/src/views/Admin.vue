@@ -140,7 +140,7 @@
             <input
               v-model="userKeyword"
               type="text"
-              placeholder="搜索用户名 / 昵称"
+              placeholder="搜索用户名"
               class="geek-input w-full max-w-xs px-3 py-1.5 rounded-md text-sm"
               @keyup.enter="onSearchUser"
             />
@@ -149,17 +149,13 @@
             <thead>
               <tr class="border-b geek-divider" style="background: var(--geek-bg-subtle)">
                 <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">用户名</th>
-                <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">昵称</th>
                 <th class="text-center px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">角色</th>
-                <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">邮箱</th>
-                <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">手机号</th>
                 <th class="text-left px-4 py-2.5 font-medium" style="color: var(--geek-text-secondary)">注册时间</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="u in users" :key="u.id" class="border-b geek-divider">
                 <td class="px-4 py-2.5 font-medium" style="color: var(--geek-text)">{{ u.username }}</td>
-                <td class="px-4 py-2.5" style="color: var(--geek-text-secondary)">{{ u.nickname || '-' }}</td>
                 <td class="px-4 py-2.5 text-center">
                   <span
                     class="text-xs px-1.5 py-0.5 rounded-sm" :style="u.role === 'admin'
@@ -169,12 +165,10 @@
                     {{ u.role === 'admin' ? '管理员' : '用户' }}
                   </span>
                 </td>
-                <td class="px-4 py-2.5 text-xs" style="color: var(--geek-text-muted)">{{ u.email || '-' }}</td>
-                <td class="px-4 py-2.5 text-xs" style="color: var(--geek-text-muted)">{{ u.phone || '-' }}</td>
                 <td class="px-4 py-2.5 text-xs" style="color: var(--geek-text-muted)">{{ formatTime(u.createdAt) }}</td>
               </tr>
               <tr v-if="users.length === 0">
-                <td colspan="6" class="px-4 py-10 text-center text-sm" style="color: var(--geek-text-muted)">暂无用户</td>
+                <td colspan="3" class="px-4 py-10 text-center text-sm" style="color: var(--geek-text-muted)">暂无用户</td>
               </tr>
             </tbody>
           </table>
@@ -280,7 +274,7 @@
                   class="geek-input w-full px-3 py-1.5 rounded-md text-sm"
                 >
                   <option value="">请选择用户</option>
-                  <option v-for="u in quotaUserOptions" :key="u.id" :value="u.id">{{ u.username }}{{ u.nickname ? `（${u.nickname}）` : '' }}</option>
+                  <option v-for="u in quotaUserOptions" :key="u.id" :value="u.id">{{ u.username }}</option>
                 </select>
                 <input
                   v-else
@@ -608,7 +602,7 @@ const onSaveQuota = async () => {
 const scopeLabel = (q: AdminQuota) => {
   if (q.scopeType === 'user') {
     const matched = quotaUserOptions.value.find(u => u.id === q.scopeId)
-    if (matched) return `${matched.username}（${matched.nickname || '无昵称'}）`
+    if (matched) return matched.username
   }
   return `${q.scopeId.slice(0, 8)}…`
 }

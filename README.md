@@ -130,7 +130,7 @@ npm run dev
 | `JWT_SECRET` / `JWT_EXPIRATION` | JWT 签名与有效期（Secret 必需，≥32 字节；无默认 ⇒ 缺失即启动失败）。access 默认 **15 分钟**（v2.42 由 24 小时收紧，靠前端临期续期承接；调大前先看手册 5.3 与 `check-auth-session.mjs` 第 10 组） |
 | `REGISTRATION_MODE` | **（v2.37）** 注册闸门：`invite`（**默认**，注册必须带一个未使用的一次性邀请码）/ `open`（放开）。判定**只认显式 `open`**，写错值一律按 `invite`；前端注册页由 `GET /api/auth/register-config` 探测，不随前端发版变化。⚠️ `invite` 下第一个管理员会陷入"注册要码、发码要管理员"，先按手册 5.10④ 用 SQL 放第一个码 |
 | `OPENAI_API_KEY` | LLM Key（**必需，v2.29 起无占位默认**：缺失或空串即启动失败） |
-| `OPENAI_BASE_URL` / `AI_MODEL` / `AI_TEMPERATURE` | LLM endpoint 与默认模型（endpoint 默认 OpenAI 官方地址、模型默认 `deepseek-chat`，**两者不同源**：换服务商时要一起改）。⚠️ `OPENAI_BASE_URL` **只填主机根**（如 `https://platform.deepseek.com`），不要带 `/v1`——出站路径由 Spring AI 默认补齐 `/v1/chat/completions`，带上会合成 `/v1/v1/...` 导致每次对话都失败；启动时 `ModelBaseUrlGuard` 会把合成后的真实地址打进日志并在误配时告警 |
+| `OPENAI_BASE_URL` / `AI_MODEL` / `AI_TEMPERATURE` / `AI_MAX_TOKENS` | LLM endpoint 与默认模型（endpoint 默认 OpenAI 官方地址、模型默认 `deepseek-chat`，**两者不同源**：换服务商时要一起改）。⚠️ `OPENAI_BASE_URL` **只填主机根**（如 `https://platform.deepseek.com`），不要带 `/v1`——出站路径由 Spring AI 默认补齐 `/v1/chat/completions`，带上会合成 `/v1/v1/...` 导致每次对话都失败；启动时 `ModelBaseUrlGuard` 会把合成后的真实地址打进日志并在误配时告警。`AI_MAX_TOKENS`（**v2.68 提为变量**，默认 2048）只在助手未设 `maxTokens` 时兜底；助手给了正整数就用助手自己的值，该值写入时钳制到 `AssistantPolicy.MAX_OUTPUT_TOKENS=8192` |
 | `RAGFLOW_API_KEY` / `RAGFLOW_ENDPOINT` | RAGFlow 知识库服务（可选；未配置或密钥失效时**对话不报错**，但本轮检索判为失败：后端记 WARN、`query_end.knowledgebase.failed=true`，v2.39；该状态自 v2.41 起随回复落库，故刷新页面与翻历史同样可辨） |
 | `RUSTPBX_ENDPOINT` / `RUSTPBX_SILENCE_TIMEOUT` / `RUSTPBX_BREAK_ON_VAD` | 语音网关（可选，未配置时语音通话建立失败） |
 | `SEARCH_API_KEY` / `SEARCH_ENDPOINT` | 联网搜索工具（二者缺一则 `web_search` 不注册） |

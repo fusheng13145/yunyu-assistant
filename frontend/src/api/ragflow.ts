@@ -67,17 +67,6 @@ async function proxyFetch<T>(url: string, options: RequestInit = {}): Promise<T>
 }
 
 export class RagflowApi {
-  /**
-   * 获取 RAGFlow 配置信息（仅 endpoint，不含 apiKey）
-   * 用于获取服务地址等非敏感配置
-   */
-  static async getConfig(): Promise<{ endpoint: string }> {
-    const response = await authFetch(`${PROXY_BASE}/config`)
-    if (!response.ok) throw new RagflowApiError(`获取配置失败: ${response.status}`)
-    const result = await response.json()
-    return result.data as { endpoint: string }
-  }
-
   /** 获取数据集列表 */
   static async getDatasets(page = 1, pageSize = 100): Promise<KnowledgeBase[]> {
     const result = await proxyFetch<RAGFlowDataset[] | RAGFlowPaginatedData>(

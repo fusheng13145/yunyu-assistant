@@ -32,9 +32,6 @@ export interface ChatRecordMessage {
   id: string
   role: number
   message: string
-  toolName?: string
-  toolArgs?: string
-  toolResult?: string
   costTime?: number
   createdAt?: string
   /** 本轮检索状态（后端 v2.41 起落库；NULL=该会话未挂知识库，故可整段缺失） */
