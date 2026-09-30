@@ -512,6 +512,38 @@ for p in /api/models /api/voices /api/tools /api/orgs /api/openapi/apps /api/cal
     req GET "$p" "$TOKEN"
     api_ok "GET $p" || true
 done
+
+# v2.67 S-12 收口：用量统计的对外数字口径改了（只计已结算、消息数取自 records、并读归档表、可按组织）。
+# 冒烟不自造通话行，所以这里只钉**形状、窗口与授权边界**：数值口径由 UsageStatsServiceTest 与
+# 一次性真机差分背书，本节的职责是"端点别再悄悄回到旧形状、越权请求别再返回一份零用量报告"。
+req GET '/api/stats/usage?range=day' "$TOKEN"
+if api_ok 'GET /api/stats/usage?range=day（新口径的响应形状）'; then
+    for k in range since scope callCount totalDurationSec messageCount archivedCalls excludedCalls days; do
+        [ -n "$(jget "data.$k")" ] && ok "usage 含 $k" || bad "usage 缺少 $k" "$(detail)"
+    done
+    for k in failed ongoing undated unknown outsideWindow; do
+        [ -n "$(jget "data.excludedCalls.$k")" ] && ok "usage 点名未计入的 $k" || bad "usage excludedCalls 缺少 $k" "$(detail)"
+    done
+    [ "$(jget data.scope)" = "self" ] && ok 'usage 默认作用域是 self' || bad 'usage 默认作用域异常' "实际 $(jget data.scope)"
+    # 旧实现在这里外发一个恒为 null 的 orgId；摘掉它才能区分"没请求组织"与"请求了但读不到"
+    [ -z "$(jget data.orgId)" ] && ok 'self 作用域不回显 orgId' || bad 'self 作用域仍外发 orgId' "$(jget data.orgId)"
+    [ -n "$(jget data.days.0.date)" ] && [ -z "$(jget data.days.1.date)" ] \
+        && ok 'range=day 的窗口补零到 1 天' || bad 'range=day 的窗口长度不对' "days.0=$(jget data.days.0.date) days.1=$(jget data.days.1.date)"
+fi
+req GET '/api/stats/usage?range=nonsense' "$TOKEN"
+if api_ok 'GET /api/stats/usage?range=nonsense（未知值按 7 天而不是报错）'; then
+    [ "$(jget data.range)" = "nonsense" ] && ok '未知 range 原样回显（不静默改写）' || bad '未知 range 被改写' "实际 $(jget data.range)"
+    [ -n "$(jget data.days.6.date)" ] && [ -z "$(jget data.days.7.date)" ] \
+        && ok '未知 range 的窗口是 7 天' || bad '未知 range 的窗口长度不对' "days.6=$(jget data.days.6.date) days.7=$(jget data.days.7.date)"
+fi
+req GET '/api/stats/usage?range=month' "$TOKEN"
+if api_ok 'GET /api/stats/usage?range=month（30 天窗口）'; then
+    [ -n "$(jget data.days.29.date)" ] && [ -z "$(jget data.days.30.date)" ] \
+        && ok 'range=month 的窗口补零到 30 天' || bad 'range=month 的窗口长度不对' "days.29=$(jget data.days.29.date) days.30=$(jget data.days.30.date)"
+fi
+req GET '/api/stats/usage?range=day&orgId=smoke-no-such-org' "$TOKEN"
+want_status 'usage 组织作用域按成员校验：非成员或不存在 → 403（不是回一份零用量）' 403 403
+
 # v2.53：/api/knowledges 一组端点整体下线（候选 ㉖ 后半）。留两条 404 锚点而不是悄悄删掉遍历项——
 # 这张本地授权表是 /api/ragflow 唯一的授权依据（转发用共享 Key），谁能接口化地往里写一行，
 # 谁就把别人的知识库变成自己的可见集；改前真机实测过：植入一行后 documents 由 403 变 500、

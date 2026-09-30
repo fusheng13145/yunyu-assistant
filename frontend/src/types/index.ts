@@ -129,10 +129,25 @@ export interface CallRecordDetail extends CallRecord {
 
 export interface UsageStats {
   range: string
+  since: string
+  /** self=只统计本人，org=按组织成员聚合 */
+  scope: 'self' | 'org'
+  orgId?: string
+  memberCount?: number
   callCount: number
   totalDurationSec: number
   messageCount: number
-  days: Array<{ date: string; callCount: number; durationSec: number }>
+  /** 计入总量、但来自归档表的历史行数 */
+  archivedCalls: number
+  /** 未计入总量的行，按原因点名（口径可见，不静默丢弃） */
+  excludedCalls: {
+    failed: number
+    ongoing: number
+    undated: number
+    unknown: number
+    outsideWindow: number
+  }
+  days: Array<{ date: string; callCount: number; durationSec: number; messageCount: number }>
 }
 
 export interface CreateAssistantData {

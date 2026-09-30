@@ -65,19 +65,31 @@
     <div class="flex-1 min-h-0 overflow-y-auto geek-scroll px-4 sm:px-8 py-6">
       <!-- 用量统计 -->
       <div class="max-w-4xl mx-auto mb-6">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center justify-between mb-4 gap-3">
           <h3 class="text-base font-bold tracking-tight" style="color: var(--geek-text)">用量统计</h3>
-          <div class="flex items-center gap-1 rounded-md p-0.5 border" style="background: var(--geek-input-bg); border-color: var(--geek-border)">
-            <button
-              v-for="r in rangeOptions"
-              :key="r"
-              class="px-3 py-1 text-xs rounded-sm transition-colors font-medium"
-              :class="statsRange === r ? 'bg-white shadow-sm' : ''"
-              :style="statsRange === r ? 'color: var(--geek-text)' : 'color: var(--geek-text-muted)'"
-              @click="changeRange(r)"
+          <div class="flex items-center gap-2 min-w-0">
+            <select
+              v-if="orgs.length > 0"
+              :value="statsOrgId"
+              class="geek-input px-2 py-1 rounded text-xs max-w-[10rem]"
+              aria-label="统计范围"
+              @change="changeScope(($event.target as HTMLSelectElement).value)"
             >
-              {{ r === 'day' ? '日' : r === 'week' ? '周' : '月' }}
-            </button>
+              <option value="">我的用量</option>
+              <option v-for="o in orgs" :key="o.id" :value="o.id">组织：{{ o.name }}</option>
+            </select>
+            <div class="flex items-center gap-1 rounded-md p-0.5 border shrink-0" style="background: var(--geek-input-bg); border-color: var(--geek-border)">
+              <button
+                v-for="r in rangeOptions"
+                :key="r"
+                class="px-3 py-1 text-xs rounded-sm transition-colors font-medium"
+                :class="statsRange === r ? 'bg-white shadow-sm' : ''"
+                :style="statsRange === r ? 'color: var(--geek-text)' : 'color: var(--geek-text-muted)'"
+                @click="changeRange(r)"
+              >
+                {{ r === 'day' ? '日' : r === 'week' ? '周' : '月' }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -95,6 +107,11 @@
             <p class="text-2xl font-bold mt-1.5 mono" style="color: var(--geek-text)">{{ stats?.messageCount || 0 }}</p>
           </div>
         </div>
+
+        <!-- 口径说明：未计入的行按原因点名，避免"数字变小了"被读成丢数据 -->
+        <p v-if="stats" class="text-xs -mt-1 mb-4 leading-relaxed" style="color: var(--geek-text-muted)">
+          {{ statsNote }}
+        </p>
 
         <!-- 柱状图 -->
         <div class="geek-card rounded-lg p-5">
@@ -211,7 +228,8 @@ import { useTheme } from '../composables/useTheme'
 import { useNotification } from '../composables/useNotification'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { fetchCallRecords, fetchCallRecordDetail, fetchRecordingBlob, fetchUsageStats } from '../api/callRecord'
-import type { CallRecord, CallRecordDetail, UsageStats } from '../types'
+import { fetchOrgs } from '../api/org'
+import type { CallRecord, CallRecordDetail, Org, UsageStats } from '../types'
 
 const { show } = useNotification()
 const { themeMode, setTheme } = useTheme()
@@ -232,6 +250,8 @@ const recordingLoading = ref(false)
 const stats = ref<UsageStats | null>(null)
 const statsRange = ref<'day' | 'week' | 'month'>('week')
 const rangeOptions: Array<'day' | 'week' | 'month'> = ['day', 'week', 'month']
+const orgs = ref<Org[]>([])
+const statsOrgId = ref('')
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
@@ -240,17 +260,49 @@ const maxCallCount = computed(() => {
   return Math.max(1, ...stats.value.days.map(d => d.callCount))
 })
 
+const statsNote = computed(() => {
+  if (!stats.value) return ''
+  const excluded = stats.value.excludedCalls
+  const omitted: string[] = []
+  if (excluded.failed) omitted.push(`${excluded.failed} 通失败`)
+  if (excluded.ongoing) omitted.push(`${excluded.ongoing} 通未结算`)
+  if (excluded.undated) omitted.push(`${excluded.undated} 通缺开始时间`)
+  if (excluded.unknown) omitted.push(`${excluded.unknown} 通状态异常`)
+  if (excluded.outsideWindow) omitted.push(`${excluded.outsideWindow} 通不在窗口内`)
+  const scopeLabel = stats.value.scope === 'org'
+    ? `组织「${orgs.value.find(o => o.id === statsOrgId.value)?.name ?? '未知'}」${stats.value.memberCount ?? 0} 名成员`
+    : '本人'
+  const parts = [`范围 ${scopeLabel}`, '只计已结算通话', '消息数按对话轮次统计']
+  if (omitted.length) parts.push(`未计入：${omitted.join('、')}`)
+  if (stats.value.archivedCalls) parts.push(`含 ${stats.value.archivedCalls} 通归档历史`)
+  return parts.join(' · ')
+})
+
 const loadStats = async () => {
   try {
-    stats.value = await fetchUsageStats(statsRange.value)
+    stats.value = await fetchUsageStats(statsRange.value, statsOrgId.value || undefined)
   } catch (error) {
     console.error('获取用量统计失败:', error)
-    show('用量统计加载失败，图表数据不是最新', 'error')
+    show(`用量统计加载失败：${(error as Error).message}`, 'error')
+  }
+}
+
+const loadOrgs = async () => {
+  try {
+    orgs.value = await fetchOrgs()
+  } catch (error) {
+    console.error('获取组织列表失败:', error)
+    show(`组织列表加载失败：${(error as Error).message}`, 'error')
   }
 }
 
 const changeRange = (range: 'day' | 'week' | 'month') => {
   statsRange.value = range
+  loadStats()
+}
+
+const changeScope = (orgId: string) => {
+  statsOrgId.value = orgId
   loadStats()
 }
 
@@ -347,6 +399,7 @@ const statusClass = (status: number) => {
 onMounted(() => {
   loadRecords()
   loadStats()
+  loadOrgs()
 })
 </script>
 

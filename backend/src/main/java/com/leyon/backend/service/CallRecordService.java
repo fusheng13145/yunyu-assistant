@@ -87,21 +87,4 @@ public class CallRecordService {
                 .eq(StringUtils.hasText(assistantId), CallRecord::getAssistantId, assistantId);
         return callRecordMapper.selectCount(wrapper);
     }
-
-    /**
-     * 查询某时间之后的通话记录（用于用量统计，按开始时间正序）
-     *
-     * @param userId 用户ID
-     * @param since  起始时间（含）
-     */
-    public List<CallRecord> listByUserSince(String userId, java.time.LocalDateTime since) {
-        if (!StringUtils.hasText(userId)) {
-            return List.of();
-        }
-        LambdaQueryWrapper<CallRecord> wrapper = new LambdaQueryWrapper<CallRecord>()
-                .eq(CallRecord::getUserId, userId)
-                .ge(CallRecord::getStartedAt, since)
-                .orderByAsc(CallRecord::getStartedAt);
-        return callRecordMapper.selectList(wrapper);
-    }
 }

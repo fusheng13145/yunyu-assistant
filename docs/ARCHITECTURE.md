@@ -107,6 +107,8 @@ aspect/  task/  tool/ ─┘                           （切面 / 定时回收 
 | 令牌是否可用 | `JwtUtil.validateAccessToken()` + `AccountCredentialService`（版本戳判定在这两处内部，不在 7 个调用点） |
 | 限流计数 | `service/RateLimitService` |
 | 开放侧拒绝计数 | `service/OpenApiDenialMeter` |
+| 对话记录落库 | `service/ConversationRecordWriter`（v2.66：三通道共用一处写入与失败计数，不在各连接收尾处各写一份） |
+| 用量统计口径 | `service/UsageStatsService`（v2.67：结算判定 / 消息数来源 / 归档并读 / 组织作用域四处都只在这一处判，mapper 的 SQL 只取行） |
 | 审计成败 | `aspect/AuditAspect` |
 | WS 回合帧分派 | `frontend/src/utils/chatFrame.ts` |
 | 历史行映射 | `frontend/src/utils/mapHistoryRecord.ts` |

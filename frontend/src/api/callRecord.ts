@@ -42,7 +42,12 @@ export async function fetchRecordingBlob(id: string): Promise<Blob> {
   return response.blob()
 }
 
-/** 获取用量统计（day/week/month） */
-export function fetchUsageStats(range: 'day' | 'week' | 'month' = 'week'): Promise<UsageStats> {
-  return request<UsageStats>(`${API_BASE}/stats/usage?range=${range}`)
+/** 获取用量统计（day/week/month；传 orgId 则按组织成员聚合，非成员 403） */
+export function fetchUsageStats(
+  range: 'day' | 'week' | 'month' = 'week',
+  orgId?: string,
+): Promise<UsageStats> {
+  const params = new URLSearchParams({ range })
+  if (orgId) params.set('orgId', orgId)
+  return request<UsageStats>(`${API_BASE}/stats/usage?${params.toString()}`)
 }
