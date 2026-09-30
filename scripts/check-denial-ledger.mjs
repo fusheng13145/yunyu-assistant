@@ -79,7 +79,7 @@ console.log('\n[4] 视图与接口接入收口（防第三次复制粘贴）')
   const view = readFileSync(VIEW, 'utf8')
   const api = readFileSync(API, 'utf8')
   check('Apps.vue 经统一入口 ledgerCellFor 判定三态',
-    /from\s*'[^']*utils\/denialLedger'/.test(view) && view.includes('cellFor(app.id).tone'))
+    /from\s*'[^']*utils\/denialLedger'/.test(view) && /cellFor\([\w.]+\.id\)\.tone/.test(view))
   check('Apps.vue 不再自己按 app 字段 filter（口径只能有一处）',
     !/denialRows\.value\.filter\(\s*row\s*=>\s*row\.app\s*===/.test(view))
   check('"读不到"有独立的可见文案（不是复用 0 次的占位）',

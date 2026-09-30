@@ -53,11 +53,11 @@ aspect/  task/  tool/ ─┘                           （切面 / 定时回收 
 | 目录 | 现状 | 口径 |
 |---|---|---|
 | `views/` | 10 个页面 | 页面级组装 + 局部状态；会话消息流是视图内 `ref` |
-| `components/` | 4 个共享组件 | "第三次出现才抽"——见 [DESIGN.md](../DESIGN.md) 控件规范 |
+| `components/` | 6 个共享组件 | "第三次出现才抽"——见 [DESIGN.md](../DESIGN.md) 控件规范；v2.63 起 `PageShell.vue`（左列表 + 右内容的布局壳）与 `NavList.vue`（站点导航）在此，**整屏根、页头、主题开关、登出只在壳里一次** |
 | `composables/` | 6 个 | 有生命周期/全局状态的逻辑；通知是模块级单例 |
 | `utils/` | 8 个 | 除 `websocket.ts`（运行时依赖 `api/auth`）外都是**可被 Node 桩测直接 import 的纯模块**：运行时相对 import 为零 |
 | `api/` | 9 个 | 原生 `fetch` 封装 + 统一注入 `Authorization` + 解析 `ApiResponse`；静默续期在 `auth.ts` 单点 |
-| `router/` | 1 个 | 唯一导航在语音工作台侧栏，路由守卫见 [PAGE-STRUCTURE.md](PAGE-STRUCTURE.md) |
+| `router/` | 1 个 | 唯一站点导航在 `components/NavList.vue`（由 `PageShell` 挂载，v2.63）；路由守卫见 [PAGE-STRUCTURE.md](PAGE-STRUCTURE.md) |
 | `types/` | 1 个 | 前后端契约类型；**视图内不得再写内联类型副本**（曾因此挡住字段透传） |
 | `style.css` | 全站令牌 | 见 [DESIGN.md](../DESIGN.md) |
 

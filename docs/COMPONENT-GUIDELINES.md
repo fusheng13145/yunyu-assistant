@@ -83,8 +83,12 @@ Node 门禁脚本（`scripts/check-*.mjs` / `check-*.py`）**零新增依赖**�
 
 - 判据是**"第三次出现必须抽"**：前两次复制粘贴在本仓已各产出一次真实缺陷（通知实现两份、历史映射两份、
   回合帧分派四份），修复成本远高于早抽。
-- 现有 4 个共享组件：`ChatMessages`（消息流渲染，`props: messages/autoScroll` + `emit: scroll-state-change`）、
+- 现有 6 个共享组件：`ChatMessages`（消息流渲染，`props: messages/autoScroll` + `emit: scroll-state-change`）、
+  `NavList`（左栏站点导航六项，`adminOnly` 项按 `localStorage.role` 过滤，无 props）、`PageShell`（布局壳，
+  `prop: subtitle` + `slot: list`（本页的浏览列表）+ 默认槽（右栏内容）；整屏根、品牌、导航、用户区、登出**只在它内部一次**）、
   `ScopePicker`（能力勾选，`v-model` 数组 + `options`）、`SkeletonLoader`、`ThemeToggle`（`v-model` 主题模式）。
+- 在**六个受控视图**的范围内，布局壳是唯一声明整屏根（`h-screen … overflow-hidden`）的地方；视图里再出现自声明的整屏根即视为回归，
+  目前唯一的豁免是 `SmartRobot.vue` 的首屏骨架屏分支（整屏占位不该半屏），由 `check-page-layout.mjs` 逐条点名。
 - **纯逻辑一律抽成 `utils/` 里的函数而不是组件内联**：能被门禁 import 的模块必须是
   **零运行时相对 import**（只允许裸包名与 `import type`）。这是硬约束，违反会让桩测写不出来。
   现有 7 个 util 模块满足；`utils/websocket.ts` 因运行时依赖 `api/auth` 而不满足。
@@ -98,7 +102,12 @@ Node 门禁脚本（`scripts/check-*.mjs` / `check-*.py`）**零新增依赖**�
 - 三态优于布尔：`unavailable`（读不到）≠ `quiet`（确实是 0）≠ `denied`（有值）。任何"缺字段"都不许
   渲染成"正常但为空"。
 - 路由守卫只在 `router/index.ts` 一处；新页面需要登录就加 `meta.requiresAuth`，管理员页加 `requiresAdmin`。
-- 导航入口只有语音工作台侧栏一处，新页面要在那里加入口，否则只能靠手输地址（`/chatrobot` 就是现状例子）。
+- 站点导航只有 `<NavList>`（由 `PageShell` 挂载）一处；新页面要能被走到，就在 `NavList.vue` 的 `NAV_ITEMS` 加一项并按需给
+  `adminOnly`，**不要在视图里内联导航按钮**（那就是第二份会腐烂的清单，布局门禁第 2 组直接判红）。
+  `/chatrobot` 至今没有任何站内入口，只能手输地址——现状如此。
+- 新页面若属于"浏览条目 + 看详情"的形状，就包 `<PageShell>` 并把条目列表放进 `#list` 槽；
+  列表行用 `.geek-listrow` / `.geek-listrow--active`（形状单点在 `style.css`），选中项同时给 `aria-current="true"`，
+  并且**必须是真 `<button>`**（不是 `div @click`）。没有条目集合的页面（如 `/billing`）就只留导航，不要硬造空列表。
 
 ### 3.3 样式
 
@@ -111,9 +120,11 @@ Node 门禁脚本（`scripts/check-*.mjs` / `check-*.py`）**零新增依赖**�
 
 ### 3.4 无障碍（现状如实登记）
 
-已具备：`radiogroup` + `aria-checked`（主题切换）、若干 `aria-label`、`role="status"` 的通知区、
-两处焦点样式。**明确缺失**：表单几乎没有 `label for`（当前为 0）、图片无 `alt`、无 `tabindex` 管理、
-弹窗无焦点陷阱与 Esc 之外的键盘收口（只有两个工作台视图有全局 Esc 关层）、多数交互元素无自定义焦点环。
+已具备：`radiogroup` + `aria-checked`（主题切换）、若干 `aria-label`、`role="status"` 的通知区、两处焦点样式、
+左栏列表的选中语义（导航项 `aria-current="page"`、主从列表选中行 `aria-current="true"`，v2.63 起由布局门禁判定）。
+**明确缺失**：表单几乎没有 `label for`（当前为 0）、图片无 `alt`、无 `tabindex` 管理、
+弹窗无焦点陷阱与 Esc 之外的键盘收口（只有两个工作台视图有全局 Esc 关层）、多数交互元素无自定义焦点环、
+`SmartRobot.vue` 的助手行仍是 `div @click`（存量，与手册 ㊾ 附带登记的同一条债）。
 
 新增组件时的最低要求（不追求一次性补齐存量）：
 
@@ -136,6 +147,7 @@ Node 门禁脚本（`scripts/check-*.mjs` / `check-*.py`）**零新增依赖**�
 | 后端判据/接线 | 单测 + 手册登记；新增拒绝语义要写反向锚点（"放行不记账""内部错误不入开放台账"这类） |
 | 前端纯逻辑 | 一道 Node 桩测（`scripts/check-*.mjs`）+ `package.json` 的 `check:*` 脚本 + **纳入 `ci.yml` 的 frontend job** |
 | 防复制粘贴 | 桩测里加**静态源码断言**（读视图原文，要求经统一入口、不得残留旧形状） |
+| 页面形状（壳 / 导航 / 左列表 / 登出） | `scripts/check-page-layout.mjs`（静态读六视图 + 两个新组件 + `style.css`）；新增或改名视图时要同步它的 `VIEWS` 清单与锚点，否则第 5 组反向锚点红 |
 | 部署面/接口契约 | 跑一次真机 `scripts/smoke.sh`，并按"跑法口径"记项数（环境变量差异会改变项数，见 AGENTS.md） |
 | 环境变量 | 同步 `application.yaml` 默认值 + `additional-spring-configuration-metadata.json` + `.env.example` + 手册 5.3 + README 表，否则 `check-config.py` 红 |
 | 文档 | `python scripts/check-docs.py`（目录/表格/链接/遗留标记/变更记录连续性） |

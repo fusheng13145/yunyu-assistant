@@ -20,6 +20,7 @@
     "check:chat-frame": "node ../scripts/check-chat-frame.mjs",
     "check:recording-upload": "node ../scripts/check-recording-upload.mjs",
     "check:denial-ledger": "node ../scripts/check-denial-ledger.mjs",
+    "check:page-layout": "node ../scripts/check-page-layout.mjs",
     "check:registries": "node ../scripts/check-registries.mjs"
   },
   "dependencies": {

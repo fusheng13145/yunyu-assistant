@@ -4,15 +4,8 @@
     <SkeletonLoader />
   </div>
 
-  <div v-else class="geek-body theme-transition h-screen w-full flex overflow-hidden antialiased">
-    <!-- 左侧边栏 -->
-    <aside class="sidebar w-72 flex-shrink-0 flex flex-col bg-geek-surface border-r border-geek">
-      <!-- 品牌标题区 -->
-      <div class="brand-header px-6 py-5 border-b border-geek">
-        <h1 class="font-display text-xl font-bold tracking-tight text-geek-text">云谕助手</h1>
-        <p class="text-xs mt-1 mono tracking-widest text-geek-text-muted">WORKSPACE // 智能对话工作台</p>
-      </div>
-
+  <PageShell v-else subtitle="智能对话工作台">
+    <template #list>
       <!-- 新建助手按钮 -->
       <div class="px-4 py-4">
         <button
@@ -22,329 +15,269 @@
           <Plus class="w-4 h-4" />
           <span>新建助手</span>
         </button>
-        <button
-          @click="router.push('/records')"
-          class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
-        >
-          <History class="w-4 h-4" />
-          <span>通话记录</span>
-        </button>
-        <button
-          @click="router.push('/billing')"
-          class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
-        >
-          <Gauge class="w-4 h-4" />
-          <span>用量配额</span>
-        </button>
-        <button
-          @click="router.push('/org')"
-          class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
-        >
-          <Users class="w-4 h-4" />
-          <span>组织管理</span>
-        </button>
-        <button
-          @click="router.push('/apps')"
-          class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
-        >
-          <KeyRound class="w-4 h-4" />
-          <span>应用管理</span>
-        </button>
-        <button
-          v-if="userRole === 'admin'"
-          @click="router.push('/admin')"
-          class="geek-btn geek-btn-ghost w-full flex items-center justify-center gap-2 py-2.5 mt-2"
-        >
-          <Shield class="w-4 h-4" />
-          <span>管理后台</span>
-        </button>
       </div>
 
       <!-- 助手列表 -->
-      <div class="flex-1 min-h-0 overflow-y-auto geek-scroll transparent-scrollbar px-3 pb-4">
-        <!-- 搜索助手 -->
-        <div class="pt-3 pb-2">
-          <input
-            v-model="searchKeyword"
-            type="text"
-            placeholder="搜索助手"
-            class="geek-input w-full px-3 py-1.5 rounded-md text-sm"
-            @keyup.enter="onSearchAssistant"
-          />
-        </div>
+      <!-- 搜索助手 -->
+      <div class="pt-3 pb-2">
+        <input
+          v-model="searchKeyword"
+          type="text"
+          placeholder="搜索助手"
+          class="geek-input w-full px-3 py-1.5 rounded-md text-sm"
+          @keyup.enter="onSearchAssistant"
+        />
+      </div>
 
-        <div v-if="assistants.length === 0" class="empty-state text-center py-12 px-4">
-          <Bot class="w-10 h-10 mx-auto mb-3 text-geek-text-faint" />
-          <p class="text-sm text-geek-text-muted">{{ searchKeyword ? '未找到匹配的助手' : '暂无助手' }}</p>
-          <p class="text-xs mt-1 text-geek-text-faint">{{ searchKeyword ? '请尝试更换关键词' : '点击上方按钮创建' }}</p>
-        </div>
+      <div v-if="assistants.length === 0" class="empty-state text-center py-12 px-4">
+        <Bot class="w-10 h-10 mx-auto mb-3 text-geek-text-faint" />
+        <p class="text-sm text-geek-text-muted">{{ searchKeyword ? '未找到匹配的助手' : '暂无助手' }}</p>
+        <p class="text-xs mt-1 text-geek-text-faint">{{ searchKeyword ? '请尝试更换关键词' : '点击上方按钮创建' }}</p>
+      </div>
 
+      <div
+        v-for="(bot, index) in assistants"
+        :key="bot.id"
+        @click="selectAssistant(bot)"
+        class="assistant-item group relative flex items-center gap-3 px-3 py-3 mb-1 rounded-md cursor-pointer transition-all duration-200"
+        :class="selectedAssistant?.id === bot.id ? 'bg-geek-bg-subtle item-active' : 'hover:bg-geek-bg-subtle'"
+      >
+        <!-- 头像 -->
         <div
-          v-for="(bot, index) in assistants"
-          :key="bot.id"
-          @click="selectAssistant(bot)"
-          class="assistant-item group relative flex items-center gap-3 px-3 py-3 mb-1 rounded-md cursor-pointer transition-all duration-200"
-          :class="selectedAssistant?.id === bot.id ? 'bg-geek-bg-subtle item-active' : 'hover:bg-geek-bg-subtle'"
+          class="avatar w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+          :style="{ background: ['var(--geek-tag-blue)', 'var(--geek-tag-purple)', 'var(--geek-tag-gold)'][index % 3] }"
         >
-          <!-- 头像 -->
-          <div
-            class="avatar w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-            :style="{ background: ['var(--geek-tag-blue)', 'var(--geek-tag-purple)', 'var(--geek-tag-gold)'][index % 3] }"
-          >
-            <Bot class="w-4 h-4 text-white" />
-          </div>
-          <!-- 名称和类型 -->
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-medium truncate text-geek-text">{{ bot.name || '小助手' }}</div>
-            <div class="flex items-center gap-2 mt-0.5">
-              <span class="text-xs text-geek-text-muted">{{ getAssistantType(bot) }}</span>
-              <span
-                v-if="getConversationCount(bot.id) > 0"
-                class="count-badge text-xs px-1.5 py-0.5 rounded-sm bg-geek-bg-subtle text-geek-text-secondary"
-              >
-                {{ getConversationCount(bot.id) }}
-              </span>
-            </div>
-          </div>
-          <!-- hover 操作按钮 -->
-          <div class="item-actions flex items-center gap-1 flex-shrink-0">
-            <button
-              class="action-btn p-1 rounded-sm transition-colors text-geek-text-muted hover:text-geek-text-secondary"
-              @click.stop="openSettingsModal(bot)"
+          <Bot class="w-4 h-4 text-white" />
+        </div>
+        <!-- 名称和类型 -->
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium truncate text-geek-text">{{ bot.name || '小助手' }}</div>
+          <div class="flex items-center gap-2 mt-0.5">
+            <span class="text-xs text-geek-text-muted">{{ getAssistantType(bot) }}</span>
+            <span
+              v-if="getConversationCount(bot.id) > 0"
+              class="count-badge text-xs px-1.5 py-0.5 rounded-sm bg-geek-bg-subtle text-geek-text-secondary"
             >
-              <Settings class="w-3.5 h-3.5" />
-            </button>
-            <button
-              class="action-btn p-1 rounded-sm transition-colors text-geek-text-muted hover:text-geek-error"
-              @click.stop="confirmDelete(bot)"
-            >
-              <Trash2 class="w-3.5 h-3.5" />
-            </button>
+              {{ getConversationCount(bot.id) }}
+            </span>
           </div>
         </div>
-
-        <!-- 分页控件 -->
-        <div v-if="assistantTotal > ASSISTANT_PAGE_SIZE" class="flex items-center justify-between px-1 pt-3">
+        <!-- hover 操作按钮 -->
+        <div class="item-actions flex items-center gap-1 flex-shrink-0">
           <button
-            @click="prevAssistantPage"
-            :disabled="assistantPage <= 1"
+            class="action-btn p-1 rounded-sm transition-colors text-geek-text-muted hover:text-geek-text-secondary"
+            @click.stop="openSettingsModal(bot)"
+          >
+            <Settings class="w-3.5 h-3.5" />
+          </button>
+          <button
+            class="action-btn p-1 rounded-sm transition-colors text-geek-text-muted hover:text-geek-error"
+            @click.stop="confirmDelete(bot)"
+          >
+            <Trash2 class="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <!-- 分页控件 -->
+      <div v-if="assistantTotal > ASSISTANT_PAGE_SIZE" class="flex items-center justify-between px-1 pt-3">
+        <button
+          @click="prevAssistantPage"
+          :disabled="assistantPage <= 1"
+          class="geek-btn geek-btn-ghost geek-btn-sm"
+          :class="{ 'opacity-40 cursor-not-allowed': assistantPage <= 1 }"
+        >
+          上一页
+        </button>
+        <span class="text-xs text-geek-text-muted">{{ assistantPage }} / {{ assistantTotalPages }}</span>
+        <button
+          @click="nextAssistantPage"
+          :disabled="assistantPage >= assistantTotalPages"
+          class="geek-btn geek-btn-ghost geek-btn-sm"
+          :class="{ 'opacity-40 cursor-not-allowed': assistantPage >= assistantTotalPages }"
+        >
+          下一页
+        </button>
+      </div>
+    </template>
+
+    <!-- 顶部工具栏 -->
+    <header class="toolbar h-14 flex items-center justify-between px-6 border-b border-geek bg-geek-subtle flex-shrink-0">
+      <div class="toolbar-left flex items-center gap-3">
+        <h2 v-if="selectedAssistant" class="text-lg font-bold tracking-tight text-geek-text">
+          {{ selectedAssistant.name }}
+        </h2>
+        <span v-else class="text-sm text-geek-text-muted">请选择一个助手开始对话</span>
+      </div>
+      <div class="toolbar-right flex items-center gap-2 relative">
+        <button
+          v-if="selectedAssistant"
+          @click="openSettingsModal(selectedAssistant)"
+          class="geek-btn geek-btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5"
+        >
+          <Settings class="w-4 h-4" />
+          <span>设置</span>
+        </button>
+        <button
+          v-if="selectedAssistant"
+          @click="resetChat"
+          class="geek-btn geek-btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5"
+        >
+          <RotateCcw class="w-4 h-4" />
+          <span>刷新</span>
+        </button>
+        <!-- 操作按钮组 -->
+        <div class="func-btns flex items-center gap-1.5">
+          <!-- 消息搜索 -->
+          <button
+            v-if="messages.length > 0 && !isSearchActive"
+            @click="openSearch()"
             class="geek-btn geek-btn-ghost geek-btn-sm"
-            :class="{ 'opacity-40 cursor-not-allowed': assistantPage <= 1 }"
+            title="搜索消息"
           >
-            上一页
+            <Search class="w-3.5 h-3.5" />
           </button>
-          <span class="text-xs text-geek-text-muted">{{ assistantPage }} / {{ assistantTotalPages }}</span>
+          <!-- 导出对话 -->
           <button
-            @click="nextAssistantPage"
-            :disabled="assistantPage >= assistantTotalPages"
+            v-if="messages.length > 0"
+            @click="handleExport"
             class="geek-btn geek-btn-ghost geek-btn-sm"
-            :class="{ 'opacity-40 cursor-not-allowed': assistantPage >= assistantTotalPages }"
+            title="导出对话"
           >
-            下一页
+            <Download class="w-3.5 h-3.5" />
+          </button>
+          <!-- 快捷命令 -->
+          <button
+            @click="showQuickCommands = !showQuickCommands"
+            class="geek-btn geek-btn-ghost geek-btn-sm"
+            title="快捷命令"
+          >
+            <Zap class="w-3.5 h-3.5" />
           </button>
         </div>
-      </div>
-
-      <!-- 底部用户区 -->
-      <div class="user-bar px-4 py-3 border-t border-geek">
-        <div class="flex items-center justify-between">
-          <div class="user-info flex items-center gap-2">
-            <div class="user-avatar w-7 h-7 rounded-md flex items-center justify-center text-xs font-medium text-white bg-geek-primary">
-              {{ userInitial }}
-            </div>
-            <span class="text-sm text-geek-text">{{ userName }}</span>
-          </div>
-          <button
-            @click="handleLogout"
-            class="geek-btn geek-btn-ghost text-xs px-2 py-1 flex items-center gap-1"
-          >
-            <LogOut class="w-3.5 h-3.5" />
-            <span>登出</span>
-          </button>
-        </div>
-      </div>
-    </aside>
-
-    <!-- 右侧主区域 -->
-    <main class="main-panel flex-1 flex flex-col min-w-0 bg-geek-base">
-      <!-- 顶部工具栏 -->
-      <header class="toolbar h-14 flex items-center justify-between px-6 border-b border-geek bg-geek-subtle flex-shrink-0">
-        <div class="toolbar-left flex items-center gap-3">
-          <h2 v-if="selectedAssistant" class="text-lg font-bold tracking-tight text-geek-text">
-            {{ selectedAssistant.name }}
-          </h2>
-          <span v-else class="text-sm text-geek-text-muted">请选择一个助手开始对话</span>
-        </div>
-        <div class="toolbar-right flex items-center gap-2 relative">
-          <button
-            v-if="selectedAssistant"
-            @click="openSettingsModal(selectedAssistant)"
-            class="geek-btn geek-btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5"
-          >
-            <Settings class="w-4 h-4" />
-            <span>设置</span>
-          </button>
-          <button
-            v-if="selectedAssistant"
-            @click="resetChat"
-            class="geek-btn geek-btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5"
-          >
-            <RotateCcw class="w-4 h-4" />
-            <span>刷新</span>
-          </button>
-          <!-- 操作按钮组 -->
-          <div class="func-btns flex items-center gap-1.5">
-            <!-- 消息搜索 -->
+        <!-- 快捷命令面板 -->
+        <div v-if="showQuickCommands" class="cmd-panel absolute top-full right-6 mt-1 animate-modal-in">
+          <div class="geek-card-elevated p-2 rounded-xl shadow-lg z-50 min-w-[160px]">
+            <div class="text-xs font-medium px-2 py-1 text-geek-muted">快捷命令</div>
             <button
-              v-if="messages.length > 0 && !isSearchActive"
-              @click="openSearch()"
-              class="geek-btn geek-btn-ghost geek-btn-sm"
-              title="搜索消息"
+              v-for="cmd in quickCommands"
+              :key="cmd.label"
+              @click="sendQuickCommand(cmd)"
+              class="cmd-item w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors text-geek-text hover:bg-geek-primary-light"
             >
-              <Search class="w-3.5 h-3.5" />
-            </button>
-            <!-- 导出对话 -->
-            <button
-              v-if="messages.length > 0"
-              @click="handleExport"
-              class="geek-btn geek-btn-ghost geek-btn-sm"
-              title="导出对话"
-            >
-              <Download class="w-3.5 h-3.5" />
-            </button>
-            <!-- 快捷命令 -->
-            <button
-              @click="showQuickCommands = !showQuickCommands"
-              class="geek-btn geek-btn-ghost geek-btn-sm"
-              title="快捷命令"
-            >
-              <Zap class="w-3.5 h-3.5" />
+              {{ cmd.label }}
             </button>
           </div>
-          <!-- 快捷命令面板 -->
-          <div v-if="showQuickCommands" class="cmd-panel absolute top-full right-6 mt-1 animate-modal-in">
-            <div class="geek-card-elevated p-2 rounded-xl shadow-lg z-50 min-w-[160px]">
-              <div class="text-xs font-medium px-2 py-1 text-geek-muted">快捷命令</div>
-              <button
-                v-for="cmd in quickCommands"
-                :key="cmd.label"
-                @click="sendQuickCommand(cmd)"
-                class="cmd-item w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors text-geek-text hover:bg-geek-primary-light"
-              >
-                {{ cmd.label }}
-              </button>
-            </div>
-          </div>
-          <ThemeToggle :model-value="themeMode" @update:model-value="setTheme" />
         </div>
-      </header>
+        <ThemeToggle :model-value="themeMode" @update:model-value="setTheme" />
+      </div>
+    </header>
 
-      <!-- 聊天消息区 -->
-      <div class="chat-container flex-1 min-h-0 relative flex flex-col">
-        <!-- 搜索框 -->
-        <div v-if="isSearchActive" class="search-bar px-4 py-2 border-b border-geek bg-geek-subtle flex items-center gap-2 flex-shrink-0">
-          <input
-            v-model="searchQuery"
-            placeholder="搜索消息..."
-            class="geek-input flex-1 text-sm py-1.5"
-            @input="searchMessages(messages)"
-          />
-          <button @click="clearSearch()" class="geek-btn geek-btn-ghost geek-btn-sm">
-            <X class="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <!-- 空状态 -->
-        <div v-if="!selectedAssistant" class="empty-home absolute inset-0 flex items-center justify-center">
-          <div class="text-center animate-fade-up">
-            <div class="welcome-icon w-20 h-20 rounded-xl flex items-center justify-center mx-auto mb-5 geek-card">
-              <MessageCircle class="w-10 h-10 text-geek-text-muted" />
-            </div>
-            <h3 class="text-xl font-bold tracking-tight mb-2 text-geek-text-secondary">欢迎使用云谕助手</h3>
-            <p class="text-sm text-geek-text-muted">请从左侧选择一个助手开始对话</p>
-          </div>
-        </div>
-
-        <template v-if="selectedAssistant">
-          <!-- 语音识别提示 -->
-          <div
-            v-if="asrText && voiceCallActive"
-            class="asr-tip mx-6 mt-3 px-4 py-2 rounded-md border text-sm bg-geek-bg-subtle border-geek-primary text-geek-primary"
-          >
-            <span class="font-medium">语音识别：</span>{{ asrText }}
-          </div>
-
-          <!-- 聊天消息列表 -->
-          <ChatMessages
-            :messages="(isSearchActive ? searchResults : messages) as DisplayMessage[]"
-            :auto-scroll="true"
-            @scroll-state-change="handleScrollStateChange"
-            class="h-full transparent-scrollbar"
-          />
-        </template>
+    <!-- 聊天消息区 -->
+    <div class="chat-container flex-1 min-h-0 relative flex flex-col">
+      <!-- 搜索框 -->
+      <div v-if="isSearchActive" class="search-bar px-4 py-2 border-b border-geek bg-geek-subtle flex items-center gap-2 flex-shrink-0">
+        <input
+          v-model="searchQuery"
+          placeholder="搜索消息..."
+          class="geek-input flex-1 text-sm py-1.5"
+          @input="searchMessages(messages)"
+        />
+        <button @click="clearSearch()" class="geek-btn geek-btn-ghost geek-btn-sm">
+          <X class="w-3.5 h-3.5" />
+        </button>
       </div>
 
-      <!-- 底部输入区 -->
-      <div v-if="selectedAssistant" class="input-area border-t border-geek p-4 bg-geek-base flex-shrink-0">
-        <div v-if="voiceCallActive" class="voice-panel flex flex-col items-center gap-4 py-2">
-          <div class="voice-main flex items-center gap-4">
-            <div class="mic-wrap relative">
-              <Mic class="w-8 h-8 animate-pulse text-geek-error" />
-              <div class="mic-ring absolute -inset-2 rounded-full border-2 animate-ping border-geek-error opacity-30"></div>
-            </div>
-            <!-- 音量波形 -->
-            <div class="audio-bars flex items-center gap-1">
-              <div
-                v-for="i in 5"
-                :key="i"
-                class="bar-item w-1.5 rounded-full transition-all duration-150 bg-geek-primary"
-                :style="{
-                  height: `${Math.max(4, audioLevel * 40 * (0.5 + Math.random() * 0.5))}px`,
-                  opacity: audioLevel > (i - 1) * 0.2 ? 1 : 0.3
-                }"
-              ></div>
-            </div>
+      <!-- 空状态 -->
+      <div v-if="!selectedAssistant" class="empty-home absolute inset-0 flex items-center justify-center">
+        <div class="text-center animate-fade-up">
+          <div class="welcome-icon w-20 h-20 rounded-xl flex items-center justify-center mx-auto mb-5 geek-card">
+            <MessageCircle class="w-10 h-10 text-geek-text-muted" />
           </div>
-          <button
-            @click="endVoiceCall"
-            class="geek-btn geek-btn-danger px-8 py-2.5 flex items-center gap-2"
-          >
-            <PhoneOff class="w-4 h-4" />
-            <span>挂断</span>
-          </button>
-        </div>
-
-        <div v-else class="input-row flex items-center gap-3">
-          <input
-            v-model="inputText"
-            type="text"
-            class="flex-1 geek-input h-12 px-4 rounded-lg"
-            placeholder="请输入您想问的问题..."
-            @keyup.enter="sendMessage"
-            :disabled="chatFrameState.typing"
-          />
-          <button
-            @click="startVoiceCall"
-            class="geek-btn geek-btn-ghost w-12 h-12 rounded-full flex items-center justify-center"
-            :class="{ 'opacity-40 cursor-not-allowed': !selectedAssistant?.id }"
-            :disabled="!selectedAssistant?.id"
-          >
-            <Mic class="w-5 h-5" />
-          </button>
-          <button
-            @click="sendMessage"
-            class="geek-btn geek-btn-primary w-12 h-12 rounded-full flex items-center justify-center"
-            :class="{ 'opacity-40 cursor-not-allowed': !inputText.trim() || chatFrameState.typing }"
-            :disabled="!inputText.trim() || chatFrameState.typing"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13"></line>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-            </svg>
-          </button>
+          <h3 class="text-xl font-bold tracking-tight mb-2 text-geek-text-secondary">欢迎使用云谕助手</h3>
+          <p class="text-sm text-geek-text-muted">请从左侧选择一个助手开始对话</p>
         </div>
       </div>
-    </main>
+
+      <template v-if="selectedAssistant">
+        <!-- 语音识别提示 -->
+        <div
+          v-if="asrText && voiceCallActive"
+          class="asr-tip mx-6 mt-3 px-4 py-2 rounded-md border text-sm bg-geek-bg-subtle border-geek-primary text-geek-primary"
+        >
+          <span class="font-medium">语音识别：</span>{{ asrText }}
+        </div>
+
+        <!-- 聊天消息列表 -->
+        <ChatMessages
+          :messages="(isSearchActive ? searchResults : messages) as DisplayMessage[]"
+          :auto-scroll="true"
+          @scroll-state-change="handleScrollStateChange"
+          class="h-full transparent-scrollbar"
+        />
+      </template>
+    </div>
+
+    <!-- 底部输入区 -->
+    <div v-if="selectedAssistant" class="input-area border-t border-geek p-4 bg-geek-base flex-shrink-0">
+      <div v-if="voiceCallActive" class="voice-panel flex flex-col items-center gap-4 py-2">
+        <div class="voice-main flex items-center gap-4">
+          <div class="mic-wrap relative">
+            <Mic class="w-8 h-8 animate-pulse text-geek-error" />
+            <div class="mic-ring absolute -inset-2 rounded-full border-2 animate-ping border-geek-error opacity-30"></div>
+          </div>
+          <!-- 音量波形 -->
+          <div class="audio-bars flex items-center gap-1">
+            <div
+              v-for="i in 5"
+              :key="i"
+              class="bar-item w-1.5 rounded-full transition-all duration-150 bg-geek-primary"
+              :style="{
+                height: `${Math.max(4, audioLevel * 40 * (0.5 + Math.random() * 0.5))}px`,
+                opacity: audioLevel > (i - 1) * 0.2 ? 1 : 0.3
+              }"
+            ></div>
+          </div>
+        </div>
+        <button
+          @click="endVoiceCall"
+          class="geek-btn geek-btn-danger px-8 py-2.5 flex items-center gap-2"
+        >
+          <PhoneOff class="w-4 h-4" />
+          <span>挂断</span>
+        </button>
+      </div>
+
+      <div v-else class="input-row flex items-center gap-3">
+        <input
+          v-model="inputText"
+          type="text"
+          class="flex-1 geek-input h-12 px-4 rounded-lg"
+          placeholder="请输入您想问的问题..."
+          @keyup.enter="sendMessage"
+          :disabled="chatFrameState.typing"
+        />
+        <button
+          @click="startVoiceCall"
+          class="geek-btn geek-btn-ghost w-12 h-12 rounded-full flex items-center justify-center"
+          :class="{ 'opacity-40 cursor-not-allowed': !selectedAssistant?.id }"
+          :disabled="!selectedAssistant?.id"
+        >
+          <Mic class="w-5 h-5" />
+        </button>
+        <button
+          @click="sendMessage"
+          class="geek-btn geek-btn-primary w-12 h-12 rounded-full flex items-center justify-center"
+          :class="{ 'opacity-40 cursor-not-allowed': !inputText.trim() || chatFrameState.typing }"
+          :disabled="!inputText.trim() || chatFrameState.typing"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+    </div>
 
     <!-- 新增助手 / 删除确认 弹窗 -->
     <div
@@ -1072,19 +1005,19 @@
         </div>
       </div>
     </div>
-  </div>
+  </PageShell>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import {
-  Bot, LogOut, Settings, RotateCcw, MessageCircle,
+  Bot, Settings, RotateCcw, MessageCircle,
   Database, FolderOpen, Check, X, Plus, List, LayoutGrid,
   Trash2, ChevronLeft, Upload, FileText, Mic, PhoneOff,
-  Search, Download, Zap, History, Shield, Users, Gauge, KeyRound
+  Search, Download, Zap
 } from 'lucide-vue-next'
 import ChatMessages from '../components/ChatMessages.vue'
+import PageShell from '../components/PageShell.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { personaTemplates } from '../composables/usePersonaTemplates'
@@ -1099,13 +1032,10 @@ import { useWebRTC } from '../composables/useWebRTC'
 import { uploadRecording } from '../api/callRecord'
 import { finishRecordingUpload } from '../utils/recordingUpload'
 import { fetchAssistantsPage, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels, fetchTools } from '../api/assistant'
-import { logout, clearSession } from '../api/auth'
 import { RagflowApi } from '../api/ragflow'
 import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, VoiceInfo, ModelInfo, ToolInfo } from '../types'
 
-// 主题与路由
 const { themeMode, setTheme } = useTheme()
-const router = useRouter()
 
 // 助手数据
 const assistants = ref<Assistant[]>([])
@@ -1118,15 +1048,6 @@ const assistantPage = ref(1)
 const ASSISTANT_PAGE_SIZE = 10
 const assistantTotal = ref(0)
 const assistantTotalPages = computed(() => Math.max(1, Math.ceil(assistantTotal.value / ASSISTANT_PAGE_SIZE)))
-
-// 用户信息
-const userName = typeof localStorage !== 'undefined'
-  ? (localStorage.getItem('username') || '用户')
-  : '用户'
-const userInitial = userName.charAt(0).toUpperCase()
-const userRole = typeof localStorage !== 'undefined'
-  ? (localStorage.getItem('role') || 'user')
-  : 'user'
 
 // 弹窗状态
 const showModal = ref(false)
@@ -1699,20 +1620,6 @@ const sendMessage = () => {
 }
 
 const handleScrollStateChange = () => {}
-
-// 退出登录
-const handleLogout = () => {
-  ws?.close()
-  voiceWs?.close()
-  webrtc.hangup()
-  // 通知服务端将当前令牌加入黑名单（登出失效）
-  const refreshToken = localStorage.getItem('refreshToken') || undefined
-  logout(refreshToken).catch(() => {
-    // 网络异常不阻塞本地登出
-  })
-  clearSession()
-  router.push('/login')
-}
 
 // 加载知识库列表（通过后端代理，密钥零下发）
 const loadKnowledgeBases = async () => {

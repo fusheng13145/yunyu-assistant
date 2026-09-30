@@ -47,6 +47,7 @@ npm run lint && npm run type:check \
   && npm run check:auth && npm run check:notification && npm run check:kb-flag \
   && npm run check:history-record && npm run check:chat-frame \
   && npm run check:recording-upload && npm run check:denial-ledger \
+  && npm run check:page-layout \
   && npm run check:registries \
   && npm run build
 
@@ -72,7 +73,7 @@ python scripts/check-docs.py && python scripts/check-config.py && bash -n script
 | job | 内容 | 凭据 |
 |---|---|---|
 | `backend` | JDK 21 + `./mvnw -B test`，失败上传 surefire 报告 | 无库、无仓库 Secrets（自备占位值） |
-| `frontend` | `npm ci` → lint → type:check → 八道 Node 检查（`check:auth` + 七道桩测与一致性检查）→ 生产构建 | 无 |
+| `frontend` | `npm ci` → lint → type:check → 九道 Node 检查（`check:auth` + 八道桩测与一致性检查）→ 生产构建 | 无 |
 | `gates` | 文档门禁 + 配置门禁 + `bash -n scripts/smoke.sh` | 无 |
 
 **刻意不进 CI**：`scripts/smoke.sh` 全链路（要实例、要库）、真实模型调用、语音网关、浏览器级 E2E。
@@ -136,7 +137,7 @@ scripts/smoke.sh              # 分节冒烟；登录失败即 exit 2
 
 `scripts/check-registries.mjs`（v2.52）查的是**登记表 ↔ 代码**：[docs/REGISTRY.md](REGISTRY.md) 的四张可机判表（迁移账本 /
 开放端点→能力 / 拒绝 Kind / AI 工具）与"门禁脚本台账 ↔ `package.json` ↔ `ci.yml` ↔ `AGENTS.md` 命令块"必须逐条对上，
-文档里写死的计数（"七个枚举值""共七道桩测"）必须等于真实条数。**改了这些面而不同步登记表就会红。**
+文档里写死的计数（"七个枚举值""共八道桩测"）必须等于真实条数。**改了这些面而不同步登记表就会红。**
 自 v2.53 起它还锁一条**不由登记表承载**的口径（第 6 组）：`knowledgebases` 是全仓唯一的知识库归属依据，
 故"写入面只有一处"必须成立——判据落在控制器文件不存在、`knowledgeBaseService.create(` 的唯一调用点、
 service 内只剩一条 `insert`、迁移 0007 与 `index.sql` 同口径、冒烟保留两条 404 锚点这五处实况上。

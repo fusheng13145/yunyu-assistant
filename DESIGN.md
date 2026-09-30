@@ -42,14 +42,16 @@
 | `.geek-notification` + `--success/--error/--warning/--info` | 通知条底色 | 由 `App.vue` 唯一挂载点渲染 |
 | `.geek-divider` / `.geek-surface` / `.geek-scroll` | 分隔线 / 面板底 / 细滚动条 | 长滚动容器加 `geek-scroll`，否则默认滚动条与风格脱节 |
 
-组件层（`frontend/src/components/`）目前只有四个真实组件：`ChatMessages.vue`（消息列表渲染）、`ScopePicker.vue`（开放能力勾选）、`SkeletonLoader.vue`（骨架屏）、`ThemeToggle.vue`（亮/暗/系统三态）。
+组件层（`frontend/src/components/`）目前有六个真实组件：`ChatMessages.vue`（消息列表渲染）、`NavList.vue`（左栏导航列表）、`PageShell.vue`（「左列表 + 右内容」布局壳）、`ScopePicker.vue`（开放能力勾选）、`SkeletonLoader.vue`（骨架屏）、`ThemeToggle.vue`（亮/暗/系统三态）。
 
 **抽新组件的判断标准是"第三次"**：同一形状第一次出现在视图里不算重复，第二次容忍，第三次必须抽出（本仓已经因为"两份逐字相同的通知实现""两份内联历史角色映射"开过两次收口批次，见手册 7.4 的 C-89 与 C-91）。
 
 ## 4. 布局约定
 
-- 主工作台（`/smartrobot`、`/chatrobot`）为**三栏**：左侧会话/助手列表、中间对话流、右侧或抽屉为配置面板；窄屏靠 `max-w-[95vw]` 的弹窗承接，不做响应式折叠动画。
-- 管理类页面（`/records`、`/org`、`/billing`、`/apps`、`/admin`）为**单列卡片 + 表格**，页头统一 `标题 + ThemeToggle`。
+- **管理类与列表类页面统一走布局壳**（v2.63 · C-130）：`/smartrobot`、`/records`、`/billing`、`/org`、`/apps`、`/admin` 六页都包在 `PageShell.vue` 里——左栏固定 `w-72`（288px）放"这一页要浏览的条目"，右栏自适应放详情或表格；整屏根、侧栏、页头标题、主题切换、用户条与登出**只在壳里存在一次**，视图不得再自声明 `min-h-screen`/`h-screen` 根、内联导航按钮或 `handleLogout`。
+- 左栏内容各页自备：`/smartrobot` 是助手列表，`/records` 是通话记录（含分页），`/org` 是组织列表，`/apps` 是应用列表，`/admin` 是五个面板入口，`/billing` 没有条目集合所以只放导航（`NavList.vue`）——**不要为它硬造一个空列表**。
+- 选中态是**共享类**：`.geek-listrow` / `.geek-listrow--active` 定义在 `src/style.css`，accent 左边框与对话框页同源；选中项必须带 `aria-current`，不能只换底色。
+- 主工作台（`/smartrobot`）为**三栏**：左侧列表在壳的左栏内、中间对话流、右侧或抽屉为配置面板；`/chatrobot`（旧版对话页）本轮**未纳入壳**，仍是自声明整屏根（边界登记在手册 6.6）。窄屏靠 `max-w-[95vw]` 的弹窗承接，不做响应式折叠动画。
 - 间距走 Tailwind 刻度，实测最高频的是 `gap-2 / gap-3 / gap-1.5`；**没有自定义 spacing 刻度**（`tailwind.config.js` 只扩了 `colors` 与 `fontFamily`），不要为此引入新刻度。
 - 骨架屏只在首屏加载占位（`SkeletonLoader.vue`），后续刷新保留旧数据 + 局部 loading，避免整页跳动。
 
@@ -68,7 +70,7 @@
 
 现有实现是**薄的**，改前端时按"只增不减"执行：
 
-- 已有：`ThemeToggle` 的 `role="radiogroup"` + `role="radio"` + `:aria-checked`；登录/注册显示密码按钮的 `:aria-label`；通知条 `role="status"`；`.geek-btn:focus-visible` 与 `.geek-input:focus` 两处焦点样式。
+- 已有：`ThemeToggle` 的 `role="radiogroup"` + `role="radio"` + `:aria-checked`；登录/注册显示密码按钮的 `:aria-label`；通知条 `role="status"`；`.geek-btn:focus-visible` 与 `.geek-input:focus` 两处焦点样式；布局壳左栏的导航项带 `aria-current="page"`、主从列表的选中行带 `aria-current="true"`（选中态不能只靠底色，见 §4）。
 - 缺失（**新代码必须补，历史代码不强制返工**）：`<label>` 与 `<input>` 的 `for`/`id` 关联（当前为 0）、`alt` 文本、显式 `tabindex` 与模态框焦点陷阱、`Esc` 关闭弹窗、除按钮/输入框之外的焦点环。
 - 底线：可点击的东西必须是真按钮（不是 `div @click`），键盘要能走完主要流程，正文对比度不低于现有 `--geek-text-*` 层级。
 

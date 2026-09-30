@@ -1,26 +1,72 @@
 <template>
-  <div class="geek-body theme-transition h-screen w-full flex flex-col overflow-hidden antialiased">
-    <!-- 顶部导航栏 -->
+  <PageShell subtitle="通话记录">
+    <template #list>
+      <div class="pt-3 pb-2 flex items-center justify-between">
+        <span class="text-xs mono tracking-widest" style="color: var(--geek-text-faint)">记录（{{ total }}）</span>
+      </div>
+
+      <div v-if="records.length === 0 && !loading" class="text-center py-10 px-3">
+        <PhoneOff class="w-8 h-8 mx-auto mb-2" style="color: var(--geek-text-faint)" />
+        <p class="text-sm" style="color: var(--geek-text-muted)">暂无通话记录</p>
+        <p class="text-xs mt-1" style="color: var(--geek-text-faint)">在工作台发起语音通话后，记录会出现在这里</p>
+      </div>
+
+      <button
+        v-for="record in records"
+        :key="record.id"
+        type="button"
+        class="geek-listrow"
+        :class="{ 'geek-listrow--active': selectedId === record.id }"
+        :aria-current="selectedId === record.id ? 'true' : undefined"
+        @click="selectRecord(record)"
+      >
+        <Bot class="w-4 h-4 flex-shrink-0" style="color: var(--geek-accent)" />
+        <div class="flex-1 min-w-0">
+          <div class="text-sm truncate">{{ record.assistantName || '未知助手' }}</div>
+          <div class="text-xs mono truncate mt-0.5" style="color: var(--geek-text-muted)">
+            {{ formatTime(record.startedAt) }} · {{ formatDuration(record.durationSec) }}
+          </div>
+        </div>
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <span v-if="record.recording" class="rec-badge" title="含通话录音">REC</span>
+          <span class="status-badge" :class="statusClass(record.status)">{{ statusLabel(record.status) }}</span>
+        </div>
+      </button>
+
+      <div v-if="totalPages > 1" class="flex items-center justify-center gap-2 pt-3">
+        <button
+          class="geek-btn geek-btn-ghost geek-btn-sm"
+          :disabled="page <= 1"
+          @click="changePage(page - 1)"
+        >
+          上一页
+        </button>
+        <span class="text-xs" style="color: var(--geek-text-muted)">{{ page }} / {{ totalPages }}</span>
+        <button
+          class="geek-btn geek-btn-ghost geek-btn-sm"
+          :disabled="page >= totalPages"
+          @click="changePage(page + 1)"
+        >
+          下一页
+        </button>
+      </div>
+    </template>
+
     <header class="flex items-center justify-between px-6 py-4 border-b shrink-0 geek-surface">
       <div class="flex items-center gap-3">
-        <h1 class="font-display text-xl font-bold tracking-tight text-geek">云谕助手</h1>
+        <h2 class="font-display text-xl font-bold tracking-tight text-geek">通话记录</h2>
         <span class="text-xs px-2 py-0.5 rounded-sm geek-badge bg-geek-tag-blue text-white">CALL_RECORDS</span>
       </div>
       <div class="flex items-center gap-3">
         <ThemeToggle :model-value="themeMode" @update:model-value="setTheme" />
-        <button @click="goBack" class="geek-btn geek-btn-ghost text-sm">
-          <ArrowLeft class="w-4 h-4 inline mr-1" />
-          返回
-        </button>
       </div>
     </header>
 
-    <!-- 主内容区 -->
     <div class="flex-1 min-h-0 overflow-y-auto geek-scroll px-4 sm:px-8 py-6">
       <!-- 用量统计 -->
       <div class="max-w-4xl mx-auto mb-6">
         <div class="flex items-center justify-between mb-4">
-          <h2 class="text-base font-bold tracking-tight" style="color: var(--geek-text)">用量统计</h2>
+          <h3 class="text-base font-bold tracking-tight" style="color: var(--geek-text)">用量统计</h3>
           <div class="flex items-center gap-1 rounded-md p-0.5 border" style="background: var(--geek-input-bg); border-color: var(--geek-border)">
             <button
               v-for="r in rangeOptions"
@@ -81,134 +127,92 @@
         </div>
       </div>
 
-      <!-- 空状态 -->
-      <div v-if="records.length === 0 && !loading" class="flex flex-col items-center justify-center h-full text-center">
-        <PhoneOff class="w-16 h-16 mb-4" style="color: var(--geek-text-faint)" />
-        <p class="text-lg font-bold mb-2 tracking-tight" style="color: var(--geek-text)">暂无通话记录</p>
-        <p class="text-sm" style="color: var(--geek-text-muted)">在助手工作台发起语音通话后，记录将展示在这里</p>
-      </div>
-
-      <!-- 记录列表 -->
-      <div v-else class="space-y-3 max-w-4xl mx-auto">
-        <div
-          v-for="record in records"
-          :key="record.id"
-          class="geek-card rounded-lg p-5 cursor-pointer transition-all hover:shadow-md"
-          @click="openDetail(record)"
-        >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <Bot class="w-8 h-8" style="color: var(--geek-accent)" />
-              <div>
-                <p class="font-medium" style="color: var(--geek-text)">{{ record.assistantName || '未知助手' }}</p>
-                <p class="text-xs mt-0.5 mono" style="color: var(--geek-text-muted)">
-                  {{ formatTime(record.startedAt) }}
-                </p>
-              </div>
-            </div>
-            <div class="flex items-center gap-4">
-              <div class="text-right">
-                <p class="text-sm font-medium mono" style="color: var(--geek-text)">{{ formatDuration(record.durationSec) }}</p>
-                <p class="text-xs mt-0.5" style="color: var(--geek-text-muted)">{{ record.messageCount }} 条消息</p>
-              </div>
-              <span class="status-badge" :class="statusClass(record.status)">
-                {{ statusLabel(record.status) }}
-              </span>
-              <span v-if="record.recording" class="rec-badge" title="含通话录音">REC</span>
-              <ChevronRight class="w-4 h-4" style="color: var(--geek-text-faint)" />
-            </div>
-          </div>
-        </div>
-
-        <!-- 分页 -->
-        <div v-if="totalPages > 1" class="flex items-center justify-center gap-3 pt-4">
-          <button
-            class="geek-btn geek-btn-ghost text-sm"
-            :disabled="page <= 1"
-            @click="changePage(page - 1)"
-          >
-            上一页
-          </button>
-          <span class="text-sm" style="color: var(--geek-text-muted)">{{ page }} / {{ totalPages }}</span>
-          <button
-            class="geek-btn geek-btn-ghost text-sm"
-            :disabled="page >= totalPages"
-            @click="changePage(page + 1)"
-          >
-            下一页
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 详情弹窗 -->
-    <div v-if="showDetail" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: var(--geek-overlay)">
-      <div class="geek-card-elevated rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
+      <!-- 选中记录的详情（v2.63 起落在右栏，不再是遮罩弹窗） -->
+      <div class="max-w-4xl mx-auto geek-card rounded-xl overflow-hidden">
         <div class="flex items-center justify-between px-6 py-4 border-b" style="border-color: var(--geek-divider)">
           <div>
-            <h3 class="font-bold tracking-tight" style="color: var(--geek-text)">{{ detail?.assistantName || '通话详情' }}</h3>
+            <h3 class="font-bold tracking-tight" style="color: var(--geek-text)">
+              {{ detail?.assistantName || '通话详情' }}
+            </h3>
             <p class="text-xs mt-0.5 mono" style="color: var(--geek-text-muted)">
-              {{ formatTime(detail?.startedAt) }} · {{ formatDuration(detail?.durationSec || 0) }}
+              <template v-if="detail">
+                {{ formatTime(detail.startedAt) }} · {{ formatDuration(detail.durationSec || 0) }} · {{ detail.messages.length }} 条消息
+              </template>
+              <template v-else>未选择记录</template>
             </p>
           </div>
-          <button @click="closeDetail" class="p-1 transition-colors hover:opacity-70" style="color: var(--geek-text-muted)">
-            <X class="w-5 h-5" />
-          </button>
+          <span
+            v-if="detail"
+            class="status-badge"
+            :class="statusClass(detail.status)"
+          >{{ statusLabel(detail.status) }}</span>
         </div>
-        <div class="flex-1 min-h-0 overflow-y-auto geek-scroll px-6 py-5 space-y-4">
-          <!-- 通话录音回放 -->
-          <div v-if="detail && detail.recording" class="p-3 rounded-lg" style="background: var(--geek-input-bg); border: 1px solid var(--geek-border)">
-            <div class="flex items-center gap-3">
-              <Mic class="w-4 h-4 flex-shrink-0" style="color: var(--geek-accent)" />
-              <div class="flex-1 min-w-0">
-                <p class="text-xs font-medium mb-1" style="color: var(--geek-text)">通话录音</p>
-                <audio v-if="recordingUrl" :src="recordingUrl" controls class="w-full" style="height: 32px"></audio>
-                <button
-                  v-else-if="!recordingLoading"
-                  @click="loadRecording(detail.id)"
-                  class="geek-btn geek-btn-ghost geek-btn-sm"
-                >
-                  播放录音
-                </button>
-                <span v-else class="text-xs" style="color: var(--geek-text-muted)">加载中…</span>
+
+        <div class="px-6 py-5 space-y-4">
+          <p v-if="selectedId === ''" class="text-sm text-center py-8" style="color: var(--geek-text-muted)">
+            从左侧列表选择一条通话，详情与录音会显示在这里
+          </p>
+          <p v-else-if="detailFailed" class="text-sm text-center py-8" style="color: var(--geek-error)">
+            详情加载失败，请重新点击左侧记录重试
+          </p>
+          <p v-else-if="detail === null" class="text-sm text-center py-8" style="color: var(--geek-text-muted)">
+            加载中…
+          </p>
+
+          <template v-else>
+            <!-- 通话录音回放 -->
+            <div v-if="detail.recording" class="p-3 rounded-lg" style="background: var(--geek-input-bg); border: 1px solid var(--geek-border)">
+              <div class="flex items-center gap-3">
+                <Mic class="w-4 h-4 flex-shrink-0" style="color: var(--geek-accent)" />
+                <div class="flex-1 min-w-0">
+                  <p class="text-xs font-medium mb-1" style="color: var(--geek-text)">通话录音</p>
+                  <audio v-if="recordingUrl" :src="recordingUrl" controls class="w-full" style="height: 32px"></audio>
+                  <button
+                    v-else-if="!recordingLoading"
+                    @click="loadRecording(detail.id)"
+                    class="geek-btn geek-btn-ghost geek-btn-sm"
+                  >
+                    播放录音
+                  </button>
+                  <span v-else class="text-xs" style="color: var(--geek-text-muted)">加载中…</span>
+                </div>
               </div>
             </div>
-          </div>
-          <div v-if="detail && detail.messages.length === 0" class="text-center py-10 text-sm" style="color: var(--geek-text-muted)">
-            本次通话无消息记录
-          </div>
-          <div
-            v-for="(msg, i) in detail?.messages || []"
-            :key="i"
-            class="flex"
-            :class="msg.role === 0 ? 'justify-end' : 'justify-start'"
-          >
-            <div
-              class="max-w-[75%] px-4 py-2.5 rounded-lg text-sm break-words"
-              :style="msg.role === 0
-                ? 'background: var(--geek-primary); color: var(--geek-text-on-primary)'
-                : 'background: var(--geek-input-bg); color: var(--geek-text); border: 1px solid var(--geek-border)'"
-            >
-              {{ msg.message }}
+            <div v-if="detail.messages.length === 0" class="text-center py-10 text-sm" style="color: var(--geek-text-muted)">
+              本次通话无消息记录
             </div>
-          </div>
+            <div
+              v-for="(msg, i) in detail.messages"
+              :key="i"
+              class="flex"
+              :class="msg.role === 0 ? 'justify-end' : 'justify-start'"
+            >
+              <div
+                class="max-w-[75%] px-4 py-2.5 rounded-lg text-sm break-words"
+                :style="msg.role === 0
+                  ? 'background: var(--geek-primary); color: var(--geek-text-on-primary)'
+                  : 'background: var(--geek-input-bg); color: var(--geek-text); border: 1px solid var(--geek-border)'"
+              >
+                {{ msg.message }}
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
-  </div>
+  </PageShell>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { ArrowLeft, Bot, ChevronRight, Mic, PhoneOff, X } from 'lucide-vue-next'
+import { Bot, Mic, PhoneOff } from 'lucide-vue-next'
+import PageShell from '../components/PageShell.vue'
 import { useTheme } from '../composables/useTheme'
 import { useNotification } from '../composables/useNotification'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { fetchCallRecords, fetchCallRecordDetail, fetchRecordingBlob, fetchUsageStats } from '../api/callRecord'
 import type { CallRecord, CallRecordDetail, UsageStats } from '../types'
 
-const router = useRouter()
 const { show } = useNotification()
 const { themeMode, setTheme } = useTheme()
 
@@ -217,8 +221,9 @@ const loading = ref(false)
 const page = ref(1)
 const pageSize = 10
 const total = ref(0)
-const showDetail = ref(false)
+const selectedId = ref('')
 const detail = ref<CallRecordDetail | null>(null)
+const detailFailed = ref(false)
 // 录音回放
 const recordingUrl = ref('')
 const recordingLoading = ref(false)
@@ -268,27 +273,25 @@ const changePage = (p: number) => {
   loadRecords()
 }
 
-const openDetail = async (record: CallRecord) => {
-  showDetail.value = true
-  detail.value = null
+const releaseRecording = () => {
   if (recordingUrl.value) {
     URL.revokeObjectURL(recordingUrl.value)
     recordingUrl.value = ''
   }
   recordingLoading.value = false
+}
+
+const selectRecord = async (record: CallRecord) => {
+  selectedId.value = record.id
+  detail.value = null
+  detailFailed.value = false
+  releaseRecording()
   try {
     detail.value = await fetchCallRecordDetail(record.id)
   } catch (error) {
     console.error('获取通话详情失败:', error)
+    detailFailed.value = true
     show(`通话详情加载失败：${(error as Error).message}`, 'error')
-  }
-}
-
-const closeDetail = () => {
-  showDetail.value = false
-  if (recordingUrl.value) {
-    URL.revokeObjectURL(recordingUrl.value)
-    recordingUrl.value = ''
   }
 }
 
@@ -305,8 +308,6 @@ const loadRecording = async (id: string) => {
     recordingLoading.value = false
   }
 }
-
-const goBack = () => router.push('/smartrobot')
 
 const formatTime = (t?: string) => {
   if (!t) return '—'
