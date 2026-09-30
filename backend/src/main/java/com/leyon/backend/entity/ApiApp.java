@@ -60,7 +60,7 @@ public class ApiApp {
     private String appKeyHash;
 
     /**
-     * 明文 API Key——**非数据库列**，只在创建成功的响应里出现一次，之后任何路径都取不到。
+     * 明文 API Key——**非数据库列**，只在创建那一次的显式载荷里出现一次，之后任何路径都取不到。
      * 标 {@code exist=false} 是刻意的：一旦它还能被持久化，"哈希落库"就只是多存一列。
      */
     @TableField(exist = false)
@@ -88,6 +88,9 @@ public class ApiApp {
 
     /**
      * Webhook 签名密钥（P2-17；用于 HMAC-SHA256 签名，空=不签名）
+     * <p>
+     * 它是**真实列**，所以外发抑制必须落在实体上而不是落在某个出口的白名单上：接收方要拿它验签，
+     * 但唯一该拿到它的时刻是创建那一次（v2.17 漏了生成，签名恒不生效；v2.19 补的就是这一次可见）。
      */
     private String webhookSecret;
 
@@ -123,10 +126,6 @@ public class ApiApp {
         this.id = id;
     }
 
-    public String getAppKey() {
-        return appKey;
-    }
-
     public void setAppKey(String appKey) {
         this.appKey = appKey;
     }
@@ -139,6 +138,15 @@ public class ApiApp {
 
     public void setAppKeyHash(String appKeyHash) {
         this.appKeyHash = appKeyHash;
+    }
+
+    /**
+     * 明文 Key 也不走实体序列化（v2.64）：它只在 {@code POST /api/openapi/apps} 那一次由出口显式放进载荷。
+     * 区别在于"谁能决定它出去"——留在实体上时，任何"顺手把整个实体放进响应"的新端点都会把它再发一遍。
+     */
+    @JsonIgnore
+    public String getAppKey() {
+        return appKey;
     }
 
     public String getAppName() {
@@ -173,6 +181,11 @@ public class ApiApp {
         this.webhookUrl = webhookUrl;
     }
 
+    /**
+     * 抑制出站（v2.64）：列表接口今天恰好手写了字段白名单，所以这一列看起来"没外发"，
+     * 但那份白名单管不到未来的任何一个 {@code return ApiResponse.success(app)}。
+     */
+    @JsonIgnore
     public String getWebhookSecret() {
         return webhookSecret;
     }

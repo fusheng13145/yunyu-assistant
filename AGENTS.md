@@ -71,7 +71,8 @@
 ## 代码约定
 
 - 后端：包结构 `controller/service/mapper/entity/handler/interceptor/tool/config/util/aspect/task`；**没有 DTO 层**，请求体多用 `Map<String, …>`（凭据类请求必须用 DTO/Map，不要用实体接，见手册 4.5）。统一响应体 `common/ApiResponse`。
-- 凭据外发抑制落在**实体上**（`@JsonIgnore` + 不含凭据的 `toString()`），不在出口手写 `setXxx(null)`——手写会改写查出来的行，且少写一处就泄露一处。
+- 凭据外发抑制落在**实体上**（`@JsonIgnore` + 不含凭据的 `toString()`），不在出口手写 `setXxx(null)`——手写会改写查出来的行，且少写一处就泄露一处。这条由 `entity/EntityCredentialSuppressionTest` 静态判据守着（扫全部 `@TableName` 实体，字段名命中凭据词表就必须序列化不出去）；**新增凭据列必须先表态**，否则 `./mvnw test` 当场红。
+- 一次性明文（新建应用的 `appKey`/`webhookSecret`）只能由**出口显式构造的白名单载荷**交付，不得把整颗实体交给序列化器——实体级抑制负责"别的端点顺手 return 实体也发不出去"，显式载荷负责"该给的那一次仍给得到"。
 - 客户端地址只经 `util/ClientIpResolver`；限流桶键、登录锁定、审计落库三处共用这一口径。
 - 前端：无 Pinia、无 axios，会话态在 `localStorage` + `api/auth.ts` 的统一出口；**共享控件是 `src/style.css` 里的 `.geek-*` 全局类**，不是各页各写一份；通知走 `composables/useNotification.ts` 单例 + `App.vue` 唯一挂载点。
 - 被 Node 门禁脚本 `import` 的前端模块**只能依赖裸包名或 `import type`**（普通相对 value import 在 Node 下 `ERR_MODULE_NOT_FOUND`）。

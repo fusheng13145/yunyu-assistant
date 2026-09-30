@@ -37,6 +37,9 @@
 # ============================================================
 set -uo pipefail
 
+# 目标地址只有这两个变量：BASE / MGMT_BASE。SMOKE_ORIGIN 不改写目标，它只多加一条"站点 Origin 能否握手"的断言。
+# 默认 8080 在本机是**别人的服务**（v2.64 踩过：只设 SMOKE_ORIGIN 的整轮打在 jobbuddy-app 上，全 401 却仍退出码 2），
+# 自验证必须显式指到自己的端口，并按 §1 的第一行"目标：…"核对打到的是谁。
 BASE="${BASE:-http://127.0.0.1:8080}"
 MGMT_BASE="${MGMT_BASE:-$BASE}"
 TIMEOUT="${TIMEOUT:-10}"
@@ -712,6 +715,14 @@ if api_ok 'POST /api/openapi/apps（scopes=chat）'; then
     [ "$(jget data.scopes)" = 'chat' ] \
         && ok '创建回显 scopes=chat：勾了什么就是什么' \
         || bad '创建回显 scopes 漂移' "$(jget data.scopes)"
+    # 凭据载荷口径（v2.64 · C-131）：抑制落在实体上，所以"该给的那一次给得到"必须由出口显式构造来保证，
+    # 而"库里存的东西给不出"是这条判据的另一半——两半都只跑真链路才算数（单测里载荷是桩造的）
+    printf '%s' "$BODY" | grep -qF '"webhookSecret"' \
+        && ok '创建响应仍交付 webhookSecret（v2.17 漏过这一步，签名恒不生效且无人报错）' \
+        || bad '创建响应丢了 webhookSecret' "$(detail)"
+    printf '%s' "$BODY" | grep -qE '"appKeyHash"|"isDeleted"|"userId"' \
+        && bad '创建响应带出了库内部列' "$(detail)" \
+        || ok '创建响应只带显式白名单字段（整颗实体不再当响应载荷）'
 fi
 
 if [ -n "$SCOPE_APP_KEY" ]; then
@@ -756,6 +767,10 @@ if [ -n "$SCOPE_APP_ID" ]; then
         || bad '空集拒绝未给出出口' "$(detail)"
     req GET /api/openapi/apps "$TOKEN"
     if api_ok 'GET /api/openapi/apps（复核两次拒绝没动库）'; then
+        # 列表是"手写白名单字段"的出口形状（v2.64 起凭据另由实体级注解兜底，这里锁可观测结果）
+        printf '%s' "$BODY" | grep -qE '"webhookSecret"|"appKey"' \
+            && bad '列表响应带出了凭据键' "$(detail)" \
+            || ok '列表响应不含 appKey/webhookSecret（明文只在创建那一次交付）'
         ROW=0
         ROW_SCOPE=''
         while true; do

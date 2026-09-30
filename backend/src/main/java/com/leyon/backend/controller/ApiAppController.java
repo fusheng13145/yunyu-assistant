@@ -38,10 +38,14 @@ public class ApiAppController {
 
     /**
      * 创建第三方应用，返回 app_key（仅展示一次）；可指定 webhookUrl（P2-17）与 scopes（v2.45）
+     * <p>
+     * 载荷在出口显式构造，而不是把实体交给序列化器（v2.64 · C-131）：{@code appKey} 与
+     * {@code webhookSecret} 是这套接口里**唯一**该外发的两个凭据，且只该给这一次。实体上那两个
+     * {@code @JsonIgnore} 负责"任何其它端点顺手 return 实体也发不出去"，这里负责"该给的那一次仍给得到"。
      */
     @Audit(action = "API_APP_CREATE", targetType = "api_app")
     @PostMapping("/apps")
-    public ApiResponse<ApiApp> create(@RequestBody Map<String, String> body, HttpServletRequest request) {
+    public ApiResponse<Map<String, Object>> create(@RequestBody Map<String, String> body, HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");
         String appName = body == null ? null : body.get("appName");
         if (!StringUtils.hasText(appName)) {
@@ -51,14 +55,22 @@ public class ApiAppController {
         String scopes = body == null ? null : body.get("scopes");
         try {
             ApiApp app = apiAppService.create(userId, appName, webhookUrl, scopes);
-            return ApiResponse.success(app);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("id", app.getId());
+            payload.put("appName", app.getAppName());
+            payload.put("appKey", app.getAppKey());
+            payload.put("webhookSecret", app.getWebhookSecret());
+            payload.put("webhookUrl", app.getWebhookUrl());
+            payload.put("scopes", app.getScopes());
+            payload.put("createdAt", app.getCreatedAt());
+            return ApiResponse.success(payload);
         } catch (IllegalArgumentException e) {
             return ApiResponse.paramError(e.getMessage());
         }
     }
 
     /**
-     * 查询我的应用列表（隐藏 app_key 与 webhook_secret，展示 webhookUrl）
+     * 查询我的应用列表（只回显可展示字段；凭据列自 v2.64 起另有实体级抑制兜底）
      */
     @GetMapping("/apps")
     public ApiResponse<List<Map<String, Object>>> list(HttpServletRequest request) {

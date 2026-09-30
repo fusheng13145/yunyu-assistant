@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 
 /**
@@ -113,5 +115,47 @@ class ApiAppControllerTest {
                 .isEqualTo(OpenApiDenialMeter.clampWindow(0));
         assertThat(controller.denials(9999, request).getData().get("windowHours"))
                 .isEqualTo(OpenApiDenialMeter.MAX_RETAINED_HOURS);
+    }
+
+    /**
+     * 创建响应必须由出口显式构造（v2.64 · C-131）。
+     * <p>
+     * 实体自 v2.64 起把凭据字段的出站一律掐掉（含一次性明文 {@code appKey} 与签名密钥），
+     * 所以这条判据锁的是另一端：**掐抑制不等于把交付路径一起掐掉**。v2.17 就是因为漏了这一步，
+     * Webhook 签名恒不生效却无人报错。整颗实体的响应形状同时被禁掉——那是"新端点顺手 return 实体
+     * 就把密钥发出去"的那条路。
+     */
+    @Test
+    @DisplayName("创建响应是出口显式构造的一次性载荷：给得出明文，给不出库里存的东西")
+    @SuppressWarnings("unchecked")
+    void createResponseIsExplicitlyBuiltOneTimePayload() throws Exception {
+        ApiApp created = new ApiApp();
+        created.setId("app-new");
+        created.setAppName("冒烟应用");
+        created.setAppKey("plain-key-shown-once");
+        created.setAppKeyHash("6db7c1a5 hashed-never-returned");
+        created.setWebhookSecret("webhook-secret-shown-once");
+        created.setWebhookUrl("https://example.com/hook");
+        created.setScopes("chat");
+        created.setEnabled(ApiApp.ENABLED);
+        when(apiAppService.create(eq(OWNER), eq("冒烟应用"), isNull(), eq("chat"))).thenReturn(created);
+        when(request.getAttribute("userId")).thenReturn(OWNER);
+
+        Object data = controller.create(Map.of("appName", "冒烟应用", "scopes", "chat"), request).getData();
+
+        assertThat(data).as("载荷必须是出口显式构造的 Map，不是整颗实体")
+                .isInstanceOf(Map.class);
+        Map<String, Object> payload = (Map<String, Object>) data;
+        assertThat(payload)
+                .containsEntry("appKey", "plain-key-shown-once")
+                .containsEntry("webhookSecret", "webhook-secret-shown-once")
+                .doesNotContainKey("appKeyHash")
+                .doesNotContainKey("isDeleted");
+
+        // 出口显式给的明文确实进得了 JSON：实体上的 @JsonIgnore 管不到 Map 的条目
+        String json = new com.fasterxml.jackson.databind.ObjectMapper()
+                .findAndRegisterModules().writeValueAsString(payload);
+        assertThat(json).contains("plain-key-shown-once").contains("webhook-secret-shown-once")
+                .doesNotContain("6db7c1a5");
     }
 }
