@@ -270,11 +270,11 @@
     <!-- 知识库管理弹窗 -->
     <div
       v-if="showKnowledgeModal"
-      class="fixed inset-0 z-40 flex items-center justify-center geek-overlay"
+      class="geek-modal-mask z-40 geek-overlay"
       @click.self="closeKnowledgeModal"
     >
       <div
-        class="animate-modal-in geek-card-elevated max-h-[85vh] max-w-[95vw] rounded-xl shadow-lg flex overflow-hidden"
+        class="geek-modal-card animate-modal-in geek-card-elevated max-h-[85vh] max-w-[95vw] rounded-xl shadow-lg flex overflow-hidden"
         :class="showFileManager ? 'w-[1200px]' : 'w-[800px]'"
       >
         <!-- 左侧知识库列表 -->
@@ -532,10 +532,10 @@
     <!-- 创建知识库弹窗 -->
     <div
       v-if="showCreateKnowledgeForm"
-      class="fixed inset-0 z-50 flex items-center justify-center geek-overlay"
+      class="geek-modal-mask z-50 geek-overlay"
       @click.self="showCreateKnowledgeForm = false"
     >
-      <div class="animate-modal-in geek-card-elevated w-[420px] max-w-[95vw] p-7 rounded-xl shadow-lg">
+      <div class="geek-modal-card animate-modal-in geek-card-elevated w-[420px] max-w-[95vw] p-7 rounded-xl shadow-lg">
         <h3 class="text-lg font-bold tracking-tight mb-5 text-geek">创建知识库</h3>
         <div class="space-y-4">
           <div>

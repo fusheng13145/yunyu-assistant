@@ -37,6 +37,7 @@
 |---|---|---|
 | `.geek-btn` + `-primary` / `-ghost` / `-danger` / `-sm` | 全部按钮 | 禁用态已定义（`:disabled`），别自己写 opacity |
 | `.geek-card` / `.geek-card-elevated` | 卡片 / 弹窗容器 | 弹窗固定为 `animate-modal-in geek-card-elevated … rounded-xl shadow-lg`，宽度用 `w-[...] max-w-[95vw] max-h-[85vh]` |
+| `.geek-modal-mask` + `.geek-modal-card` | 弹窗遮罩与安全居中（v2.65） | 遮罩＝`position: fixed; inset: 0; display: flex; overflow-y: auto`，卡片＝`margin: auto`。**不要**在遮罩上写 `items-center justify-center`：内容高于视口时卡片上下同时被裁、向上溢出的部分滚不出来。背景与 z 层留给各弹层自己写（本批刻意未统一三种背景写法） |
 | `.geek-input` | 所有输入控件 | 聚焦环走 `--geek-input-focus-*` |
 | `.geek-badge` | 技术标签（等宽） | 只用于计数、状态、ID 一类短文本 |
 | `.geek-notification` + `--success/--error/--warning/--info` | 通知条底色 | 由 `App.vue` 唯一挂载点渲染 |

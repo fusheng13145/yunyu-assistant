@@ -156,8 +156,8 @@
     </div>
 
     <!-- 创建应用弹窗 -->
-    <div v-if="showCreate" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.45)">
-      <div class="geek-card rounded-xl p-6 w-full max-w-lg mx-4">
+    <div v-if="showCreate" class="geek-modal-mask z-50" style="background: rgba(0,0,0,0.45)">
+      <div class="geek-modal-card geek-card rounded-xl p-6 w-full max-w-lg mx-4">
         <h3 class="font-display text-lg font-bold mb-4" style="color: var(--geek-text)">创建应用</h3>
         <input v-model="createForm.appName" type="text" maxlength="64" placeholder="应用名称（必填）" class="geek-input w-full px-3 py-2 rounded mb-3" />
         <input v-model="createForm.webhookUrl" type="text" placeholder="Webhook 回调 URL（可选，第三方调用时可接收事件回调）" class="geek-input w-full px-3 py-2 rounded mb-4" />
@@ -179,8 +179,8 @@
     </div>
 
     <!-- 创建成功：一次性展示 app_key -->
-    <div v-if="createdApp" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.45)">
-      <div class="geek-card rounded-xl p-6 w-full max-w-lg mx-4">
+    <div v-if="createdApp" class="geek-modal-mask z-50" style="background: rgba(0,0,0,0.45)">
+      <div class="geek-modal-card geek-card rounded-xl p-6 w-full max-w-lg mx-4">
         <h3 class="font-display text-lg font-bold mb-2" style="color: var(--geek-text)">创建成功</h3>
         <p class="text-xs mb-4" style="color: var(--geek-text-muted)">API Key 仅展示一次，请立即保存。</p>
         <div class="rounded px-3 py-2 mono text-xs break-all mb-3" style="background: var(--geek-input-bg); color: var(--geek-accent)">
@@ -203,8 +203,8 @@
     </div>
 
     <!-- 编辑能力弹窗（v2.46）：整串替换，服务端拒绝空集，所以全不选时保存按钮不可用 -->
-    <div v-if="editTarget" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.45)">
-      <div class="geek-card rounded-xl p-6 w-full max-w-lg mx-4">
+    <div v-if="editTarget" class="geek-modal-mask z-50" style="background: rgba(0,0,0,0.45)">
+      <div class="geek-modal-card geek-card rounded-xl p-6 w-full max-w-lg mx-4">
         <h3 class="font-display text-lg font-bold mb-1" style="color: var(--geek-text)">编辑能力</h3>
         <p class="text-xs mb-4" style="color: var(--geek-text-muted)">
           「{{ editTarget.appName }}」当前：
@@ -232,8 +232,8 @@
     </div>
 
     <!-- 吊销确认弹窗 -->
-    <div v-if="revokeTarget" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.45)">
-      <div class="geek-card rounded-xl p-6 w-full max-w-md mx-4">
+    <div v-if="revokeTarget" class="geek-modal-mask z-50" style="background: rgba(0,0,0,0.45)">
+      <div class="geek-modal-card geek-card rounded-xl p-6 w-full max-w-md mx-4">
         <h3 class="font-display text-lg font-bold mb-2" style="color: var(--geek-text)">吊销应用</h3>
         <p class="text-sm mb-5" style="color: var(--geek-text-muted)">
           确认吊销「{{ revokeTarget.appName }}」？吊销后其 API Key 即刻失效，不可恢复。

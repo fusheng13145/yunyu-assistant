@@ -92,6 +92,7 @@ Node 门禁脚本（`scripts/check-*.mjs` / `check-*.py`）**零新增依赖**�
 - **纯逻辑一律抽成 `utils/` 里的函数而不是组件内联**：能被门禁 import 的模块必须是
   **零运行时相对 import**（只允许裸包名与 `import type`）。这是硬约束，违反会让桩测写不出来。
   现有 7 个 util 模块满足；`utils/websocket.ts` 因运行时依赖 `api/auth` 而不满足。
+- **弹层的定位形状也只有一个单点**（v2.65）：`style.css` 里的 `.geek-modal-mask`（`position: fixed; inset: 0; display: flex; overflow-y: auto` ⇒ 遮罩自己就是滚动容器）+ `.geek-modal-card`（`margin: auto` ⇒ 够则精确居中、不够则贴顶且上下都滚得到）。视图里**不要**再在遮罩元素上写 `fixed inset-0 … items-center justify-center`——那是**不安全居中**，内容一高于视口就会把卡片上下一起裁掉，而向上溢出的部分滚不出来（手册 7.4 候选 ㊾ 的实测读数就是主按钮点不到）。`margin: auto` 在交叉轴两侧还会抑制 `align-items: stretch`，所以**不需要内层包裹 div**，`@click.self` 的"点遮罩关闭"语义得以原样保住。背景与 z 层仍留给各弹层自己写（本仓刻意未统一）。判据在 `check-page-layout.mjs` 第 6 组。
 
 ### 3.2 视图（views）写法
 
@@ -147,7 +148,7 @@ Node 门禁脚本（`scripts/check-*.mjs` / `check-*.py`）**零新增依赖**�
 | 后端判据/接线 | 单测 + 手册登记；新增拒绝语义要写反向锚点（"放行不记账""内部错误不入开放台账"这类） |
 | 前端纯逻辑 | 一道 Node 桩测（`scripts/check-*.mjs`）+ `package.json` 的 `check:*` 脚本 + **纳入 `ci.yml` 的 frontend job** |
 | 防复制粘贴 | 桩测里加**静态源码断言**（读视图原文，要求经统一入口、不得残留旧形状） |
-| 页面形状（壳 / 导航 / 左列表 / 登出） | `scripts/check-page-layout.mjs`（静态读六视图 + 两个新组件 + `style.css`）；新增或改名视图时要同步它的 `VIEWS` 清单与锚点，否则第 5 组反向锚点红 |
+| 页面形状（壳 / 导航 / 左列表 / 登出 / 弹层遮罩与居中） | `scripts/check-page-layout.mjs`（静态读六视图 + 两个新组件 + `style.css`）；新增或改名视图时要同步它的 `VIEWS` 清单与锚点，否则第 5 组反向锚点红 |
 | 部署面/接口契约 | 跑一次真机 `scripts/smoke.sh`，并按"跑法口径"记项数（环境变量差异会改变项数，见 AGENTS.md） |
 | 环境变量 | 同步 `application.yaml` 默认值 + `additional-spring-configuration-metadata.json` + `.env.example` + 手册 5.3 + README 表，否则 `check-config.py` 红 |
 | 文档 | `python scripts/check-docs.py`（目录/表格/链接/遗留标记/变更记录连续性） |

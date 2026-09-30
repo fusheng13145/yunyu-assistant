@@ -282,10 +282,10 @@
     <!-- 新增助手 / 删除确认 弹窗 -->
     <div
       v-if="showModal || showDeleteModal"
-      class="modal-mask fixed inset-0 z-50 flex items-center justify-center bg-geek-overlay"
+      class="modal-mask geek-modal-mask z-50 bg-geek-overlay"
       @click.self="showModal ? closeModal() : cancelDelete()"
     >
-      <div class="modal-card animate-modal-in geek-card-elevated rounded-xl w-[420px] max-w-[95vw] p-6">
+      <div class="modal-card geek-modal-card animate-modal-in geek-card-elevated rounded-xl w-[420px] max-w-[95vw] p-6">
         <!-- 新增助手 -->
         <div v-if="showModal">
           <h3 class="text-lg font-bold tracking-tight mb-6 text-geek-text">新增助手</h3>
@@ -394,10 +394,10 @@
     <!-- 设置弹窗 -->
     <div
       v-if="showSettings"
-      class="modal-mask fixed inset-0 z-40 flex items-center justify-center bg-geek-overlay"
+      class="modal-mask geek-modal-mask z-40 bg-geek-overlay"
       @click.self="closeSettingsModal"
     >
-      <div class="modal-large animate-modal-in geek-card-elevated rounded-xl w-[900px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden">
+      <div class="modal-large geek-modal-card animate-modal-in geek-card-elevated rounded-xl w-[900px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden">
         <!-- 设置头部 -->
         <div class="modal-header flex items-center justify-between px-6 py-4 border-b border-geek flex-shrink-0">
           <h2 class="text-xl font-bold tracking-tight text-geek-text">助手设置</h2>
@@ -640,11 +640,11 @@
     <!-- 知识库管理弹窗 -->
     <div
       v-if="showKnowledgeModal"
-      class="modal-mask fixed inset-0 z-50 flex items-center justify-center bg-geek-overlay"
+      class="modal-mask geek-modal-mask z-50 bg-geek-overlay"
       @click.self="closeKnowledgeModal"
     >
       <div
-        class="kb-modal animate-modal-in geek-card-elevated rounded-xl max-w-[95vw] flex overflow-hidden transition-all duration-500"
+        class="kb-modal geek-modal-card animate-modal-in geek-card-elevated rounded-xl max-w-[95vw] flex overflow-hidden transition-all duration-500"
         :class="showFileManager ? 'w-[1400px]' : 'w-[900px]'"
       >
         <!-- 知识库列表面板 -->
@@ -905,10 +905,10 @@
     <!-- 创建知识库弹窗 -->
     <div
       v-if="showCreateKnowledgeForm"
-      class="modal-mask fixed inset-0 z-[60] flex items-center justify-center bg-geek-overlay"
+      class="modal-mask geek-modal-mask z-[60] bg-geek-overlay"
       @click.self="showCreateKnowledgeForm = false"
     >
-      <div class="modal-small animate-modal-in geek-card-elevated rounded-xl w-[440px] max-w-[95vw] p-6">
+      <div class="modal-small geek-modal-card animate-modal-in geek-card-elevated rounded-xl w-[440px] max-w-[95vw] p-6">
         <h3 class="text-lg font-bold tracking-tight mb-5 text-geek-text">创建知识库</h3>
         <div class="form-groups space-y-4">
           <div>
@@ -953,10 +953,10 @@
     <!-- 检索效果测试弹窗（F5.5） -->
     <div
       v-if="showRetrievalTest"
-      class="modal-mask fixed inset-0 z-50 flex items-center justify-center bg-geek-overlay"
+      class="modal-mask geek-modal-mask z-50 bg-geek-overlay"
       @click.self="showRetrievalTest = false"
     >
-      <div class="modal-card animate-modal-in geek-card-elevated rounded-xl w-[560px] max-w-[95vw] max-h-[80vh] flex flex-col overflow-hidden">
+      <div class="modal-card geek-modal-card animate-modal-in geek-card-elevated rounded-xl w-[560px] max-w-[95vw] max-h-[80vh] flex flex-col overflow-hidden">
         <div class="flex items-center justify-between px-6 py-4 border-b" style="border-color: var(--geek-divider)">
           <h3 class="font-bold tracking-tight text-geek-text">检索效果测试</h3>
           <button @click="showRetrievalTest = false" class="p-1" style="color: var(--geek-text-muted)">

@@ -577,3 +577,18 @@ select.geek-input {
 .geek-notification--error { background: var(--geek-error); }
 .geek-notification--warning { background: var(--geek-warning); }
 .geek-notification--info { background: var(--geek-primary); }
+
+/* ====================== 弹层（遮罩 + 安全居中） ====================== */
+/* 遮罩自己就是滚动容器，居中交给卡片的 auto 外边距。
+   不用 align-items: center —— 那是"不安全居中"：内容高于视口时卡片上下同时被裁，
+   而向上溢出的部分滚不出来，主按钮就永久点不到（手册 7.4 候选 ㊾）。 */
+.geek-modal-mask {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.geek-modal-card {
+  margin: auto;
+}

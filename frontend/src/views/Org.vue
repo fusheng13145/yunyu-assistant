@@ -157,8 +157,8 @@
     </div>
 
     <!-- 创建组织弹窗 -->
-    <div v-if="showCreateOrg" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.45)">
-      <div class="geek-card rounded-xl p-6 w-full max-w-md mx-4">
+    <div v-if="showCreateOrg" class="geek-modal-mask z-50" style="background: rgba(0,0,0,0.45)">
+      <div class="geek-modal-card geek-card rounded-xl p-6 w-full max-w-md mx-4">
         <h3 class="font-display text-lg font-bold mb-4" style="color: var(--geek-text)">创建组织</h3>
         <input v-model="createForm.name" type="text" maxlength="64" placeholder="组织名称（必填）" class="geek-input w-full px-3 py-2 rounded mb-3" />
         <input v-model="createForm.description" type="text" placeholder="组织描述（可选）" class="geek-input w-full px-3 py-2 rounded mb-5" />
@@ -172,8 +172,8 @@
     </div>
 
     <!-- 添加成员弹窗 -->
-    <div v-if="showAddMember" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.45)">
-      <div class="geek-card rounded-xl p-6 w-full max-w-md mx-4">
+    <div v-if="showAddMember" class="geek-modal-mask z-50" style="background: rgba(0,0,0,0.45)">
+      <div class="geek-modal-card geek-card rounded-xl p-6 w-full max-w-md mx-4">
         <h3 class="font-display text-lg font-bold mb-4" style="color: var(--geek-text)">添加成员</h3>
         <input v-model="addForm.username" type="text" placeholder="对方用户名" class="geek-input w-full px-3 py-2 rounded mb-3" />
         <select v-model="addForm.role" class="geek-input w-full px-3 py-2 rounded mb-5">

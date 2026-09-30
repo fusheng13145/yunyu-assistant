@@ -1,10 +1,12 @@
 /**
- * 页面布局收口验证（v2.63 · C-130 的门禁侧）。
+ * 页面布局收口验证（v2.63 · C-130 的门禁侧，v2.65 · C-132 增第 6 组弹层）。
  *
  * 锁定的事实：用户提出的口径是"已实现页面要和对话框一样——左小半是列表、右大半是内容"，
  * 而 v2.62 之前五个管理页各自是 `min-h-screen flex flex-col` 的整屏根（品牌、导航、用户区
- * 只在 SmartRobot 里写了一份）。这类形状回归是**静默的**：改回整屏不会让任何请求失败、
- * 不会有任何单测变红，只会在下一次有人顺手加页面时再复制一份整屏根。
+ * 只在 SmartRobot 里写了一份）。第 6 组锁的是同一族的第二件事：弹层在内容高于视口时
+ * 把主按钮顶出屏幕且滚不出来（候选 ㊾）。这类形状回归是**静默的**：改回整屏或改回
+ * `items-center` 不会让任何请求失败、不会有任何单测变红，只会在下一次有人顺手复制
+ * 遮罩时再扩散一份。
  * 所以这里全部是静态源码判据（与 check-chat-frame / check-notification 同一族）：
  * 单点存在、旧形状消失、各页的列表与内容归属明确。
  *
@@ -134,8 +136,8 @@ console.log('\n[3] 每页的"左列表 / 右内容"归属明确')
   check('Apps 把应用列表放进左槽并持选中项', /<template #list>/.test(apps)
     && /selectedApp/.test(apps))
   check('Apps 的创建/凭据/能力/吊销四个流程弹窗保留（它们是动作，不是浏览）',
-    (apps.match(/fixed inset-0/g) ?? []).length === 4,
-    `读到 ${(apps.match(/fixed inset-0/g) ?? []).length} 处遮罩`)
+    (apps.match(/geek-modal-mask/g) ?? []).length === 4,
+    `读到 ${(apps.match(/geek-modal-mask/g) ?? []).length} 处遮罩`)
   check('Apps 的三态台账判据仍走统一入口（没有因为改版复制第二份）',
     apps.includes('ledgerCellFor'))
   check('Org 把组织列表放进左槽，成员面板进右栏', /<template #list>/.test(org)
@@ -207,5 +209,49 @@ console.log('\n[5] 反向锚点：判据读的是代码实况，不是文档或�
     [...MANAGED, VIEWS.robot].every(rel => src(rel).includes("import PageShell from '../components/PageShell.vue'")))
 }
 
-console.log(`\n共 5 组，FAIL ${failures}`)
+console.log('\n[6] 弹层：遮罩是滚动容器，居中交给卡片外边距（候选 ㊾ 的收口形状）')
+{
+  const styleCss = src('frontend/src/style.css')
+  const maskBlock = styleCss.match(/\.geek-modal-mask\s*\{([^}]*)\}/)?.[1] ?? ''
+  const cardBlock = styleCss.match(/\.geek-modal-card\s*\{([^}]*)\}/)?.[1] ?? ''
+  check('style.css 把遮罩定义为"贴住视口 + 竖向可滚"的 flex 容器',
+    /position:\s*fixed/.test(maskBlock) && /inset:\s*0/.test(maskBlock)
+    && /display:\s*flex/.test(maskBlock) && /overflow-y:\s*auto/.test(maskBlock),
+    maskBlock.trim().slice(0, 120) || '未定义 .geek-modal-mask')
+  check('卡片用 auto 外边距居中（空间够时居中、不够时贴顶且滚得出来）',
+    /margin:\s*auto/.test(cardBlock), cardBlock.trim().slice(0, 60) || '未定义 .geek-modal-card')
+  // 逐文件点名，不取"扫到的第一条"：某页把遮罩改回内联形状时必须是那一页红
+  const MASK_SITES = [
+    [VIEWS.robot, 5], [VIEWS.org, 2], ['frontend/src/views/ChatRobot.vue', 2], [VIEWS.apps, 4],
+  ]
+  for (const [rel, expected] of MASK_SITES) {
+    const text = src(rel)
+    const file = rel.split('/').pop()
+    const masks = (text.match(/geek-modal-mask/g) ?? []).length
+    check(`${file} 的 ${expected} 处遮罩都走共享类`, masks === expected, `读到 ${masks} 处`)
+    check(`${file} 不再内联遮罩定位（fixed inset-0 只允许出现在 style.css 那一处定义里）`,
+      !text.includes('fixed inset-0'))
+    const cards = (text.match(/geek-modal-card/g) ?? []).length
+    check(`${file} 遮罩与居中卡片一一对应（数量相等，不写 >=：0 张遮罩也能让 >= 恒绿）`,
+      cards === masks, `遮罩 ${masks} / 卡片 ${cards}`)
+  }
+  const unsafe = MASK_SITES.map(([rel]) => src(rel)).filter(t =>
+    /geek-modal-mask[^"]*items-center/.test(t) || /items-center justify-center[^"]*geek-modal-mask/.test(t))
+  check('遮罩上不再出现 items-center（align-items 居中在溢出时会把卡片上下同时裁掉）',
+    unsafe.length === 0, `${unsafe.length} 个文件带病`)
+  check('CallRecords 改版后没有遮罩（详情是右栏内联，不是弹窗）',
+    !records.includes('geek-modal-mask') && !records.includes('fixed inset-0'))
+  check('Admin 的弹层不设第二套遮罩形状（它只有确认类弹窗，走同一个类）',
+    !admin.includes('fixed inset-0'))
+  // v2.63 遗留的核对项：右栏由 h-screen overflow-hidden 的壳包住，内容自己必须会滚
+  for (const rel of MANAGED) {
+    const file = rel.split('/').pop()
+    check(`${file} 的右栏内容带滚动出口（min-h-0 + overflow-y-auto，否则超出视口的部分永久看不到）`,
+      /flex-1 min-h-0 overflow-y-auto/.test(src(rel)))
+  }
+  check('SmartRobot 的右栏是消息区滚动（chat-container 收 min-h-0，输入区不跟着滚）',
+    /chat-container flex-1 min-h-0/.test(robot))
+}
+
+console.log(`\n共 6 组，FAIL ${failures}`)
 process.exit(failures === 0 ? 0 : 1)
