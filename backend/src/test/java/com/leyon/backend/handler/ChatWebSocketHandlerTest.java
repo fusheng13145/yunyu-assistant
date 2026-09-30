@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.Org;
+import com.leyon.backend.entity.Record;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
+import com.leyon.backend.service.ConversationRecordWriter;
 import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
@@ -49,7 +51,7 @@ import static org.mockito.Mockito.when;
 /**
  * 聊天 WebSocket 处理器单元测试
  * 覆盖：流式成功后下发带结束分片载荷的 query_end、异常收尾同样下发、
- *       selectedKbIds 按可见数据集收敛、人设回写需管理权限
+ *       逐轮落库与落库失败的 error 帧出口、selectedKbIds 按可见数据集收敛、人设回写需管理权限
  *
  * @author leyon
  */
@@ -82,6 +84,8 @@ class ChatWebSocketHandlerTest {
     @Mock
     private ChatService chatService;
     @Mock
+    private ConversationRecordWriter recordWriter;
+    @Mock
     private WebSocketSession session;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -92,7 +96,7 @@ class ChatWebSocketHandlerTest {
     void setUp() throws Exception {
         handler = new ChatWebSocketHandler(modelAdapter, knowledgeProvider, assistantService, recordService,
                 sessionService, orgService, quotaService, knowledgeBaseService, objectMapper, jwtUtil, toolRegistry,
-                socketReaper, new AssistantPolicy(new ModelCatalog()));
+                socketReaper, new AssistantPolicy(new ModelCatalog()), recordWriter);
         when(session.getId()).thenReturn("ws-1");
         when(session.isOpen()).thenReturn(true);
         when(session.getAttributes()).thenReturn(attributes);
@@ -273,10 +277,84 @@ class ChatWebSocketHandlerTest {
         // 落库不依赖权限分支：确保新增校验不会中断消息持久化
         when(chatService.close()).thenReturn(Map.of());
         when(assistantService.getById("a1")).thenReturn(null);
-        when(chatService.getNewRecords()).thenReturn(List.of());
+        when(chatService.drainPendingRecords()).thenReturn(List.of());
 
         handler.afterConnectionClosed(session, CloseStatus.NORMAL);
 
         verify(chatService).close();
+    }
+
+    // ===================== 落库时机与失败出口（v2.66 · C-133） =====================
+
+    private static Record record(int role, String message) {
+        Record r = new Record();
+        r.setRole(role);
+        r.setMessage(message);
+        return r;
+    }
+
+    @Test
+    void chat_success_persistsTurnBeforeQueryEnd() throws Exception {
+        List<Record> pending = List.of(record(Record.ROLE_USER, "你好"), record(Record.ROLE_ASSISTANT, "你好呀"));
+        when(chatService.chatStream("你好")).thenReturn(Flux.just(segmentChunk("你"), endChunk("你好呀")));
+        when(chatService.drainPendingRecords()).thenReturn(pending);
+        when(recordWriter.persist(pending, "a1", null, null))
+                .thenReturn(new ConversationRecordWriter.Result(2, 0));
+
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"你好\"}"));
+
+        // 落库押在连接关闭上，等于让已生成的回答取决于连接怎么结束：正常收尾就必须落
+        verify(recordWriter).persist(pending, "a1", null, null);
+        List<String> types = sentMessages().stream().map(m -> m.path("type").asText()).toList();
+        assertThat(types).doesNotContain("error");
+        assertThat(types.get(types.size() - 1)).isEqualTo("query_end");
+    }
+
+    @Test
+    void chat_persistFailure_emitsErrorFrameBeforeQueryEnd() throws Exception {
+        List<Record> pending = List.of(record(Record.ROLE_ASSISTANT, "回答"));
+        when(chatService.chatStream(anyString())).thenReturn(Flux.just(endChunk("回答")));
+        when(chatService.drainPendingRecords()).thenReturn(pending);
+        when(recordWriter.persist(pending, "a1", null, null))
+                .thenReturn(new ConversationRecordWriter.Result(0, 1));
+
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"你好\"}"));
+
+        List<String> types = sentMessages().stream().map(m -> m.path("type").asText()).toList();
+        // 落库失败只进日志时，用户以为已存进历史，刷新后才发现没了
+        int errorIdx = types.indexOf("error");
+        assertThat(errorIdx).as("落库失败必须下发 error 帧，实际: %s", types).isNotNegative();
+        assertThat(types.indexOf("query_end")).as("error 帧要先于收尾帧: %s", types).isGreaterThan(errorIdx);
+        String data = sentMessages().get(errorIdx).path("data").asText();
+        assertThat(data).contains("1");
+    }
+
+    @Test
+    void chat_partialPersistFailure_stillEmitsErrorFrame() throws Exception {
+        // 与上一例成对：saved>0 但 failed>0 时同样要报——"存了一半"不是成功
+        List<Record> pending = List.of(record(Record.ROLE_USER, "问"), record(Record.ROLE_ASSISTANT, "答"));
+        when(chatService.chatStream(anyString())).thenReturn(Flux.just(endChunk("答")));
+        when(chatService.drainPendingRecords()).thenReturn(pending);
+        when(recordWriter.persist(pending, "a1", null, null))
+                .thenReturn(new ConversationRecordWriter.Result(1, 1));
+
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"你好\"}"));
+
+        assertThat(sentMessages().stream().map(m -> m.path("type").asText())).contains("error");
+    }
+
+    @Test
+    void close_fallback_persistsRemainingTurnOnlyOnce() throws Exception {
+        // 兜底走同一个取出式队列：每轮已落库时这里取到空，不会重复插入
+        List<Record> pending = List.of(record(Record.ROLE_ASSISTANT, "残量"));
+        when(chatService.close()).thenReturn(Map.of());
+        when(assistantService.getById("a1")).thenReturn(null);
+        when(chatService.drainPendingRecords()).thenReturn(pending);
+        when(recordWriter.persist(pending, "a1", null, null))
+                .thenReturn(new ConversationRecordWriter.Result(1, 0));
+
+        handler.afterConnectionClosed(session, CloseStatus.NORMAL);
+
+        verify(recordWriter).persist(pending, "a1", null, null);
     }
 }

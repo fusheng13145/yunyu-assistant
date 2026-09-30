@@ -14,6 +14,7 @@ import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
 import com.leyon.backend.service.ChatService;
+import com.leyon.backend.service.ConversationRecordWriter;
 import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
@@ -109,6 +110,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private final JwtUtil jwtUtil;
     private final UnauthenticatedSocketReaper socketReaper;
     private final AssistantPolicy assistantPolicy;
+    private final ConversationRecordWriter recordWriter;
 
     // 会话缓存
     /** 会话ID -> 语音网关会话ID */
@@ -143,7 +145,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                                  ToolRegistry toolRegistry,
                                  JwtUtil jwtUtil,
                                  UnauthenticatedSocketReaper socketReaper,
-                                 AssistantPolicy assistantPolicy) {
+                                 AssistantPolicy assistantPolicy,
+                                 ConversationRecordWriter recordWriter) {
         this.rustPBXService = rustPBXService;
         this.assistantService = assistantService;
         this.modelAdapter = modelAdapter;
@@ -160,6 +163,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         this.jwtUtil = jwtUtil;
         this.socketReaper = socketReaper;
         this.assistantPolicy = assistantPolicy;
+        this.recordWriter = recordWriter;
     }
 
     // 连接建立
@@ -424,112 +428,138 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             releaseSessionResource(sessionId);
             closeSession(session);
             return;
+        } catch (Exception e) {
+            // 与配额超限同样的收场：没有通话记录就不要开始通话，否则时长/次数/用量三处都无从结算
+            logger.error("创建通话记录失败，终止通话，会话ID:{}", sessionId, e);
+            sendMessage(session, MSG_TYPE_ERROR, "通话记录创建失败，本次通话未能开始");
+            releaseSessionResource(sessionId);
+            closeSession(session);
+            return;
         }
         if (rustpbxSessionId != null) {
             rustPBXService.sendTTS(rustpbxSessionId, greeting, sessionVoiceMap.get(sessionId));
         }
         // 下发 callId 供前端录音结束后回传上传
         Map<String, Object> data = new HashMap<>();
-        if (StringUtils.hasText(callId)) {
-            data.put("callId", callId);
-        }
+        data.put("callId", callId);
         sendMessage(session, MSG_TYPE_WEBRTC_CONNECTED, data);
     }
 
     /**
      * 创建通话记录（状态=进行中），返回通话记录ID
      *
-     * @throws QuotaExceededException 单日通话次数/时长配额超限（由调用方终止通话，不得静默放行）
+     * <p>本方法不吞异常：建不成记录就没有这一通的账，放行等于让时长、次数与用量三处都无从结算。
+     *
+     * @throws QuotaExceededException 单日通话次数/时长配额超限
+     * @throws IllegalStateException  会话尚未绑定助手与用户（offer 未成功，不该有通话正在进行）
      */
     private String createCallRecord(WebSocketSession session) {
         String sessionId = session.getId();
         String assistantId = sessionAssistantMap.get(sessionId);
         String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
         if (!StringUtils.hasText(assistantId) || !StringUtils.hasText(userId)) {
-            return null;
+            throw new IllegalStateException("会话未绑定助手或用户，会话ID:" + sessionId);
         }
         // 避免重复创建
         if (sessionCallRecordMap.containsKey(sessionId)) {
             return sessionCallRecordMap.get(sessionId);
         }
-        try {
-            CallRecord record = new CallRecord();
-            record.setUserId(userId);
-            record.setAssistantId(assistantId);
-            // 组织归属从助手继承（P2-10：组织级配额统计与通话记录隔离依赖 org_id）
-            Assistant assistant = assistantService.getById(assistantId);
-            if (assistant != null) {
-                record.setOrgId(assistant.getOrgId());
-            }
-            record.setStatus(CallRecord.STATUS_IN_PROGRESS);
-            record.setDurationSec(0);
-            record.setMessageCount(0);
-            record.setStartedAt(LocalDateTime.now());
-            record.setIsDeleted(CallRecord.NOT_DELETED);
-            callRecordService.create(record);
-            sessionCallRecordMap.put(sessionId, record.getId());
-
-            // P2-17：记录调用方应用ID（OpenAPI 语音会话注入 appId，内部会话为空），仅第三方应用投递 call.connected
-            String appId = (String) session.getAttributes().get(SESSION_ATTR_APP_ID);
-            if (StringUtils.hasText(appId)) {
-                sessionAppIdMap.put(sessionId, appId);
-                Map<String, Object> payload = new HashMap<>();
-                payload.put("callId", record.getId());
-                payload.put("assistantId", assistantId);
-                payload.put("userId", userId);
-                webhookService.dispatch(WebhookDelivery.EVENT_CALL_CONNECTED, appId, payload);
-            }
-
-            logger.info("通话记录已创建，会话ID:{}，通话ID:{}", sessionId, record.getId());
-            return record.getId();
-        } catch (QuotaExceededException e) {
-            throw e;
-        } catch (Exception e) {
-            logger.error("创建通话记录失败，会话ID:{}", sessionId, e);
-            return null;
+        // 建不成记录就没有这一通的账：配额异常与数据库异常一律向上抛，由调用方终止通话（不放行无记账的通话）
+        CallRecord record = new CallRecord();
+        record.setUserId(userId);
+        record.setAssistantId(assistantId);
+        // 组织归属从助手继承（P2-10：组织级配额统计与通话记录隔离依赖 org_id）
+        Assistant assistant = assistantService.getById(assistantId);
+        if (assistant != null) {
+            record.setOrgId(assistant.getOrgId());
         }
+        record.setStatus(CallRecord.STATUS_IN_PROGRESS);
+        record.setDurationSec(0);
+        record.setMessageCount(0);
+        record.setStartedAt(LocalDateTime.now());
+        record.setIsDeleted(CallRecord.NOT_DELETED);
+        callRecordService.create(record);
+        sessionCallRecordMap.put(sessionId, record.getId());
+
+        // P2-17：记录调用方应用ID（OpenAPI 语音会话注入 appId，内部会话为空），仅第三方应用投递 call.connected
+        String appId = (String) session.getAttributes().get(SESSION_ATTR_APP_ID);
+        if (StringUtils.hasText(appId)) {
+            sessionAppIdMap.put(sessionId, appId);
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("callId", record.getId());
+            payload.put("assistantId", assistantId);
+            payload.put("userId", userId);
+            webhookService.dispatch(WebhookDelivery.EVENT_CALL_CONNECTED, appId, payload);
+        }
+
+        logger.info("通话记录已创建，会话ID:{}，通话ID:{}", sessionId, record.getId());
+        return record.getId();
     }
 
     /**
-     * 结束通话记录（更新状态/时长/消息数），OpenAPI 语音会话追加投递 call.completed Webhook
+     * 结束通话记录（更新状态/时长/消息数/失败原因），OpenAPI 语音会话追加投递 call.completed Webhook
+     *
+     * <p>结算失败重试一次：这条更新一旦没落库，记录会永久停在"进行中"，时长与消息数就此丢失。
+     * 仍失败时点名报出（不吞），由手册 6.6 的口径解释它对外部数字的影响。
      */
-    private void finishCallRecord(String sessionId, int status, int messageCount) {
+    private void finishCallRecord(String sessionId, int status, int messageCount, String failReason) {
         String callId = sessionCallRecordMap.remove(sessionId);
         if (!StringUtils.hasText(callId)) {
             return;
         }
+        CallRecord record = null;
         try {
-            CallRecord record = callRecordService.getById(callId);
-            if (record == null) {
+            record = callRecordService.getById(callId);
+        } catch (Exception e) {
+            logger.error("读取通话记录失败，通话ID:{}", callId, e);
+        }
+        if (record == null) {
+            logger.error("通话记录不存在，无法结算，通话ID:{}（本通时长与消息数未落库）", callId);
+            return;
+        }
+        record.setStatus(status);
+        record.setEndedAt(LocalDateTime.now());
+        record.setMessageCount(messageCount);
+        record.setFailReason(failReason);
+        if (record.getStartedAt() != null) {
+            long seconds = Duration.between(record.getStartedAt(), record.getEndedAt()).getSeconds();
+            record.setDurationSec((int) Math.max(seconds, 0));
+        }
+        settleCallRecord(record, callId, sessionId, status, messageCount);
+    }
+
+    /**
+     * 结算落库：一次即时重试仍不够，就把"这一通没结算成"点名报出来，不让它停在无人知晓的进行中。
+     */
+    private void settleCallRecord(CallRecord record, String callId, String sessionId, int status, int messageCount) {
+        try {
+            callRecordService.update(record);
+        } catch (Exception first) {
+            logger.warn("更新通话记录失败，即时重试一次，通话ID:{}", callId, first);
+            try {
+                callRecordService.update(record);
+            } catch (Exception second) {
+                logger.error("通话记录结算两次均失败，通话ID:{}，状态:{}，消息数:{}（本通时长与消息数未落库，"
+                        + "该记录在库中仍停在进行中）", callId, status, messageCount, second);
                 return;
             }
-            record.setStatus(status);
-            record.setEndedAt(LocalDateTime.now());
-            record.setMessageCount(messageCount);
-            if (record.getStartedAt() != null) {
-                long seconds = Duration.between(record.getStartedAt(), record.getEndedAt()).getSeconds();
-                record.setDurationSec((int) Math.max(seconds, 0));
-            }
-            callRecordService.update(record);
-
-            // P2-17：OpenAPI 语音会话（有 appId）通话结束投递 Webhook；内部会话无 appId 跳过
-            String appId = sessionAppIdMap.remove(sessionId);
-            if (StringUtils.hasText(appId)) {
-                Map<String, Object> payload = new HashMap<>();
-                payload.put("callId", callId);
-                payload.put("assistantId", record.getAssistantId());
-                payload.put("userId", record.getUserId());
-                payload.put("status", status);
-                payload.put("durationSec", record.getDurationSec() == null ? 0 : record.getDurationSec());
-                payload.put("messageCount", messageCount);
-                payload.put("recording", StringUtils.hasText(record.getRecordingName()));
-                webhookService.dispatch(WebhookDelivery.EVENT_CALL_COMPLETED, appId, payload);
-            }
-
-            logger.info("通话记录已更新，通话ID:{}，状态:{}，消息数:{}", callId, status, messageCount);
-        } catch (Exception e) {
-            logger.error("更新通话记录失败，通话ID:{}", callId, e);
         }
+
+        // P2-17：OpenAPI 语音会话（有 appId）通话结束投递 Webhook；内部会话无 appId 跳过
+        String appId = sessionAppIdMap.remove(sessionId);
+        if (StringUtils.hasText(appId)) {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("callId", callId);
+            payload.put("assistantId", record.getAssistantId());
+            payload.put("userId", record.getUserId());
+            payload.put("status", status);
+            payload.put("durationSec", record.getDurationSec() == null ? 0 : record.getDurationSec());
+            payload.put("messageCount", messageCount);
+            payload.put("recording", StringUtils.hasText(record.getRecordingName()));
+            webhookService.dispatch(WebhookDelivery.EVENT_CALL_COMPLETED, appId, payload);
+        }
+
+        logger.info("通话记录已更新，通话ID:{}，状态:{}，消息数:{}", callId, status, messageCount);
     }
 
     /**
@@ -691,9 +721,13 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         String sessionId = session.getId();
         logger.info("语音信令连接断开，会话ID:{}，关闭状态:{}", sessionId, status);
         socketReaper.release(sessionId);
-        // 区分正常挂断与异常中断：非正常关闭码标记为中断
-        int endStatus = isNormalClose(status) ? CallRecord.STATUS_ENDED : CallRecord.STATUS_INTERRUPTED;
-        releaseSessionResource(sessionId, endStatus);
+        // 区分正常挂断与异常中断：非正常关闭码标记为中断，并把中断原因一起落进通话记录
+        if (isNormalClose(status)) {
+            releaseSessionResource(sessionId, CallRecord.STATUS_ENDED, null);
+        } else {
+            releaseSessionResource(sessionId, CallRecord.STATUS_INTERRUPTED,
+                    "连接异常断开（关闭码 " + (status == null ? "无" : String.valueOf(status.getCode())) + "）");
+        }
         authenticatedSessions.remove(sessionId);
     }
 
@@ -712,16 +746,17 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
      * 统一释放会话资源（默认正常结束）
      */
     private void releaseSessionResource(String sessionId) {
-        releaseSessionResource(sessionId, CallRecord.STATUS_ENDED);
+        releaseSessionResource(sessionId, CallRecord.STATUS_ENDED, null);
     }
 
     /**
      * 统一释放会话资源
      *
-     * @param sessionId 会话ID
-     * @param endStatus 通话结束状态（正常结束 / 中断）
+     * @param sessionId  会话ID
+     * @param endStatus  通话结束状态（正常结束 / 中断）
+     * @param failReason 非正常结束的原因，随通话记录落库；正常结束传 null
      */
-    private void releaseSessionResource(String sessionId, int endStatus) {
+    private void releaseSessionResource(String sessionId, int endStatus, String failReason) {
         // 停止流式订阅
         Disposable subscription = activeSubscriptions.remove(sessionId);
         if (subscription != null && !subscription.isDisposed()) {
@@ -736,15 +771,24 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                 logger.error("断开语音网关连接失败，网关会话ID:{}", rustpbxSessionId, e);
             }
         }
-        // 持久化本次通话新增的对话记录（修复语音消息不落库的问题）
+        // 落库本通新增的对话记录（与文本、开放通道共用同一个落库单点）
         String assistantId = sessionAssistantMap.remove(sessionId);
         ChatService chatService = sessionChatServiceMap.remove(sessionId);
         int messageCount = 0;
         if (assistantId != null && chatService != null) {
-            messageCount = persistNewRecords(sessionId, assistantId, chatService);
+            List<Record> pending = chatService.drainPendingRecords();
+            if (!pending.isEmpty()) {
+                ConversationRecordWriter.Result result = recordWriter.persist(
+                        pending, assistantId, null, sessionCallRecordMap.get(sessionId));
+                messageCount = result.saved();
+                if (result.hasFailure()) {
+                    logger.error("通话对话记录落库有失败，会话ID:{}，助手ID:{}，已保存 {} 条、失败 {} 条",
+                            sessionId, assistantId, result.saved(), result.failed());
+                }
+            }
         }
         // 结束通话记录
-        finishCallRecord(sessionId, endStatus, messageCount);
+        finishCallRecord(sessionId, endStatus, messageCount, failReason);
         sessionVoiceMap.remove(sessionId);
     }
 
@@ -770,44 +814,6 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private boolean openApiVoiceStillAllowed(WebSocketSession session) {
         String appId = (String) session.getAttributes().get(SESSION_ATTR_APP_ID);
         return !StringUtils.hasText(appId) || apiAppService.accessGranted(appId, ApiApp.SCOPE_VOICE);
-    }
-
-    /**
-     * 批量落库本次会话新增的对话记录
-     *
-     * @param sessionId   会话ID（用于关联通话记录）
-     * @param assistantId 助手ID
-     * @param chatService 聊天服务实例
-     * @return 落库的消息数
-     */
-    private int persistNewRecords(String sessionId, String assistantId, ChatService chatService) {
-        List<Record> newRecords = chatService.getNewRecords();
-        if (newRecords == null || newRecords.isEmpty()) {
-            return 0;
-        }
-        String callId = sessionCallRecordMap.get(sessionId);
-        int saved = 0;
-        for (Record record : newRecords) {
-            if (!StringUtils.hasText(record.getMessage())) {
-                continue;
-            }
-            record.setId(null); // 由 MyBatis-Plus 自动生成 UUID
-            record.setAssistantId(assistantId);
-            if (StringUtils.hasText(callId)) {
-                record.setCallId(callId);
-            }
-            record.setIsDeleted(Record.NOT_DELETED);
-            try {
-                recordService.add(record);
-                saved++;
-            } catch (Exception e) {
-                logger.error("保存语音对话记录失败，助手ID:{}，role:{}", assistantId, record.getRole(), e);
-            }
-        }
-        if (saved > 0) {
-            logger.info("已持久化 {} 条语音对话记录，助手ID:{}", saved, assistantId);
-        }
-        return saved;
     }
 
     // 消息发送工具方法

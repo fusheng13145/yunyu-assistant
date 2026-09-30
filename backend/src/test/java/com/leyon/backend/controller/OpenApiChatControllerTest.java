@@ -10,6 +10,7 @@ import com.leyon.backend.interceptor.OpenApiAuthInterceptor;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
+import com.leyon.backend.service.ConversationRecordWriter;
 import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
@@ -28,6 +29,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
@@ -75,6 +79,8 @@ class OpenApiChatControllerTest {
     private ToolRegistry toolRegistry;
     @Mock
     private KnowledgeBaseService knowledgeBaseService;
+    @Mock
+    private ConversationRecordWriter recordWriter;
 
     /** 每轮检索实际传入 KnowledgeProvider 的数据集ID（由 setUp 里的 thenAnswer 记录） */
     private final List<List<String>> queriedDatasets = new ArrayList<>();
@@ -86,7 +92,7 @@ class OpenApiChatControllerTest {
     void setUp() {
         controller = new OpenApiChatController(assistantService, orgService, quotaService,
                 sessionService, recordService, webhookService, modelAdapter, knowledgeProvider, new ObjectMapper(),
-                toolRegistry, new AssistantPolicy(new ModelCatalog()), knowledgeBaseService);
+                toolRegistry, new AssistantPolicy(new ModelCatalog()), knowledgeBaseService, recordWriter);
         request = org.mockito.Mockito.mock(HttpServletRequest.class);
         lenient().when(request.getAttribute(OpenApiAuthInterceptor.ATTR_USER_ID)).thenReturn("u-owner");
         lenient().when(toolRegistry.resolveToolCallbacks(any())).thenReturn(List.of());
@@ -309,5 +315,44 @@ class OpenApiChatControllerTest {
     void chat_assistantWithoutDatasets_skipsRetrieval() {
         runOpenApiTurn(personalAssistant());
         verify(knowledgeProvider, never()).queryKnowledgeBaseWithDetail(any(), any());
+    }
+
+    // ===================== v2.66 · C-133：三份复制落库收口为单点 =====================
+
+    @Test
+    void chat_answeredTurn_persistsTurnThroughWriter() {
+        // 模型有输出的一轮：落库单点必须收到本轮记录，并带上业务会话ID（多轮上下文靠它）
+        when(modelAdapter.stream(any())).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("回答"))))));
+        when(assistantService.getById("a1")).thenReturn(personalAssistant());
+        when(sessionService.getOwned("s1", "u-owner")).thenReturn(ownedSession("s1", "a1", "u-owner"));
+        when(recordWriter.persist(any(), eq("a1"), eq("s1"),
+                org.mockito.ArgumentMatchers.<String>isNull()))
+                .thenReturn(new ConversationRecordWriter.Result(2, 0));
+
+        StepVerifier.create(controller.chat(
+                        Map.of("assistantId", "a1", "message", "你好", "sessionId", "s1"), request))
+                .thenConsumeWhile(x -> true)
+                .expectComplete()
+                .verify();
+
+        verify(recordWriter).persist(any(), eq("a1"), eq("s1"),
+                org.mockito.ArgumentMatchers.<String>isNull());
+    }
+
+    @Test
+    void chat_emptyModelStream_stillCompletesWithoutPersistCall() {
+        // 与上一例成对：空流没有本轮内容可落，收尾仍要完整走完（落库调用不该凭空白调）
+        mockEmptyModelStream();
+        when(assistantService.getById("a1")).thenReturn(personalAssistant());
+        when(sessionService.getOwned("s1", "u-owner")).thenReturn(ownedSession("s1", "a1", "u-owner"));
+
+        StepVerifier.create(controller.chat(
+                        Map.of("assistantId", "a1", "message", "你好", "sessionId", "s1"), request))
+                .thenConsumeWhile(x -> true)
+                .expectComplete()
+                .verify();
+
+        verify(recordWriter, never()).persist(any(), any(), any(), any());
     }
 }

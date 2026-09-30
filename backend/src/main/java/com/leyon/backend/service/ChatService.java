@@ -483,7 +483,7 @@ public class ChatService {
     /**
      * 保存对话记录到上下文与实体列表
      */
-    private void saveConversation(String userText, String assistantText, long startTime) {
+    private synchronized void saveConversation(String userText, String assistantText, long startTime) {
         long costTime = System.currentTimeMillis() - startTime;
         // 维护消息上下文
         conversationHistory.add(new UserMessage(userText));
@@ -542,12 +542,20 @@ public class ChatService {
     }
 
     /**
-     * 获取本次会话新产生的聊天记录（供持久化到数据库）
+     * 取出并清空本次会话待落库的聊天记录。
      *
-     * @return 新增记录列表（只读副本）
+     * 取出式而非只读：逐轮落库与断开兜底共用同一个待落队列，若不清空则同一轮消息会被落两次。
+     * 与 {@link #saveConversation} 同锁，因为落库发生在流线程、取用可能在容器线程。
+     *
+     * @return 待落库记录；无待落记录时返回空列表
      */
-    public List<Record> getNewRecords() {
-        return new ArrayList<>(chatRecords);
+    public synchronized List<Record> drainPendingRecords() {
+        if (chatRecords.isEmpty()) {
+            return List.of();
+        }
+        List<Record> pending = new ArrayList<>(chatRecords);
+        chatRecords.clear();
+        return pending;
     }
 
     /**
@@ -555,7 +563,7 @@ public class ChatService {
      *
      * @param prompt 新的系统提示词
      */
-    public void changePrompt(String prompt) {
+    public synchronized void changePrompt(String prompt) {
         this.systemPrompt = StringUtils.hasText(prompt) ? prompt : "";
         this.conversationHistory.clear();
         this.chatRecords.clear();
@@ -573,7 +581,7 @@ public class ChatService {
     /**
      * 重置会话（清空历史消息、聊天记录）
      */
-    public void reset() {
+    public synchronized void reset() {
         this.conversationHistory.clear();
         this.chatRecords.clear();
     }
@@ -583,7 +591,7 @@ public class ChatService {
      *
      * @return 会话状态：聊天记录、人设、知识库ID
      */
-    public Map<String, String> close() {
+    public synchronized Map<String, String> close() {
         Map<String, String> state = new HashMap<>();
         try {
             state.put("chatMessage", objectMapper.writeValueAsString(chatRecords));

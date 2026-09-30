@@ -10,6 +10,7 @@ import com.leyon.backend.entity.WebhookDelivery;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
+import com.leyon.backend.service.ConversationRecordWriter;
 import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
@@ -66,6 +67,7 @@ public class OpenApiChatController {
     private final ToolRegistry toolRegistry;
     private final AssistantPolicy assistantPolicy;
     private final KnowledgeBaseService knowledgeBaseService;
+    private final ConversationRecordWriter recordWriter;
 
     public OpenApiChatController(AssistantService assistantService,
                                  OrgService orgService,
@@ -78,7 +80,8 @@ public class OpenApiChatController {
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
                                  AssistantPolicy assistantPolicy,
-                                 KnowledgeBaseService knowledgeBaseService) {
+                                 KnowledgeBaseService knowledgeBaseService,
+                                 ConversationRecordWriter recordWriter) {
         this.assistantService = assistantService;
         this.orgService = orgService;
         this.quotaService = quotaService;
@@ -91,6 +94,7 @@ public class OpenApiChatController {
         this.toolRegistry = toolRegistry;
         this.assistantPolicy = assistantPolicy;
         this.knowledgeBaseService = knowledgeBaseService;
+        this.recordWriter = recordWriter;
     }
 
     /**
@@ -179,7 +183,16 @@ public class OpenApiChatController {
                 })
                 // 流结束/异常/取消后落库本轮记录（含自动标题）并投递 Webhook，保证多轮上下文持久
                 .doFinally(signalType -> {
-                    persistNewRecords(bizSessionId, assistantId, chatService);
+                    List<Record> pending = chatService.drainPendingRecords();
+                    if (!pending.isEmpty()) {
+                        ConversationRecordWriter.Result result =
+                                recordWriter.persist(pending, assistantId, bizSessionId, null);
+                        if (result.hasFailure()) {
+                            // SSE 已收尾，无法再向第三方回传失败帧；对外契约的失败出口属接口变更，见手册 6.6
+                            logger.error("OpenAPI 落库对话记录有失败，助手ID:{}，会话ID:{}，已保存 {} 条、失败 {} 条",
+                                    assistantId, bizSessionId, result.saved(), result.failed());
+                        }
+                    }
                     dispatchMessageCompleted(appId, assistantId, message, bizSessionId);
                 });
     }
@@ -196,47 +209,6 @@ public class OpenApiChatController {
         payload.put("message", message);
         payload.put("sessionId", sessionId);
         webhookService.dispatch(WebhookDelivery.EVENT_MESSAGE_COMPLETED, appId, payload);
-    }
-
-    /**
-     * 落库本轮会话新增的对话记录（多轮会话持久化），落库后触发自动标题生成
-     * 与 ChatWebSocketHandler.persistNewRecords 语义一致
-     *
-     * @param sessionId   业务会话ID
-     * @param assistantId 助手ID
-     * @param chatService 聊天服务实例
-     */
-    private void persistNewRecords(String sessionId, String assistantId, ChatService chatService) {
-        List<Record> newRecords = chatService.getNewRecords();
-        if (newRecords == null || newRecords.isEmpty()) {
-            return;
-        }
-        int saved = 0;
-        int failed = 0;
-        String firstUserMessage = null;
-        for (Record record : newRecords) {
-            if (!StringUtils.hasText(record.getMessage())) {
-                continue;
-            }
-            if (firstUserMessage == null && Record.ROLE_USER == record.getRole()) {
-                firstUserMessage = record.getMessage();
-            }
-            record.setId(null); // 由 MyBatis-Plus 自动生成 UUID
-            record.setAssistantId(assistantId);
-            record.setSessionId(sessionId);
-            record.setIsDeleted(Record.NOT_DELETED);
-            try {
-                recordService.add(record);
-                saved++;
-            } catch (Exception e) {
-                failed++;
-                logger.error("OpenAPI 落库对话记录失败，助手ID:{}，role:{}", assistantId, record.getRole(), e);
-            }
-        }
-        if (saved > 0) {
-            logger.info("OpenAPI 已持久化 {} 条对话记录，助手ID:{}，会话ID:{}（失败 {}）", saved, assistantId, sessionId, failed);
-            sessionService.autoTitleIfNeeded(sessionId, firstUserMessage);
-        }
     }
 
     /**

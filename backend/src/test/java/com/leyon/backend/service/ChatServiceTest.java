@@ -83,12 +83,14 @@ class ChatServiceTest {
 
         StepVerifier.create(chatService.chatStream("用户问题")).expectNextCount(2).verifyComplete();
 
-        List<Record> records = chatService.getNewRecords();
+        List<Record> records = chatService.drainPendingRecords();
         assertThat(records).hasSize(2);
         assertThat(records.get(0).getRole()).isEqualTo(Record.ROLE_USER);
         assertThat(records.get(0).getMessage()).isEqualTo("用户问题");
         assertThat(records.get(1).getRole()).isEqualTo(Record.ROLE_ASSISTANT);
         assertThat(records.get(1).getMessage()).isEqualTo("回复内容");
+        // 取出即清：逐轮落库与断开兜底共用同一个待落队列，第二次取必须是空，否则同一轮消息落两次
+        assertThat(chatService.drainPendingRecords()).isEmpty();
     }
 
     @Test
@@ -114,7 +116,7 @@ class ChatServiceTest {
     @Test
     void reset_clearsContextAndRecords() {
         chatService.changePrompt("新的人设");
-        assertThat(chatService.getNewRecords()).isEmpty();
+        assertThat(chatService.drainPendingRecords()).isEmpty();
         // reset 后再生产记录也不受影响
         chatService.reset();
     }
@@ -130,7 +132,7 @@ class ChatServiceTest {
 
         chatService.loadChatHistory(List.of(user, assistant));
         // 历史只注入上下文，不写入待落库记录
-        assertThat(chatService.getNewRecords()).isEmpty();
+        assertThat(chatService.drainPendingRecords()).isEmpty();
 
         // 新对话后历史仍参与上下文
         Generation gen = new Generation(new AssistantMessage("结合历史回答"));
@@ -138,7 +140,7 @@ class ChatServiceTest {
         when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(response));
         StepVerifier.create(chatService.chatStream("新问题")).expectNextCount(2).verifyComplete();
         // 落库记录仅包含本轮新消息（历史不重复落库）
-        assertThat(chatService.getNewRecords()).hasSize(2);
+        assertThat(chatService.drainPendingRecords()).hasSize(2);
     }
 
     // ===================== 知识库检索失败必须与"无命中"可辨（v2.39） =====================
@@ -187,9 +189,9 @@ class ChatServiceTest {
 
     // ===================== 检索状态必须落库，历史回看才可辨（v2.41 · C-90） =====================
 
-    /** 取本轮助手回复记录（落库顺序恒为 [user, assistant]） */
+    /** 取出本轮待落库记录（落库顺序恒为 [user, assistant]） */
     private static Record assistantRecordOf(ChatService service) {
-        List<Record> records = service.getNewRecords();
+        List<Record> records = service.drainPendingRecords();
         assertThat(records).hasSize(2);
         return records.get(1);
     }
@@ -258,10 +260,12 @@ class ChatServiceTest {
 
         StepVerifier.create(chatService.chatStream("用户问题")).expectNextCount(2).verifyComplete();
 
-        // 未挂知识库与会话本身无关，不该凭空写一个"0 篇引用"的假状态
-        assertThat(assistantRecordOf(chatService).getKnowledgebaseInfo()).isNull();
+        // 未挂知识库与会话本身无关，不该凭空写一个"0 篇引用"的假状态；取出一次即覆盖 user/assistant 两条
+        List<Record> pending = chatService.drainPendingRecords();
+        assertThat(pending).hasSize(2);
+        assertThat(pending.get(1).getKnowledgebaseInfo()).isNull();
         // 用户消息不携带检索状态
-        assertThat(chatService.getNewRecords().get(0).getKnowledgebaseInfo()).isNull();
+        assertThat(pending.get(0).getKnowledgebaseInfo()).isNull();
     }
 
     @Test

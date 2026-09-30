@@ -9,6 +9,7 @@ import com.leyon.backend.service.ApiAppService;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
+import com.leyon.backend.service.ConversationRecordWriter;
 import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
@@ -29,6 +30,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
@@ -39,6 +41,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.contains;
@@ -89,6 +92,8 @@ class VoiceSignalingHandlerTest {
     @Mock
     private UnauthenticatedSocketReaper socketReaper;
     @Mock
+    private ConversationRecordWriter recordWriter;
+    @Mock
     private WebSocketSession session;
 
     private VoiceSignalingHandler handler;
@@ -99,7 +104,7 @@ class VoiceSignalingHandlerTest {
         handler = new VoiceSignalingHandler(rustPBXService, assistantService, modelAdapter, knowledgeProvider,
                 recordService, callRecordService, orgService, quotaService, knowledgeBaseService,
                 webhookService, apiAppService, new ObjectMapper(), toolRegistry, jwtUtil, socketReaper,
-                new AssistantPolicy(new ModelCatalog()));
+                new AssistantPolicy(new ModelCatalog()), recordWriter);
         when(session.getId()).thenReturn("ws-1");
         when(session.isOpen()).thenReturn(true);
         when(session.getAttributes()).thenReturn(attributes);
@@ -260,5 +265,78 @@ class VoiceSignalingHandlerTest {
         verify(quotaService, never()).checkSendMessage(any());
         verify(rustPBXService).sendTTS(eq("gw-1"), contains("通话时长"), any());
         verify(session).close();
+    }
+
+    // ===================== v2.66 · C-133：通话记账失败必须有名字 =====================
+
+    /** 收集服务端下发的帧载荷原文 */
+    private List<String> sentPayloads() throws Exception {
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        org.mockito.Mockito.verify(session, org.mockito.Mockito.atLeastOnce()).sendMessage(captor.capture());
+        return captor.getAllValues().stream().map(TextMessage::getPayload).toList();
+    }
+
+    /** 走完 offer 建链（通话记录正常创建，ID=c1） */
+    private void startCall() {
+        connectViaPath("ws://localhost/ws-voice/a1");
+        when(assistantService.getById("a1")).thenReturn(personalAssistant(null));
+        when(callRecordService.create(any(CallRecord.class))).thenAnswer(inv -> {
+            CallRecord created = inv.getArgument(0);
+            created.setId("c1");
+            return created;
+        });
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"offer\",\"sdp\":\"offer-sdp\"}"));
+    }
+
+    @Test
+    void webrtcConnected_callRecordCreateFailure_refusesCall() throws Exception {
+        // 建不成记录就没有这一通的账：时长/次数/用量三处都无从结算，故与配额超限同样收场
+        connectViaPath("ws://localhost/ws-voice/a1");
+        when(assistantService.getById("a1")).thenReturn(personalAssistant(null));
+        doThrow(new RuntimeException("call_records 写入失败")).when(callRecordService).create(any());
+
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"offer\",\"sdp\":\"offer-sdp\"}"));
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"webrtc_connected\"}"));
+
+        assertThat(sentPayloads()).anyMatch(p -> p.contains("error") && p.contains("通话记录"));
+        verify(session).close();
+        // 没有 callId 就不该开始播报
+        verify(rustPBXService, never()).sendTTS(any(), any(), any());
+    }
+
+    @Test
+    void afterConnectionClosed_settlementRetriedOnce() {
+        startCall();
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"webrtc_connected\"}"));
+        CallRecord stored = new CallRecord();
+        stored.setId("c1");
+        stored.setStatus(CallRecord.STATUS_IN_PROGRESS);
+        stored.setStartedAt(java.time.LocalDateTime.now().minusSeconds(30));
+        when(callRecordService.getById("c1")).thenReturn(stored);
+        doThrow(new RuntimeException("第一次更新失败")).doReturn(true).when(callRecordService).update(any());
+
+        handler.afterConnectionClosed(session, CloseStatus.NORMAL);
+
+        // 结算更新一旦没落库，记录就永久停在"进行中"，本通时长与消息数就此丢失 ⇒ 必须重试
+        org.mockito.Mockito.verify(callRecordService, org.mockito.Mockito.times(2)).update(any());
+    }
+
+    @Test
+    void afterConnectionClosed_abnormalCode_recordsInterruptedReason() {
+        startCall();
+        handler.handleTextMessage(session, new TextMessage("{\"type\":\"webrtc_connected\"}"));
+        CallRecord stored = new CallRecord();
+        stored.setId("c1");
+        stored.setStatus(CallRecord.STATUS_IN_PROGRESS);
+        when(callRecordService.getById("c1")).thenReturn(stored);
+
+        handler.afterConnectionClosed(session, new CloseStatus(1006));
+
+        ArgumentCaptor<CallRecord> captor = ArgumentCaptor.forClass(CallRecord.class);
+        verify(callRecordService).update(captor.capture());
+        CallRecord settled = captor.getValue();
+        // 异常断开的通话此前只有 status=3，"为什么断"只存在于日志里
+        assertThat(settled.getStatus()).isEqualTo(CallRecord.STATUS_INTERRUPTED);
+        assertThat(settled.getFailReason()).contains("1006");
     }
 }

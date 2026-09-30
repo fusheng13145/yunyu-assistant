@@ -11,6 +11,7 @@ import com.leyon.backend.entity.Session;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
+import com.leyon.backend.service.ConversationRecordWriter;
 import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.KnowledgeProvider;
 import com.leyon.backend.service.ModelAdapter;
@@ -106,6 +107,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ToolRegistry toolRegistry;
     private final UnauthenticatedSocketReaper socketReaper;
     private final AssistantPolicy assistantPolicy;
+    private final ConversationRecordWriter recordWriter;
 
     // 会话内存缓存
     /** 会话ID -> 聊天实例 */
@@ -131,7 +133,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 JwtUtil jwtUtil,
                                 ToolRegistry toolRegistry,
                                 UnauthenticatedSocketReaper socketReaper,
-                                AssistantPolicy assistantPolicy) {
+                                AssistantPolicy assistantPolicy,
+                                ConversationRecordWriter recordWriter) {
         this.modelAdapter = modelAdapter;
         this.knowledgeProvider = knowledgeProvider;
         this.assistantService = assistantService;
@@ -145,6 +148,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.toolRegistry = toolRegistry;
         this.socketReaper = socketReaper;
         this.assistantPolicy = assistantPolicy;
+        this.recordWriter = recordWriter;
     }
 
     // 连接建立
@@ -388,6 +392,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                             activeSubscriptions.remove(sessionId);
                         },
                         () -> {
+                            // 每轮收尾即落库：把落库押在"连接关闭"上，等于让已生成的回答取决于连接怎么结束
+                            ConversationRecordWriter.Result result = persistTurn(session, chatService);
+                            if (result != null && result.hasFailure()) {
+                                // 只报条数不报异常原文：数据库异常串里可能有表名与内网地址
+                                sendMessage(session, MSG_TYPE_ERROR,
+                                        "有 " + result.failed() + " 条对话内容未能写入历史记录，请刷新后核对");
+                            }
                             // 正常收尾：前端依据 query_end 解除打字态并渲染耗时/引用/Token 诊断
                             sendMessage(session, MSG_TYPE_QUERY_END, endChunkOrMarker(endChunkRef.get()));
                             activeSubscriptions.remove(sessionId);
@@ -496,8 +507,16 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             logger.error("保存助手状态失败，会话ID:{}，助手ID:{}", sessionId, assistantId, e);
         }
 
-        // 持久化本次会话新增的对话记录（修复对话历史无法落库的问题）
-        persistNewRecords(assistantId, businessSessionMap.get(sessionId), chatService);
+        // 断开兜底：正常路径下每轮已在收尾时落库，这里只收走尚未落库的残量（取出式，不会重复插入）
+        List<Record> pending = chatService.drainPendingRecords();
+        if (!pending.isEmpty()) {
+            ConversationRecordWriter.Result result =
+                    recordWriter.persist(pending, assistantId, businessSessionMap.get(sessionId), null);
+            if (result.hasFailure()) {
+                logger.error("断开时兜底落库仍有失败，会话ID:{}，助手ID:{}，已保存 {} 条、失败 {} 条",
+                        sessionId, assistantId, result.saved(), result.failed());
+            }
+        }
     }
 
     /**
@@ -529,46 +548,21 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     /**
-     * 批量落库本次会话新增的对话记录
+     * 每轮收尾时落库本轮新增的对话记录，并把落库失败变成用户看得见的出口。
      *
-     * @param assistantId       助手ID
-     * @param businessSessionId 业务会话ID（可能为空，空则不关联会话）
-     * @param chatService       聊天服务实例
+     * @return 落库结果；无待落记录或未初始化助手时返回 {@code null}（调用方据此不发提示）
      */
-    private void persistNewRecords(String assistantId, String businessSessionId, ChatService chatService) {
-        List<Record> newRecords = chatService.getNewRecords();
-        if (newRecords == null || newRecords.isEmpty()) {
-            return;
+    private ConversationRecordWriter.Result persistTurn(@NonNull WebSocketSession session, ChatService chatService) {
+        String sessionId = session.getId();
+        String assistantId = sessionAssistantMap.get(sessionId);
+        if (assistantId == null) {
+            return null;
         }
-        int saved = 0;
-        String firstUserMessage = null;
-        for (Record record : newRecords) {
-            if (!StringUtils.hasText(record.getMessage())) {
-                continue;
-            }
-            if (firstUserMessage == null && Record.ROLE_USER == record.getRole()) {
-                firstUserMessage = record.getMessage();
-            }
-            record.setId(null); // 由 MyBatis-Plus 自动生成 UUID
-            record.setAssistantId(assistantId);
-            if (businessSessionId != null) {
-                record.setSessionId(businessSessionId);
-            }
-            record.setIsDeleted(Record.NOT_DELETED);
-            try {
-                recordService.add(record);
-                saved++;
-            } catch (Exception e) {
-                logger.error("保存对话记录失败，助手ID:{}，role:{}", assistantId, record.getRole(), e);
-            }
+        List<Record> pending = chatService.drainPendingRecords();
+        if (pending.isEmpty()) {
+            return ConversationRecordWriter.Result.NOTHING;
         }
-        if (saved > 0) {
-            logger.info("已持久化 {} 条对话记录，助手ID:{}，业务会话ID:{}", saved, assistantId, businessSessionId);
-            // 会话首轮对话后自动生成标题（取首条用户消息前缀）
-            if (businessSessionId != null) {
-                sessionService.autoTitleIfNeeded(businessSessionId, firstUserMessage);
-            }
-        }
+        return recordWriter.persist(pending, assistantId, businessSessionMap.get(sessionId), null);
     }
 
     // 工具方法
