@@ -79,6 +79,12 @@ mybatis-plus:
 
 # 自定义业务配置（所有敏感值必须通过环境变量注入，禁止硬编码默认值）
 app:
+  # 模型流式调用（v2.71）：静默超时——每收到一个分块重新计时，不是整轮总时长上限。
+  # 判据只有一处（OpenAiModelAdapter.stream），三条对话通道与每一轮工具续答都经它。
+  # 此前没有任何超时：上游不再吐分块时本轮既不成功也不失败，前端打字态、WS 订阅与会话一直悬着。
+  # 取值与 AppConfig 共享 RestTemplate 的读超时（60s）对齐，改大前要一并看手册 4.5 第 28 条。
+  ai:
+    stream-timeout-ms: ${AI_STREAM_TIMEOUT_MS:60000}
   # Redis 共享状态开关：true 时限流/令牌黑名单/登录锁定写入 Redis（多实例共享），false 时降级单实例内存实现
   redis:
     enabled: ${REDIS_ENABLED:false}

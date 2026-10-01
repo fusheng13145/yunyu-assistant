@@ -12,11 +12,14 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -26,7 +29,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * 聊天服务核心逻辑单元测试
- * 覆盖：空输入短路、流式输出推送、工具调用上限、挂断监听、会话记录导出、上下文截断
+ * 覆盖：空输入短路、流式输出推送、工具调用上限、挂断监听、会话记录导出、上下文截断、取消传播与中断轮次落库
  *
  * @author leyon
  */
@@ -178,6 +181,55 @@ class ChatServiceTest {
                 || "库里手工塞进来的脏行".equals(m.getText()));
         // 反向锚点：已知 role 照常注入，否则这条判据会被"全都不注入"的写法蒙过
         assertThat(instructions).anyMatch(m -> "正常历史问题".equals(m.getText()));
+    }
+
+    // ===================== 取消要传到在途的模型调用（v2.71 · C-139） =====================
+
+    /**
+     * 换消息或断开连接时的 dispose 此前只撤掉最外层：内层 {@code modelAdapter.stream(...).subscribe(...)}
+     * 返回的 Disposable 被丢弃，于是上游照常吐块、照常计费，而这一轮的正文既不落库也无人消费
+     * ——handler 里那句"停止流式订阅"形同注释。
+     */
+    @Test
+    void cancel_propagatesToUpstreamModelSubscriptionAndSavesPartialTurn() {
+        AtomicBoolean upstreamCancelled = new AtomicBoolean(false);
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(
+                        new ChatResponse(List.of(new Generation(new AssistantMessage("前半")))),
+                        new ChatResponse(List.of(new Generation(new AssistantMessage("后半")))))
+                .concatWith(Flux.never())
+                .doOnCancel(() -> upstreamCancelled.set(true)));
+
+        Disposable subscription = chatService.chatStream("用户问题").subscribe(chunk -> {
+        });
+        subscription.dispose();
+
+        assertThat(upstreamCancelled).isTrue();
+        // 中断的轮次同样落库：正文＝已经生成并推出去的那一段
+        List<Record> pending = chatService.drainPendingRecords();
+        assertThat(pending).hasSize(2);
+        assertThat(pending.get(0).getMessage()).isEqualTo("用户问题");
+        assertThat(pending.get(1).getMessage()).isEqualTo("前半后半");
+        // 取出即清：取消路径也只能计入一次，否则同一轮回答落两遍
+        assertThat(chatService.drainPendingRecords()).isEmpty();
+    }
+
+    /**
+     * 反向锚点：正常收尾（onComplete 已落库）之后的 dispose 不得再触发一次落库，
+     * 否则"取消即落库"会变成每轮双份记录。
+     */
+    @Test
+    void disposeAfterNormalCompletionDoesNotSaveTheTurnAgain() {
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("完整回答"))))));
+
+        List<Map<String, Object>> seen = new ArrayList<>();
+        Disposable subscription = chatService.chatStream("用户问题").subscribe(seen::add);
+        subscription.dispose();
+
+        // 流在 subscribe 内即已正常收尾：分段 + 结束帧，且没有第二份记录
+        assertThat(seen).hasSize(2);
+        assertThat(chatService.drainPendingRecords()).hasSize(2);
+        assertThat(chatService.drainPendingRecords()).isEmpty();
     }
 
     // ===================== 知识库检索失败必须与"无命中"可辨（v2.39） =====================

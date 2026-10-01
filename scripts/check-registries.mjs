@@ -2,7 +2,7 @@
  * 登记表与代码实况的一致性验证（v2.52 · C-117 · 候选 ㊱ 的门禁侧）。
  *
  * 这里锁的不是"文档写得好不好"，而是**文档里的每一条清单能不能被代码指向**：
- * 十三组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
+ * 十四组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
  * 加了新 Kind 而没登记 ⇒ 红；登记了一个代码里没有的端点 ⇒ 红；
  * 新增 `check-*.mjs` 而没进 CI ⇒ 红；新增的门禁缺规范退出码行 ⇒ 红；配额上界出现第二份字面量 ⇒ 红。
  * 这正是 ㊱ 描述的失效形态：导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
@@ -730,6 +730,104 @@ console.log('\n[13] 元判据：门禁的红必须落到退出码与具名读数
   const nodeGuard = SM.indexOf('if [ "$WS_FRAME_NODE" != 1 ]; then')
   check('缺 Node ≥22 全局 WebSocket 时整节 §7.2 落具名 SKIP（前提不满足 ≠ 通过）',
     nodeGuard >= 0 && SM.slice(nodeGuard).includes(`skip '聊天 WS 帧级判据（整节）'`))
+}
+
+console.log('\n[14] 模型流式调用：超时与取消都只有单点（v2.71 · C-139/C-140，判据来自手册 4.5 第 28 条）')
+{
+  // 一次模型调用要能在"上游不再吐分块"和"用户已经走了"两种情况下都收场。
+  // 这两件事各只有一处判据（适配器出口 / 对话循环的内层订阅句柄），分成两份时的失效形态是
+  // "文本通道有超时、语音与开放 SSE 没有"，而没人会去数通道。
+  const ADAPTER_FILE = 'backend/src/main/java/com/leyon/backend/service/OpenAiModelAdapter.java'
+  const CHAT_FILE = 'backend/src/main/java/com/leyon/backend/service/ChatService.java'
+  const ADAPTER = read(ADAPTER_FILE)
+  const CHAT = read(CHAT_FILE)
+  const YAML = read('backend/src/main/resources/application.yaml')
+  const ENVX = read('.env.example')
+  const META = read('backend/src/main/resources/META-INF/additional-spring-configuration-metadata.json')
+  const README = read('README.md')
+  const MANUAL = read('docs/云谕助手项目手册.md')
+  const AT = read('backend/src/test/java/com/leyon/backend/service/OpenAiModelAdapterTest.java')
+  const CT = read('backend/src/test/java/com/leyon/backend/service/ChatServiceTest.java')
+
+  // ---- 超时单点 ----
+  const timeoutSites = javaFiles('backend/src/main/java').filter(f => read(f).includes('.timeout('))
+  check('全仓只有模型适配器出口施加超时（第二处＝同一次调用有两个结论，且没人知道哪个先触发）',
+    timeoutSites.length === 1 && timeoutSites[0] === ADAPTER_FILE, timeoutSites.join(','))
+  check('ChatService 不自己计时（写进对话循环＝只有它服务的通道被保护，且每轮工具续答要各写一遍）',
+    !CHAT.includes('.timeout('))
+  check('超时挂在 stream() 的出口上（挂在构造期或客户端层就量不到"分块之间的静默"）',
+    ADAPTER.includes('return chatModel.stream(prompt).timeout(streamTimeout);'))
+  check('超时值由配置注入（写死＝公网实例遇到慢供应商只能改码重发）',
+    ADAPTER.includes('@Value("${app.ai.stream-timeout-ms}")'))
+
+  const yamlTimeout = (YAML.match(/stream-timeout-ms:\s*\$\{AI_STREAM_TIMEOUT_MS:([^}]*)\}/) ?? [])[1]
+  check('yaml 的 stream-timeout-ms 默认值解析有效（正则失效时本组会静默全绿）',
+    yamlTimeout !== undefined, String(yamlTimeout))
+  const envTimeout = (ENVX.match(/^AI_STREAM_TIMEOUT_MS=(.*)$/m) ?? [])[1]
+  check('.env.example 有 AI_STREAM_TIMEOUT_MS 行', envTimeout !== undefined)
+  check('yaml 默认值与模板取值相等（两处不同＝照模板配出来的实例和不配模板的实例行为不一样）',
+    yamlTimeout === envTimeout, `yaml ${yamlTimeout} / env ${envTimeout}`)
+  check('IDE 元数据登记了 app.ai.stream-timeout-ms（配得到却没人知道＝文档与补全都缺）',
+    META.includes('"name": "app.ai.stream-timeout-ms"'))
+  const manualRow = (MANUAL.match(/^\| `AI_STREAM_TIMEOUT_MS`[^\n]*/m) ?? [])[0]
+  const readmeRow = (README.match(/^\| `AI_STREAM_TIMEOUT_MS`[^\n]*/m) ?? [])[0]
+  check('手册 5.3 与 README 配置表都有这一行（只改代码＝下一个人照文档配不出这个行为）',
+    manualRow !== undefined && readmeRow !== undefined, `${!!manualRow}/${!!readmeRow}`)
+  const docSites = [['手册 5.3', manualRow], ['README', readmeRow]]
+    .filter(([, v]) => !/静默/.test(v ?? ''))
+    .map(([n]) => n)
+  check('两处文档都写明"静默超时"（写成"总时长上限"会引导运维把慢回答当成故障去调大它）',
+    docSites.length === 0, docSites.join('、'))
+
+  // ---- 取消单点 ----
+  const streamSites = javaFiles('backend/src/main/java').filter(f => read(f).includes('modelAdapter.stream('))
+  check('取模型流的调用点全仓恰一处（绕过它＝超时与取消两道判据同时落空）',
+    streamSites.length === 1 && streamSites[0] === CHAT_FILE, streamSites.join(','))
+  check('内层订阅都被登记进同一个句柄（丢弃 Disposable＝handler 里那句"停止流式订阅"只是注释）',
+    CHAT.includes('trackInFlight.accept(modelAdapter.stream(prompt).subscribe(')
+      && CHAT.includes('trackInFlight.accept(handleToolCalls('))
+  check('取消回调两件事齐全：撤在途订阅 + 把已生成的部分落库',
+    CHAT.includes('sink.onCancel(() -> {')
+      && CHAT.includes('Disposable inFlight = innerSubscription.getAndSet(null);')
+      && CHAT.includes('saveTurnOnce.run();'))
+  check('登记之后复核取消位（只放进槽或只复核，都留得下"取消没看到、登记也没看到"的漏网订阅）',
+    CHAT.includes('innerSubscription.set(subscription);') && CHAT.includes('if (sink.isCancelled()) {'))
+  check('一轮记录只允许 onComplete 或 onCancel 一方落库（CAS 守卫，竞态时不双份）',
+    (CHAT.match(/turnSaved\.compareAndSet\(false, true\)/g) ?? []).length === 1)
+  check('累计正文是 StringBuffer（取消线程要读它，无锁读 StringBuilder 可能读到撕裂内容）',
+    CHAT.includes('StringBuffer fullResponse = new StringBuffer();'))
+  const assembly = javaFiles('backend/src/main/java').filter(f => read(f).includes('new ChatService('))
+    .map(f => basename(f)).sort()
+  check('三条对话通道的装配点都还在（少一条＝本组对某条通道不再成立）',
+    assembly.length === 3, assembly.join(','))
+
+  // ---- 判据用例：正向 + 反向 ----
+  const AT_ANCHORS = ['stream_silenceTimeoutAbortsHungUpstreamAndCancelsIt',
+    'stream_progressingStreamCompletesWithinSameWindow']
+  const atMissing = AT_ANCHORS.filter(n => !AT.includes(n))
+  check('适配器两条用例都在（缺一条＝对应方向的退化能悄悄复活）', atMissing.length === 0, atMissing.join(','))
+  check('超时用例同时锁"下游收到 TimeoutException"与"Reactor 上游订阅被撤"',
+    AT.includes('expectError(TimeoutException.class)') && AT.includes('assertThat(upstreamCancelled).isTrue()'))
+  check('反向锚点在位：同一窗口内慢而持续推进的流必须完整跑完（写成总时长上限的实现在此红）',
+    AT.includes('expectNextCount(5)') && AT.includes('verifyComplete()'))
+  check('取消用例锁两个读数：上游被撤 + 中断轮次的部分正文落库',
+    CT.includes('cancel_propagatesToUpstreamModelSubscriptionAndSavesPartialTurn')
+      && CT.includes('assertThat(upstreamCancelled).isTrue()') && CT.includes('前半后半'))
+  check('反向锚点在位：正常收尾之后的 dispose 不得再落一次库',
+    CT.includes('disposeAfterNormalCompletionDoesNotSaveTheTurnAgain'))
+
+  // ---- 判据管到哪一层，边界就必须登记到哪一层（真机读数：手册 7.5 v2.71 行 / 7.4 S-26）----
+  // 取消传播到的是 Reactor 订阅；到模型服务的在途 HTTP 交换并不因此中止（本机 WebClient 落到
+  // JdkClientHttpConnector，而 JDK HttpClient 的交换不因 body subscription 取消而拆断）。
+  // 这一条若只写在 7.4 而两处导读层各写一次"撤掉了模型调用"，运维就会以为用户走了钱就停了。
+  const leakSites = [['README', README], ['手册', MANUAL]].filter(([, t]) => !/S-26/.test(t)).map(([n]) => n)
+  check('两处文档都指向 S-26（"撤订阅"写成"撤调用"＝宣称比证据走得远）',
+    leakSites.length === 0, leakSites.join('、'))
+  check('适配器注释不出现"任何一次模型调用都不会无限挂住"（回合收场不等于交换中止）',
+    !ADAPTER.includes('任何一次模型调用都不会无限挂住'))
+  const lagSites = [['手册', MANUAL]].filter(([, t]) => !/buffer\(2, 1\)|滞后一拍/.test(t)).map(([n]) => n)
+  check('文档写明 Spring AI 的 buffer(2, 1) 让分帧滞后一拍（不写＝"中断轮次少最后一块"和"上游 150ms 前端 2ms"两处读数无法解释）',
+    lagSites.length === 0, lagSites.join('、'))
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)

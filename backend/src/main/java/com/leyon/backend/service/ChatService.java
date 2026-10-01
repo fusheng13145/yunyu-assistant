@@ -13,10 +13,13 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.util.StringUtils;
+import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -134,10 +137,40 @@ public class ChatService {
      */
     private Flux<Map<String, Object>> doChatLoop(Prompt prompt, String userText, long startTime, int depth) {
         return Flux.create(sink -> {
-            StringBuilder fullResponse = new StringBuilder();
+            // StringBuffer 而非 StringBuilder：取消回调跑在"断开连接/换消息"的那个线程上，要读这里累计的正文，
+            // 无锁读非线程安全缓冲区可能读到撕裂内容
+            StringBuffer fullResponse = new StringBuffer();
             List<ChatResponse> allResponses = new ArrayList<>();
+            // 内层订阅的唯一句柄：模型流与工具续答流先后放进同一个槽，取消时只撤当前在途的那一条；
+            // 更深一层 doChatLoop 由 Flux.concat 向内传播取消，各层撤各自的内层订阅
+            AtomicReference<Disposable> innerSubscription = new AtomicReference<>();
+            // onComplete（模型收尾线程）与 onCancel（断开线程）可以竞态，一轮记录只允许其中一方落
+            AtomicBoolean turnSaved = new AtomicBoolean(false);
+            Runnable saveTurnOnce = () -> {
+                if (turnSaved.compareAndSet(false, true)) {
+                    saveConversation(userText, fullResponse.toString(), startTime);
+                }
+            };
+            // 登记在途订阅：先放进槽、再复核取消位，两侧的先后关系才会覆盖全部交错顺序
+            // （只复核不放进槽，或只放进槽不复核，都留得下"取消读到时还没登记、登记时又没看到取消"的漏网订阅）
+            Consumer<Disposable> trackInFlight = subscription -> {
+                innerSubscription.set(subscription);
+                if (sink.isCancelled()) {
+                    subscription.dispose();
+                }
+            };
 
-            modelAdapter.stream(prompt).subscribe(
+            // 此前内层 subscribe 的 Disposable 被丢弃，"停止流式订阅"只撤掉了最外层：
+            // 换消息或断开连接之后模型调用照常进行并计费，而这一轮的正文既不落库也无人消费
+            sink.onCancel(() -> {
+                Disposable inFlight = innerSubscription.getAndSet(null);
+                if (inFlight != null) {
+                    inFlight.dispose();
+                }
+                saveTurnOnce.run();
+            });
+
+            trackInFlight.accept(modelAdapter.stream(prompt).subscribe(
                     chunk -> {
                         allResponses.add(chunk);
                         String text = chunk.getResult() != null && chunk.getResult().getOutput() != null
@@ -168,24 +201,21 @@ public class ChatService {
                         if (assistantOutput != null && !assistantOutput.getToolCalls().isEmpty()) {
                             // 达到工具调用迭代上限时不再递归，直接结束本轮，防止无限循环
                             if (depth >= MAX_TOOL_ITERATIONS) {
-                                saveConversation(userText, fullResponse.toString(), startTime);
+                                saveTurnOnce.run();
                                 sink.next(createEndChunk(fullResponse.toString(), startTime));
                                 sink.complete();
                                 return;
                             }
-                            saveConversation(userText, fullResponse.toString(), startTime);
-                            handleToolCalls(assistantOutput, userText, startTime, depth).subscribe(
-                                    sink::next,
-                                    sink::error,
-                                    sink::complete
-                            );
+                            saveTurnOnce.run();
+                            trackInFlight.accept(handleToolCalls(assistantOutput, userText, startTime, depth)
+                                    .subscribe(sink::next, sink::error, sink::complete));
                         } else {
-                            saveConversation(userText, fullResponse.toString(), startTime);
+                            saveTurnOnce.run();
                             sink.next(createEndChunk(fullResponse.toString(), startTime));
                             sink.complete();
                         }
                     }
-            );
+            ));
         });
     }
 
