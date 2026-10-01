@@ -2,9 +2,9 @@
  * 登记表与代码实况的一致性验证（v2.52 · C-117 · 候选 ㊱ 的门禁侧）。
  *
  * 这里锁的不是"文档写得好不好"，而是**文档里的每一条清单能不能被代码指向**：
- * 十二组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
+ * 十三组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
  * 加了新 Kind 而没登记 ⇒ 红；登记了一个代码里没有的端点 ⇒ 红；
- * 新增 `check-*.mjs` 而没进 CI ⇒ 红；配额上界出现第二份字面量 ⇒ 红。
+ * 新增 `check-*.mjs` 而没进 CI ⇒ 红；新增的门禁缺规范退出码行 ⇒ 红；配额上界出现第二份字面量 ⇒ 红。
  * 这正是 ㊱ 描述的失效形态：导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
  *
  * 与同目录其他脚本的口径一致：零依赖、不碰网络与库、只读源码文本与 markdown。
@@ -701,6 +701,35 @@ console.log('\n[12] 模型出站地址的合成口径 + 流式失败的可见出
   check('两条 WS 用例都在（少一条＝"只补收尾帧"的旧形态可以改回去）', wtMissing.length === 0, wtMissing.join(','))
   check('WS 用例锁住顺序与"最后一帧仍是 query_end"',
     WT.includes('types.indexOf("query_end")') && WT.includes('types.get(types.size() - 1)'))
+}
+
+console.log('\n[13] 元判据：门禁的红必须落到退出码与具名读数（v2.70 · 批次 E · C-137 的防复活侧）')
+{
+  // C-137 的教训不是某个产品缺陷，而是**守卫自己失效**：打印"失败 N 项"却 `exit 0`，CI 收下不判。
+  // 第 5 组核对"脚本 ↔ 台账 ↔ package.json ↔ ci.yml ↔ AGENTS"的接线，但不核对每道脚本有没有退出码
+  // ⇒ 今后新增第十道 Node 桩测时忘了 `process.exit`，会静默复制同一层免疫。本组把那一行本身锁成判据。
+  const mjsScripts = readdirSync(join(ROOT, 'scripts')).filter(f => /^check-.*\.mjs$/.test(f)).sort()
+  check('本组解析到 ≥9 道 check-*.mjs（glob 失效时逐条判据全体空转）', mjsScripts.length >= 9, `解析到 ${mjsScripts.length}`)
+  for (const f of mjsScripts) {
+    // 逐字锁规范行（三元式与变量名一起）：`process.exit(0)`、缺行、或自创写法都算"打印红、不判决"
+    check(`${f} 以 process.exit(failures === 0 ? 0 : 1) 收尾`,
+      /process\.exit\(failures === 0 \? 0 : 1\)/.test(read(`scripts/${f}`)))
+  }
+
+  // smoke.sh 的退出码语义与 §7.2 的两处结构性边界——写成注释的边界不算判据，落成断言才算。
+  const SM = read('scripts/smoke.sh')
+  const failGate = SM.indexOf('[ "$FAIL" -eq 0 ] || exit 1')
+  check('smoke.sh 汇总区存在"有 FAIL 即 exit 1"的门（SKIP 允许、红不许吞）', failGate >= 0)
+  check('FAIL 门排在末尾裸 exit 0 之前（顺序颠倒＝无论结果都绿，v2.69 的 M2 态取证依赖它）',
+    failGate >= 0 && SM.indexOf('exit 0', failGate) > failGate)
+  const liveIdx = SM.indexOf('if [ "${SMOKE_WS_CHAT:-0}" = 1 ]; then')
+  const liveBranch = liveIdx < 0 ? '' : SM.slice(liveIdx, SM.indexOf('if [ "$KEEP" = 1 ]', liveIdx))
+  check('真实回合段由 SMOKE_WS_CHAT 显式放行守卫包住（默认关：冒烟不碰消耗外部额度的接口）', liveIdx >= 0)
+  check('未放行时落具名 skip 而不是静默消失（少一条断言必须能从读数里看见）',
+    liveBranch.includes(`skip '真实回合的终局帧' 'SMOKE_WS_CHAT`))
+  const nodeGuard = SM.indexOf('if [ "$WS_FRAME_NODE" != 1 ]; then')
+  check('缺 Node ≥22 全局 WebSocket 时整节 §7.2 落具名 SKIP（前提不满足 ≠ 通过）',
+    nodeGuard >= 0 && SM.slice(nodeGuard).includes(`skip '聊天 WS 帧级判据（整节）'`))
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)
