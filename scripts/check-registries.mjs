@@ -704,3 +704,4 @@ console.log('\n[12] 模型出站地址的合成口径 + 流式失败的可见出
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)
+process.exit(failures === 0 ? 0 : 1)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# 云谕助手 —— 接口冒烟（v2.46）
+# 云谕助手 —— 接口冒烟（v2.69）
 #
 # 用途：对"已经跑起来"的实例打一遍关键 HTTP 链路。单测只能证明方法行为，
 #       拦截器顺序、序列化、路由、限流与握手这些只有真进程才暴露的问题靠这里。
@@ -13,7 +13,8 @@
 #   - 不碰任何消耗外部额度或不可逆的接口。/api/open/** 的鉴权与握手只在 §7.9 打**负向**
 #     （无 Key/错 Key 在拦截器内返回，不进业务、不计费）；§7.10 打外呼端点时故意用空 body，
 #     让它停在业务侧参数校验（400）之前就扣不到配额、拨不出网关，只用来观测 403→400 的闸门跳变。
-#     检索测试与 POST /api/admin/archive/run 不调用。
+#     检索测试与 POST /api/admin/archive/run 不调用。唯一的例外要显式放行：SMOKE_WS_CHAT=1 时
+#     §7.2 会真发一条聊天消息（见环境变量表），默认关。
 #   - 写路径只写本次刚创建的数据，结尾删除（KEEP=1 可保留）。
 #   - 不打印令牌：失败时只输出 HTTP 状态、业务 code 与 message 字段。
 #
@@ -27,6 +28,8 @@
 #                      未提供但有管理员凭据时，脚本会自己调 /api/admin/invite-codes 发一个并用掉
 #   SMOKE_ORIGIN    正式部署的站点来源（如 https://yunyu.example.com）；用于校验 WS 跨域白名单
 #   SMOKE_MODEL     创建助手使用的模型 id，默认 qwen-turbo
+#   SMOKE_WS_CHAT=1 放行 §7.2 的真实回合（发一条真消息、占一条消息配额、可能真烧外部额度）；
+#                   默认关闭，此时 §7.2 的其余判据照跑——它们只打失败出口，不产生对话
 #   SMOKE_HISTORY_SESSION_ID  该账号名下**已有消息**的会话 id；提供时 §4.5 才跑历史响应形状断言。
 #                      留空时该节整段 SKIP——本轮自建的会话是空的，对空响应断言"没有 toolName 键"必绿而无意义
 #   KEEP=1          保留本次创建的助手与会话
@@ -50,7 +53,8 @@ KEEP="${KEEP:-0}"
 BODY_FILE="$(mktemp)"
 HDR_FILE="$(mktemp)"
 DATA_FILE="$(mktemp)"
-trap 'rm -f "$BODY_FILE" "$HDR_FILE" "$DATA_FILE"' EXIT
+WS_FRAME_FILE="$(mktemp)"
+trap 'rm -f "$BODY_FILE" "$HDR_FILE" "$DATA_FILE" "$WS_FRAME_FILE"' EXIT
 
 PASS=0
 FAIL=0
@@ -666,6 +670,213 @@ if [ -n "${SMOKE_ORIGIN:-}" ]; then
         "101 ⇒ 来源白名单未生效（可能被改成通配），跨站页面可直接连 WS"
 else
     skip '带站点 Origin 握手' '未提供 SMOKE_ORIGIN；正式部署必须带，否则 CORS_ALLOWED_ORIGINS 漏配无人发现'
+fi
+
+# ---------- 7.2 聊天 WebSocket 的帧级失败出口 ----------
+# §7 只读到握手状态行：帧序（哪条出口发 error 帧、发完是否关闭、关闭码是多少）此前只由单测与
+# 一次性探针背书，真机冒烟里"已实现的失败出口"这一族没有判据。本节把 ChatWebSocketHandler 的
+# 每一条 error 出口逐一打帧。
+# 关闭码实况（v2.69 探针读数）：除"无权访问此助手"用 CloseStatus.NOT_ACCEPTABLE（Spring 常量 = 1003，
+# 不是 RFC 的 1008）外，其余失败出口都是 session.close() 的默认 1000 ⇒ 光看关闭码分不出失败，必须读帧。
+# 探针需要一个真 WS 客户端：python 标准库没有，故本节的运行前提是 Node ≥22 的全局 WebSocket，缺则整节 SKIP。
+section '7.2 聊天 WebSocket 帧级失败出口'
+WS_FRAME_NODE=0
+if command -v node >/dev/null 2>&1 \
+   && node -e 'process.exit(typeof WebSocket === "function" ? 0 : 1)' 2>/dev/null; then
+    WS_FRAME_NODE=1
+fi
+if [ "$WS_FRAME_NODE" != 1 ]; then
+    skip '聊天 WS 帧级判据（整节）' '本机无 Node ≥22 的全局 WebSocket：握手链路仍由 §7 覆盖，帧序本轮无人核对'
+elif [ -z "$ASSISTANT_ID" ]; then
+    skip '聊天 WS 帧级判据（整节）' '第 3 节未创建出助手'
+else
+    # 本节夹具自建自删：第 4 节建的会话已在本节之前删掉，而"会话与助手不匹配"需要一条**还活着**的会话
+    # 与第二个助手；他人助手用管理员凭据造（缺凭据时只有那一条 SKIP，不影响其余）
+    req POST /api/assistants "$TOKEN" "$(json name 'smoke-frame-b' personality 'probe persona' \
+        modelName "${SMOKE_MODEL:-qwen-turbo}" temperature 0.7 maxTokens 512 voice 'Cherry')"
+    WSX_AID2="$(jget data.id)"
+    WSX_OTHER=''
+    if [ -n "$ADMIN_TOKEN" ]; then
+        req POST /api/assistants "$ADMIN_TOKEN" "$(json name 'smoke-frame-other' personality 'probe persona' \
+            modelName "${SMOKE_MODEL:-qwen-turbo}" temperature 0.7 maxTokens 512 voice 'Cherry')"
+        WSX_OTHER="$(jget data.id)"
+    fi
+    if [ -n "$WSX_AID2" ]; then
+        req POST /api/sessions "$TOKEN" "$(json assistantId "$ASSISTANT_ID" title 'smoke-frame')"
+        WSX_SID="$(jget data.id)"
+    else
+        WSX_SID=''
+    fi
+
+    cat > "$WS_FRAME_FILE" <<'WSJS'
+// 聊天 WS 帧探针：每个场景输出一行 F|tag|types|errs|opened|srvClosed|closeCode
+// 参数只走 env（令牌与 id 都是 ASCII）；错误正文可能含中文，故分隔符固定为 '|'
+const url = process.env.WS_URL, token = process.env.WS_TOKEN || '';
+const AID = process.env.WS_AID, AID2 = process.env.WS_AID2 || '';
+const SID = process.env.WS_SID || '', OTHER = process.env.WS_OTHER || '';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// actions: {send: obj|string}（字符串原样发出，用来打畸形 JSON）/ {wait: ms} / {until: type, ms: n}
+async function probe(tag, path, actions) {
+  const seen = [];
+  let opened = false, srvClosed = false, code = '';
+  const ws = new WebSocket(url + path);
+  ws.addEventListener('message', (ev) => {
+    let f;
+    try { f = JSON.parse(String(ev.data)); } catch { f = { type: '__non_json__' }; }
+    seen.push(f);
+  });
+  ws.addEventListener('close', (ev) => { code = ev.code; });
+  const deadline = Date.now() + 5000;
+  while (!opened && ws.readyState === 0 && Date.now() < deadline) {
+    if (ws.readyState === 1) opened = true;
+    await sleep(20);
+  }
+  for (const a of actions) {
+    if (ws.readyState !== 1) break;
+    if (a.send !== undefined) ws.send(typeof a.send === 'string' ? a.send : JSON.stringify(a.send));
+    if (a.until) {
+      const untilAt = Date.now() + (a.ms || 6000);
+      while (ws.readyState === 1 && Date.now() < untilAt && !seen.some((f) => f.type === a.until)) await sleep(30);
+    } else if (a.wait) await sleep(a.wait);
+  }
+  await sleep(300);   // 收尾帧可能已在途；不等这一会儿会把"服务端没发"与"我没收到"读成同一件事
+  srvClosed = ws.readyState !== 1;   // 还在 OPEN ⇒ 是探针自己关的，不是服务端关的
+  if (!srvClosed) { try { ws.close(1000, 'smoke'); } catch {} }
+  await sleep(200);
+  const types = seen.map((f) => f.type ?? '__non_json__').join(',');
+  // 错误正文在 data 键下：出口的统一包装是 {type, protocolVersion, data}
+  const errs = seen.filter((f) => f.type === 'error').map((f) => String(f.data ?? '')).join(' ~ ');
+  // 终局帧的正文长度：query_end 的载荷是 data.message（整段回答）。它是"无声失败"的唯一反证——
+  // 既没有 error 帧、正文又是空的回合，前端只会看到一段戛然而止的空白
+  const endMsg = seen.filter((f) => f.type === 'query_end')
+    .map((f) => String((f.data && f.data.message) ?? ''))[0] || '';
+  process.stdout.write(`F|${tag}|${types}|${errs}|${opened ? 1 : 0}|${srvClosed ? 1 : 0}|${code}|${endMsg.length}\n`);
+}
+
+const cases = [
+  ['ok', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 1200 }]],
+  ['badtoken', `/ws/${AID}`, [{ send: { type: 'auth', token: 'not-a-jwt-at-all' } }, { wait: 1200 }]],
+  ['emptytoken', `/ws/${AID}`, [{ send: { type: 'auth', token: '' } }, { wait: 1200 }]],
+  ['preauth', `/ws/${AID}`, [{ send: { type: 'chat', content: 'hi' } }, { wait: 900 }]],
+  ['norfound', '/ws/ffffffffffffffffffffffffffffffff', [{ send: { type: 'auth', token } }, { wait: 1200 }]],
+  ['nosesion', `/ws/${AID}?sessionId=99999999999999999999999999999999`, [{ send: { type: 'auth', token } }, { wait: 1200 }]],
+  ['emptysend', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: { type: 'chat', content: '   ' } }, { wait: 900 }]],
+  ['toolong', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: { type: 'chat', content: 'a'.repeat(2001) } }, { wait: 900 }]],
+  ['unknown', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: { type: 'totally-unknown' } }, { wait: 900 }]],
+  ['badjson', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: '{"type":' }, { wait: 900 }]],
+  ['notype', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: { content: 'no type field' } }, { wait: 900 }]],
+  ['ping', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: { type: 'ping' } }, { wait: 600 }]],
+];
+if (OTHER) cases.push(['forbidden', `/ws/${OTHER}`, [{ send: { type: 'auth', token } }, { wait: 1200 }]]);
+if (AID2 && SID) cases.push(['mismatch', `/ws/${AID2}?sessionId=${SID}`, [{ send: { type: 'auth', token } }, { wait: 1200 }]]);
+if (process.env.WS_LIVE === '1') {
+  cases.push(['live', `/ws/${AID}${SID ? '?sessionId=' + SID : ''}`, [
+    { send: { type: 'auth', token } }, { wait: 900 },
+    { send: { type: 'chat', content: 'smoke frame probe' } }, { until: 'query_end', ms: 45000 }]]);
+}
+// 探针自己也要表态：一条都没回报时，bash 侧的"缺项"判据会把整节标成探针失效
+if (cases.length === 0) process.stdout.write('F|selfcheck|||0|0|0\n');
+(async () => { for (const c of cases) await probe(...c); })();
+WSJS
+    WS_FRAME_OUT="$(WS_URL="ws://$WS_HOST:$WS_PORT" WS_TOKEN="$TOKEN" WS_AID="$ASSISTANT_ID" \
+        WS_AID2="$WSX_AID2" WS_SID="$WSX_SID" WS_OTHER="$WSX_OTHER" WS_LIVE="${SMOKE_WS_CHAT:-0}" \
+        node "$WS_FRAME_FILE" 2>/dev/null)"
+
+    wsf() { printf '%s\n' "$WS_FRAME_OUT" | grep -m1 "^F|$1|" | cut -d'|' -f"$2"; }
+    # ws_frame_case <tag> <描述> <期望 types> <期望错误正文片段；^ 表示不应有 error 帧> <期望服务端关闭 0/1> [期望关闭码]
+    ws_frame_case() {
+        local tag="$1" desc="$2" want_types="$3" want_err="$4" want_close="$5" want_code="${6:-}"
+        local t e c d
+        if [ -z "$(printf '%s\n' "$WS_FRAME_OUT" | grep -m1 "^F|$tag|")" ]; then
+            bad "$desc" '探针没有回报这一项（探针自身没跑成，不构成服务端结论）'; return
+        fi
+        t="$(wsf "$tag" 3)"; e="$(wsf "$tag" 4)"; c="$(wsf "$tag" 6)"; d="$(wsf "$tag" 7)"
+        if [ "$t" != "$want_types" ]; then
+            bad "$desc" "帧序不符：期望 [$want_types]，实际 [$t]"; return
+        fi
+        if [ "$want_err" = '^' ]; then
+            [ -z "$e" ] || { bad "$desc" "不该有 error 帧，实际 [$e]"; return; }
+        else
+            case "$e" in *"$want_err"*) ;; *) bad "$desc" "错误正文不符：期望含 [$want_err]，实际 [$e]"; return ;; esac
+        fi
+        [ "$c" = "$want_close" ] || { bad "$desc" "服务端关闭与否不符：期望 $want_close，实际 $c（关闭码 $d）"; return; }
+        if [ -n "$want_code" ] && [ "$d" != "$want_code" ]; then
+            bad "$desc" "关闭码不符：期望 $want_code，实际 $d"; return
+        fi
+        ok "$desc —— [$t]${e:+ ｜ $e}"
+    }
+
+    ws_frame_case 'ok' 'auth 通过后下发 assistant_info 且不关闭' 'assistant_info' '^' 0
+    ws_frame_case 'badtoken' '首条 auth 带无效令牌 → error 帧并关闭' 'error' '认证失败：无效的 Token' 1 1000
+    ws_frame_case 'emptytoken' 'auth 带空令牌 → 同一条拒绝出口' 'error' '认证失败：无效的 Token' 1 1000
+    ws_frame_case 'preauth' '未认证就发消息 → error 帧点名未认证，连接留着等 auth' 'error' \
+        'Session not initialized or not authenticated' 0
+    ws_frame_case 'norfound' '助手不存在 → error 帧并关闭' 'error' 'Assistant not found' 1 1000
+    ws_frame_case 'nosesion' '业务会话不存在 → error 帧并关闭（不给半个 assistant_info）' 'error' \
+        '会话不存在或无访问权限' 1 1000
+    ws_frame_case 'emptysend' 'chat 空内容 → error 帧，连接不关' 'assistant_info,error' '消息内容不能为空' 0
+    ws_frame_case 'toolong' 'chat 超长内容 → error 帧点名上限字数，连接不关' 'assistant_info,error' '2000 字' 0
+    ws_frame_case 'unknown' '未知消息类型 → error 帧带回类型名' 'assistant_info,error' 'Unknown message type:' 0
+    ws_frame_case 'badjson' '畸形 JSON → 解析失败出口（不是把异常原文外发）' 'assistant_info,error' '消息格式解析失败' 0
+    ws_frame_case 'notype' '合法 JSON 但缺 type → 兜底出口只给类别' 'assistant_info,error' '消息处理失败，请重试' 0
+    ws_frame_case 'ping' 'ping → pong（心跳在已认证连接上可用）' 'assistant_info,pong' '^' 0
+    if [ -n "$WSX_OTHER" ]; then
+        ws_frame_case 'forbidden' '使用他人个人助手 → error 帧并按 1003 关闭' 'error' '无权访问此助手' 1 1003
+    else
+        skip '他人个人助手的 WS 拒绝出口' '未提供 SMOKE_ADMIN_USER/SMOKE_ADMIN_PASS，造不出"别人的助手"'
+    fi
+    if [ -n "$WSX_AID2" ] && [ -n "$WSX_SID" ]; then
+        ws_frame_case 'mismatch' '会话与助手不匹配 → error 帧并关闭' 'error' '会话与助手不匹配' 1 1000
+    else
+        skip '会话与助手不匹配的拒绝出口' "本节夹具没建全（助手B=${WSX_AID2:-无} 会话=${WSX_SID:-无}）"
+    fi
+
+    # 握手阶段的令牌：§7 的空令牌放行只证明"能升级"，这两条补上"带坏令牌必须不升级、带好令牌必须升级"
+    ws_assert '握手带非法令牌 → 401 且不升级' "ws/$ASSISTANT_ID?token=not-a-jwt-at-all" '' 401 \
+        '101 ⇒ 握手期不再校验令牌的口子被放宽了（非法令牌也能建连，只等首条消息）'
+    ws_assert '握手带有效令牌 → 101' "ws/$ASSISTANT_ID?token=$TOKEN" '' 101 '401 ⇒ 握手期令牌校验把合法请求也挡了'
+
+    if [ "${SMOKE_WS_CHAT:-0}" = 1 ]; then
+        # 真发一条消息：判的是"回合一定有终局帧"，不是"模型答得好不好"——成功与失败都接受，
+        # 唯独不接受"帧流戛然而止、前端停在打字态"。默认关：本脚本的边界是不碰消耗外部额度的接口，
+        # 配好真实 Key 的部署上这一条会真打出去一次并占一条消息配额。
+        live_types="$(wsf live 3)"; live_err="$(wsf live 4)"; live_close="$(wsf live 6)"; live_len="$(wsf live 7)"
+        case "$live_types" in
+            '') bad '真实回合的终局帧' '探针没有回报这一项（探针自身没跑成，不构成服务端结论）' ;;
+            *,query_end)
+                # 成功与失败都接受，唯独不接受"两段都是空"：那正是 v2.62 之前的无声失败形状
+                if [ -n "$live_err" ]; then
+                    ok "真实回合走到终局帧，且失败有帧可读 —— [$live_types]｜$live_err"
+                elif [ "${live_len:-0}" -gt 0 ]; then
+                    # 变异 M2 实测撤掉 error 帧后本条仍绿：错误路径照发 endChunk，正文非空证明不了这一轮成功。
+                    # 所以这条只判"终局帧到得了"，"失败必须有 error 帧"归 check-registries.mjs 第 12 组
+                    ok "真实回合走到终局帧（本轮无 error 帧、正文 $live_len 字 ⇒ 只判终局帧，不判这一轮成没成）—— [$live_types]"
+                else
+                    bad '真实回合走到终局帧却既无 error 帧也无正文' \
+                        "无声失败：帧序 [$live_types]，query_end 正文长度 ${live_len:-0}"
+                fi
+                [ "$live_close" = 0 ] && ok '真实回合结束后服务端未断连（可继续下一轮）' \
+                    || bad '真实回合结束后连接被服务端关闭' "帧序 [$live_types]，关闭码 $(wsf live 5)"
+                ;;
+            *)  bad '真实回合的终局帧' "回合没有走到 query_end，帧序 [$live_types]" ;;
+        esac
+    else
+        skip '真实回合的终局帧' 'SMOKE_WS_CHAT 未置 1（会发起一次真模型调用并占一条消息配额）'
+    fi
+
+    if [ "$KEEP" = 1 ]; then
+        skip '清理 §7.2 夹具' 'KEEP=1'
+    else
+        # 清理不另立计数（删除端点由第 9 节断言）；失败时只报 id，免得留下无人认领的残渣
+        for pair in "session:$WSX_SID:$TOKEN" "assistant:$WSX_AID2:$TOKEN" "assistant:$WSX_OTHER:$ADMIN_TOKEN"; do
+            kind="${pair%%:*}"; rest="${pair#*:}"; fid="${rest%%:*}"; ftk="${rest#*:}"
+            [ -z "$fid" ] && continue
+            if [ "$kind" = session ]; then req DELETE "/api/sessions/$fid" "$ftk"
+            else req DELETE "/api/assistants/$fid" "$ftk"; fi
+            case "$STATUS" in 2*) ;; *) printf '        §7.2 夹具清理未成功（HTTP %s）：%s id=%s\n' "$STATUS" "$kind" "$fid" ;; esac
+        done
+    fi
 fi
 
 # ---------- 7.5 请求形状错误：客户端用错不能记成服务端故障 ----------
