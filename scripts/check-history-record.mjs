@@ -39,13 +39,16 @@ console.log('\n[1] 角色映射不回归（抽函数不能顺手改口径）')
   check('role=1 → assistant，带 costTime',
     JSON.stringify(mapHistoryRecord({ id: '2', role: 1, message: '答', costTime: 1200 }))
       === JSON.stringify({ role: 'assistant', text: '答', costTime: 1200 }))
-  // v2.68 · C-135：落库侧只写 role 0/1，工具轨迹入库与否是待表态的产品决定（手册 7.4 候选 S-19）。
-  // 原来的 2/3 分支读的是 toolName/toolArgs/toolResult 三列，而这三列全仓零写入点——
-  // 分支永远命中，命中永远渲染成"空工具卡片"。删分支，不留一条走不到的路径。
-  check('role=2 → null（工具轨迹不落库，历史不伪造工具卡片）',
-    mapHistoryRecord({ id: '3', role: 2, message: '兜底', toolName: 't', toolArgs: '{"a":1}' }) === null)
-  check('role=3 → null（同上）',
-    mapHistoryRecord({ id: '4', role: 3, message: '兜底', toolName: 't', toolResult: 'R' }) === null)
+  // v2.72 · C-141：工具回路在应用侧执行（S-24 收口），轨迹随 records 落库（S-19 收口），
+  // role 2/3 分支恢复——形状与实时帧 push-tool-call/push-tool-result 落下的消息一致
+  check('role=2 → 工具调用卡（toolArgs 原样 JSON 作 text）',
+    JSON.stringify(mapHistoryRecord({ id: '3', role: 2, message: '', toolName: 'weather', toolArgs: '{"a":1}' }))
+      === JSON.stringify({ role: 'tool_call', toolName: 'weather', text: '{"a":1}' }))
+  check('role=3 → 工具结果卡（JSON 字符串标量解析回原文）',
+    JSON.stringify(mapHistoryRecord({ id: '4', role: 3, message: '', toolName: 'weather', toolResult: '"晴"' }))
+      === JSON.stringify({ role: 'tool_result', toolName: 'weather', toolResult: '晴', text: '晴' }))
+  check('role=3 坏值/非标量原样返回不炸',
+    mapHistoryRecord({ id: '4b', role: 3, toolName: 't', toolResult: 'not json' })?.text === 'not json')
   check('未知 role → null（交给上层 filter）',
     mapHistoryRecord({ id: '5', role: 9, message: 'x' }) === null)
 }
@@ -97,20 +100,20 @@ console.log('\n[4] ChatRobot.vue 走这一份映射（防止再内联一份副�
     `实际 ${(src.match(/\.map\(mapHistoryRecord\)/g) ?? []).length} 处`)
 }
 
-console.log('\n[5] 前端声明必须对得上后端真实外发的形状（v2.68 · C-135）')
+console.log('\n[5] 前端声明必须对得上后端真实外发的形状（v2.68 立 · v2.72 随轨迹落库翻转）')
 {
-  // 后端 Record 的 tool_* 三列零写入点 ⇒ 已在实体上 @JsonIgnore；前端若还留着同名字段，
-  // 类型就是一张"永远拿不到的支票"。这条判据把两侧钉在一起：任何一侧回滚都会红。
+  // 工具轨迹三列 v2.72 起有真实写入点：外发恢复（NON_NULL），前端类型与映射分支两侧必须同源——
+  // 任何一侧回滚都会红。
   const map = readFileSync(new URL(MAP_MOD), 'utf8')
   const sessionApi = readFileSync(SESSION_API, 'utf8')
   const admin = readFileSync(ADMIN_VIEW, 'utf8')
-  check('映射里没有 role 2/3 分支，也不提 tool* 三列',
-    !/role === 2|role === 3|toolName|toolArgs|toolResult/.test(map))
-  check('ChatRecordMessage 不声明后端不发的 tool* 字段',
-    !/toolName|toolArgs|toolResult/.test(sessionApi))
+  check('映射处理 role 2/3 并引用 tool* 三列（轨迹落库后的读侧）',
+    /role === 2/.test(map) && /role === 3/.test(map) && /toolName/.test(map))
+  check('ChatRecordMessage 声明后端会外发的 tool* 字段',
+    /toolName/.test(sessionApi) && /toolArgs/.test(sessionApi) && /toolResult/.test(sessionApi))
   check('用户表不渲染零写入路径的昵称/邮箱/手机号',
     !/昵称|邮箱|手机号|\.nickname|\.email|\.phone/.test(admin))
-  // 反向锚点：只验"没有"会让整块被误删也判绿，所以同时钉住"该有的还在"
+  // 反向锚点：只验"有"会让整块被误删也判绿，所以同时钉住"该有的还在"
   check('映射仍处理 role 0/1', /role === 0/.test(map) && /role === 1/.test(map))
   check('历史类型仍带检索状态', /knowledgebase\?: KnowledgebaseInfo/.test(sessionApi))
   check('用户表仍是三列且占位 colspan 与之一致',

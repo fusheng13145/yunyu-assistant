@@ -36,6 +36,13 @@ export interface ChatRecordMessage {
   createdAt?: string
   /** 本轮检索状态（后端 v2.41 起落库；NULL=该会话未挂知识库，故可整段缺失） */
   knowledgebase?: KnowledgebaseInfo
+  /**
+   * 工具轨迹三列（v2.72 起落库；role 2/3 的行才有值，NON_NULL 之外整段缺失）。
+   * tool_args 是模型参数原样 JSON；tool_result 是 JSON 字符串标量，读取侧 parseJsonScalar 解析回原文。
+   */
+  toolName?: string
+  toolArgs?: string
+  toolResult?: string
 }
 
 /** 查询会话历史消息（分页，倒序最新在前；切换会话时回显，长会话惰性加载） */

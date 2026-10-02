@@ -174,6 +174,9 @@ public class OpenApiChatController {
         }
 
         return chatService.chatStream(message)
+                // 工具调用/结果分片（带 type 键）是内部 WS 通道的实时形状：开放 SSE 的对外契约不含它，
+                // 工具照常执行、最终回答照常返回，第三方只是看不到中间过程（与"对外失败帧"同口径，手册 6.6）
+                .filter(chunk -> !chunk.containsKey("type"))
                 // 结束帧回传 sessionId（供第三方下一轮接力）
                 .map(chunk -> {
                     if (Boolean.TRUE.equals(chunk.get("streamEnd"))) {

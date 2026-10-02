@@ -55,7 +55,8 @@ public class ConversationRecordWriter {
         int failed = 0;
         String firstUserMessage = null;
         for (Record record : pending) {
-            if (!StringUtils.hasText(record.getMessage())) {
+            // 工具轨迹行（role 2/3）的 message 为空但 toolName 必有：只按 message 判空会把它们整行丢掉
+            if (!StringUtils.hasText(record.getMessage()) && !StringUtils.hasText(record.getToolName())) {
                 continue;
             }
             if (firstUserMessage == null && Record.ROLE_USER == record.getRole()) {

@@ -70,6 +70,23 @@ class ConversationRecordWriterTest {
     }
 
     @Test
+    void persist_toolTrajectoryRowsSurviveBlankMessageFilter() {
+        // 工具轨迹行（role 2/3）message 为空但 toolName 必有：按 message 单独判空会把轨迹整批丢掉（v2.72 · S-19）
+        Record callRow = new Record();
+        callRow.setRole(Record.ROLE_TOOL_CALL);
+        callRow.setToolName("weather");
+        Record resultRow = new Record();
+        resultRow.setRole(Record.ROLE_TOOL_RESULT);
+        resultRow.setToolName("weather");
+
+        ConversationRecordWriter.Result result =
+                writer.persist(List.of(record(Record.ROLE_USER, "问"), callRow, resultRow), "a1", "s1", null);
+
+        assertThat(result.saved()).isEqualTo(3);
+        verify(recordService, org.mockito.Mockito.times(3)).add(any(Record.class));
+    }
+
+    @Test
     void persist_textChannel_stampsSessionAndTitlesFromFirstUserMessage() {
         ConversationRecordWriter.Result result = writer.persist(
                 List.of(record(Record.ROLE_USER, "第一个问题"), record(Record.ROLE_ASSISTANT, "回答")),

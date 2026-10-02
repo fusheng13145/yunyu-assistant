@@ -56,6 +56,27 @@ console.log('\n[2] 非 error 帧不得顺手解冻（解锁只属于回合终点
   check('tool_result 帧 → push-tool-result', tr.instruction?.kind === 'push-tool-result' && tr.instruction.toolName === 'web_search')
   check('tool_result 缺 data 不炸（null 安全）',
     describeChatFrame(frame({ type: 'tool_result' }), { typing: true, firstOfStream: true }).instruction?.kind === 'push-tool-result')
+  // v2.72 · C-141：工具帧隔断了在途流式气泡，firstOfStream 必须复位——否则续答正文以 append 落笔时
+  // 找不到 assistant 气泡，被整段静默丢掉（该路径在框架内执行时代从未真实跑过）。
+  // 输入必须取回合中态（firstOfStream=false）：拿 true 做输入的话，"复位"与"原样"不可分辨，变异会空转判绿
+  const tcMid = describeChatFrame(frame({ type: 'tool_call', toolName: 'w' }), { typing: true, firstOfStream: false })
+  const trMid = describeChatFrame(frame({ type: 'tool_result', data: { name: 'w' } }), { typing: true, firstOfStream: false })
+  check('回合中态收到 tool_call/tool_result 复位 firstOfStream（续答正文要开新气泡）',
+    tcMid.state.firstOfStream === true && trMid.state.firstOfStream === true)
+}
+
+console.log('\n[2.5] 工具卡之后的正文必须有落笔之处（v2.72 工具回合实证）')
+{
+  const { applyChatFrameInstruction } = await import(MOD)
+  const msgs = []
+  applyChatFrameInstruction(msgs, { kind: 'begin-stream', segment: '让我查一下' })
+  applyChatFrameInstruction(msgs, { kind: 'push-tool-call', toolName: 'web_search', text: '{"q":"a"}' })
+  applyChatFrameInstruction(msgs, { kind: 'push-tool-result', toolName: 'web_search', toolResult: 'ok', text: 'ok' })
+  applyChatFrameInstruction(msgs, { kind: 'append-stream', segment: '查到了' })
+  check('工具卡之后的 append-stream 开新气泡而不是丢文本',
+    msgs.length === 4 && msgs[3].role === 'assistant' && msgs[3].text === '查到了',
+    `实际 ${JSON.stringify(msgs.map((m) => m.role))}`)
+  check('工具卡之前与之后的正文都在', msgs[0].text === '让我查一下' && msgs[0].role === 'assistant')
 }
 
 console.log('\n[3] 流式生命周期：解锁的两条合法路径')

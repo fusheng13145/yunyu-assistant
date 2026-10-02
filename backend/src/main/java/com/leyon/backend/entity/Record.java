@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -176,12 +177,12 @@ public class Record {
     }
 
     /**
-     * 外发抑制（v2.68 · C-135）：这三列全仓零写入点，实测 {@code records} 与 {@code records_archive}
-     * 里非空行数均为 0，外发出去就是每条历史消息带三个 {@code null}——前端曾按它们渲染"历史里的工具卡片"，
-     * 那份渲染永远走不到。列保留（工具轨迹落库是候选能力，见手册 7.4），但对外不再承诺。
-     * MyBatis 与归档 SQL 走 Java getter，不受 {@code @JsonIgnore} 影响。
+     * 工具名称（role 为 tool_call / tool_result 时）。
+     * v2.72 起工具回路在应用侧执行（S-24 收口），三列有了真实写入点，随历史接口外发；
+     * {@code @JsonInclude(NON_NULL)} 让无工具行不带三个 {@code null} 键。
+     * MyBatis 与归档 SQL 走 Java getter，外发形状与列值同源。
      */
-    @JsonIgnore
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public String getToolName() {
         return toolName;
     }
@@ -190,7 +191,7 @@ public class Record {
         this.toolName = toolName;
     }
 
-    @JsonIgnore
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public String getToolArgs() {
         return toolArgs;
     }
@@ -199,7 +200,7 @@ public class Record {
         this.toolArgs = toolArgs;
     }
 
-    @JsonIgnore
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public String getToolResult() {
         return toolResult;
     }

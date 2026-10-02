@@ -93,11 +93,12 @@ export function describeChatFrame(rawEvent: unknown, state: ChatStreamState, pre
       }
     case 'tool_call': {
       const f = frame as { toolName?: string; toolArgs?: string }
-      return { instruction: { kind: 'push-tool-call', toolName: f.toolName, text: f.toolArgs || '' }, state }
+      // 工具帧隔断了在途流式气泡：firstOfStream 复位，续答正文开新气泡而不是被 append 丢掉
+      return { instruction: { kind: 'push-tool-call', toolName: f.toolName, text: f.toolArgs || '' }, state: { typing: state.typing, firstOfStream: true } }
     }
     case 'tool_result': {
       const tr = (data ?? {}) as { name?: string; result?: string }
-      return { instruction: { kind: 'push-tool-result', toolName: tr?.name, toolResult: tr?.result, text: tr?.result || '' }, state }
+      return { instruction: { kind: 'push-tool-result', toolName: tr?.name, toolResult: tr?.result, text: tr?.result || '' }, state: { typing: state.typing, firstOfStream: true } }
     }
     default:
       return { instruction: null, state }
@@ -115,7 +116,12 @@ export function applyChatFrameInstruction(messages: DisplayMessage[], instructio
       break
     case 'append-stream': {
       const last = messages[messages.length - 1]
-      if (last?.role === 'assistant') last.text += instruction.segment
+      if (last?.role === 'assistant') {
+        last.text += instruction.segment
+      } else {
+        // 上一段正文之后插过工具卡片（或流式气泡已不在位）：开新气泡，不把正文静默丢掉
+        messages.push({ role: 'assistant', text: instruction.segment, isStreaming: true })
+      }
       break
     }
     case 'complete-message': {

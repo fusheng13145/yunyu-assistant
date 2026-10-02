@@ -15,15 +15,23 @@ import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.tool.definition.ToolDefinition;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -372,5 +380,206 @@ class ChatServiceTest {
         String raw = assistantRecordOf(kbChat).getKnowledgebaseInfo();
         assertThat(raw).doesNotStartWith("null").isNotBlank();
         assertThat(objectMapper.readTree(raw).path("docName").get(0).asText()).isEqualTo("含\"引号\".pdf");
+    }
+
+    // ===================== 工具回路在应用侧真实流动（v2.72 · C-141，S-24/S-19 收口） =====================
+
+    /** 造一个名叫 weather、返回固定结果的可执行工具回调 */
+    private ToolCallback weatherToolReturning(String rawResult) {
+        ToolCallback weather = mock(ToolCallback.class);
+        ToolDefinition definition = mock(ToolDefinition.class);
+        when(definition.name()).thenReturn("weather");
+        when(weather.getToolDefinition()).thenReturn(definition);
+        when(weather.call(anyString())).thenReturn(rawResult);
+        return weather;
+    }
+
+    private static AssistantMessage weatherToolCallMessage(String roundText, String arguments) {
+        return new AssistantMessage(roundText, Map.of(),
+                List.of(new AssistantMessage.ToolCall("tc1", "function", "weather", arguments)));
+    }
+
+    @Test
+    void buildPrompt_disablesInternalToolExecutionOnlyWhenToolsPresent() {
+        // S-24 的判据本体：撤掉 buildPrompt 里那行开关，其余全部单测照样绿（ModelAdapter 是 mock，
+        // 看不见 Spring AI 框架内执行）——所以取值本身必须在这里钉住
+        ChatService toolChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "工具助手", List.of(), List.of(weatherToolReturning("{}")));
+        ChatService plainChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "普通助手", List.of(), List.of());
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.empty());
+
+        toolChat.chatStream("问").collectList().block(Duration.ofSeconds(5));
+        plainChat.chatStream("问").collectList().block(Duration.ofSeconds(5));
+
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(modelAdapter, times(2)).stream(captor.capture());
+        OpenAiChatOptions withTools = (OpenAiChatOptions) captor.getAllValues().get(0).getOptions();
+        assertThat(withTools.getInternalToolExecutionEnabled()).isFalse();
+        OpenAiChatOptions noTools = (OpenAiChatOptions) captor.getAllValues().get(1).getOptions();
+        assertThat(noTools.getInternalToolExecutionEnabled()).as("无工具助手不加开关（零行为变更）").isNull();
+    }
+
+    @Test
+    void toolRound_framesFlowAndTrajectoryPersists() {        ChatService toolChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "工具助手", List.of(), List.of(weatherToolReturning("{\"content\":\"晴，25 度\"}")));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(
+                Flux.just(new ChatResponse(List.of(new Generation(weatherToolCallMessage("让我查一下", "{\"city\":\"北京\"}"))))),
+                Flux.just(new ChatResponse(List.of(new Generation(new AssistantMessage("今天晴"))))));
+
+        List<Map<String, Object>> frames = toolChat.chatStream("北京天气怎么样")
+                .collectList().block(Duration.ofSeconds(5));
+
+        // 帧序：正文分段（工具前的气泡）→ tool_call → tool_result → 续答分段 → 收尾；此前框架内执行吞掉工具帧
+        assertThat(frames).hasSize(5);
+        assertThat(frames.get(0)).containsEntry("segment", "让我查一下");
+        assertThat(frames.get(1)).containsEntry("type", "tool_call").containsEntry("toolName", "weather");
+        assertThat(frames.get(2)).containsEntry("type", "tool_result");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> resultData = (Map<String, Object>) frames.get(2).get("data");
+        assertThat(resultData).containsEntry("name", "weather").containsEntry("success", true);
+        assertThat((String) resultData.get("result")).contains("晴，25 度");
+        assertThat(frames.get(3)).containsEntry("segment", "今天晴");
+        assertThat(frames.get(4)).containsEntry("streamEnd", true);
+
+        // 轨迹落库顺序：user → 工具前正文 → tool_call → tool_result → 最终回答
+        List<Record> rows = toolChat.drainPendingRecords();
+        assertThat(rows).hasSize(5);
+        assertThat(rows.get(0).getRole()).isEqualTo(Record.ROLE_USER);
+        assertThat(rows.get(1).getRole()).isEqualTo(Record.ROLE_ASSISTANT);
+        assertThat(rows.get(1).getMessage()).isEqualTo("让我查一下");
+        assertThat(rows.get(2).getRole()).isEqualTo(Record.ROLE_TOOL_CALL);
+        assertThat(rows.get(2).getToolName()).isEqualTo("weather");
+        assertThat(rows.get(2).getToolArgs()).isEqualTo("{\"city\":\"北京\"}");
+        assertThat(rows.get(3).getRole()).isEqualTo(Record.ROLE_TOOL_RESULT);
+        assertThat(rows.get(3).getToolResult()).isEqualTo("\"晴，25 度\"");
+        assertThat(rows.get(4).getRole()).isEqualTo(Record.ROLE_ASSISTANT);
+        assertThat(rows.get(4).getMessage()).isEqualTo("今天晴");
+        // 取出即清
+        assertThat(toolChat.drainPendingRecords()).isEmpty();
+    }
+
+    @Test
+    void toolRound_followUpAndNextTurnCarryValidToolExchange() {
+        ChatService toolChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "工具助手", List.of(), List.of(weatherToolReturning("{\"content\":\"晴\"}")));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(
+                Flux.just(new ChatResponse(List.of(new Generation(weatherToolCallMessage("", "{}"))))),
+                Flux.just(new ChatResponse(List.of(new Generation(new AssistantMessage("今天晴"))))),
+                Flux.just(new ChatResponse(List.of(new Generation(new AssistantMessage("明天更暖"))))));
+
+        toolChat.chatStream("北京天气怎么样").collectList().block(Duration.ofSeconds(5));
+        toolChat.chatStream("那明天呢").collectList().block(Duration.ofSeconds(5));
+
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(modelAdapter, times(3)).stream(captor.capture());
+        // 续答请求：用户原话在上下文里、assistant(tool_calls) 紧跟工具回执
+        List<Message> followUp = captor.getAllValues().get(1).getInstructions();
+        assertThat(followUp).anyMatch(m -> m instanceof UserMessage u && "北京天气怎么样".equals(u.getText()));
+        assertThat(followUp).anyMatch(m -> m instanceof ToolResponseMessage);
+        // 下一轮请求：上一轮的工具交换完整保留，且序列合法
+        List<Message> nextTurn = captor.getAllValues().get(2).getInstructions();
+        assertThat(nextTurn).anyMatch(m -> m instanceof ToolResponseMessage);
+        assertThat(nextTurn.get(0) instanceof ToolResponseMessage).as("请求不得以悬空工具回执开头").isFalse();
+        assertNoDanglingToolCalls(nextTurn);
+    }
+
+    @Test
+    void toolRound_malformedArgsAndPlainTextResultStayJsonSafe() throws Exception {
+        ChatService toolChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "工具助手", List.of(), List.of(weatherToolReturning("plain text result")));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(
+                Flux.just(new ChatResponse(List.of(new Generation(weatherToolCallMessage("", "{\"city\":\"北京\""))))),
+                Flux.just(new ChatResponse(List.of(new Generation(new AssistantMessage("好的"))))));
+
+        toolChat.chatStream("北京天气怎么样").collectList().block(Duration.ofSeconds(5));
+
+        // tool_args/tool_result 是 JSON 列：坏参与非 JSON 结果折成 JSON 字符串标量，否则 MySQL 3140 使整批落库失败；
+        // message 列 NOT NULL 无默认值，轨迹行落空串（真机取证抓到的第一处）
+        List<Record> rows = toolChat.drainPendingRecords();
+        assertThat(rows.get(1).getMessage()).isEmpty();
+        assertThat(rows.get(2).getMessage()).isEmpty();
+        assertThat(rows.get(1).getToolArgs()).isNotBlank();
+        assertThat(objectMapper.readTree(rows.get(1).getToolArgs()).isTextual()).isTrue();
+        assertThat(objectMapper.readTree(rows.get(2).getToolResult()).asText()).isEqualTo("plain text result");
+    }
+
+    @Test
+    void toolRound_jsonStringScalarToolResultIsUnwrapped() throws Exception {
+        // 字符串型工具经 FunctionToolCallback 序列化成 JSON 字符串标量：展示给用户的是原文，不是带引号的序列化形状
+        ChatService toolChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "工具助手", List.of(), List.of(weatherToolReturning("\"直接文本结果\"")));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(
+                Flux.just(new ChatResponse(List.of(new Generation(weatherToolCallMessage("", "{}"))))),
+                Flux.just(new ChatResponse(List.of(new Generation(new AssistantMessage("好的"))))));
+
+        List<Map<String, Object>> frames = toolChat.chatStream("北京天气怎么样")
+                .collectList().block(Duration.ofSeconds(5));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> resultData = (Map<String, Object>) frames.get(1).get("data");
+        assertThat(resultData.get("result")).isEqualTo("直接文本结果");
+
+        List<Record> rows = toolChat.drainPendingRecords();
+        assertThat(objectMapper.readTree(rows.get(2).getToolResult()).asText()).isEqualTo("直接文本结果");
+    }
+
+    @Test
+    void dropHeadToolGroupFragments_neverLeavesHalfGroup() {
+        AssistantMessage toolCallHead = new AssistantMessage("", Map.of(),
+                List.of(new AssistantMessage.ToolCall("tc1", "function", "weather", "{}")));
+        ToolResponseMessage toolReply = new ToolResponseMessage(List.of(
+                new ToolResponseMessage.ToolResponse("tc1", "weather", "晴")));
+        // 均匀的回合节奏里截断永远落在组边界上，切开只发生在不均匀的历史里——所以直接构造切开的两半
+        List<Message> orphanReply = new ArrayList<>(List.of(toolReply, new UserMessage("接续问题")));
+        ChatService.dropHeadToolGroupFragments(orphanReply);
+        assertThat(orphanReply).hasSize(1);
+        assertThat(orphanReply.get(0)).isInstanceOf(UserMessage.class);
+
+        List<Message> danglingToolCalls = new ArrayList<>(List.of(toolCallHead, toolReply, new UserMessage("接续问题")));
+        ChatService.dropHeadToolGroupFragments(danglingToolCalls);
+        assertThat(danglingToolCalls).hasSize(1);
+        assertThat(danglingToolCalls.get(0)).isInstanceOf(UserMessage.class);
+
+        // 反向锚点：普通助手消息打头（归档截走用户行后的合法形状）不许被顺手吃掉
+        List<Message> healthy = new ArrayList<>(List.of(new AssistantMessage("历史回答"), new UserMessage("问题")));
+        ChatService.dropHeadToolGroupFragments(healthy);
+        assertThat(healthy).hasSize(2);
+    }
+
+    @Test
+    void trimHistory_afterManyToolTurnsRequestNeverStartsInsideToolGroup() {
+        ChatService toolChat = new ChatService(modelAdapter, knowledgeProvider, objectMapper,
+                "工具助手", List.of(), List.of(weatherToolReturning("{\"content\":\"晴\"}")));
+        ChatResponse toolRound = new ChatResponse(List.of(
+                new Generation(weatherToolCallMessage("", "{}"))));
+        ChatResponse textRound = new ChatResponse(List.of(new Generation(new AssistantMessage("答"))));
+        AtomicInteger call = new AtomicInteger();
+        when(modelAdapter.stream(any(Prompt.class))).thenAnswer(inv ->
+                call.getAndIncrement() % 2 == 0 ? Flux.just(toolRound) : Flux.just(textRound));
+
+        // 每个工具回合给上下文净增 4 条（user / assistant(tool_calls) / tool / assistant），
+        // 逐轮把最早的消息挤出 60 条窗口；最早的工具组最终会被推到窗口头部，请求序列必须仍然合法
+        for (int i = 0; i < 18; i++) {
+            toolChat.chatStream("问" + i).collectList().block(Duration.ofSeconds(5));
+        }
+
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(modelAdapter, atLeast(2)).stream(captor.capture());
+        List<Message> last = captor.getAllValues().get(captor.getAllValues().size() - 1).getInstructions();
+        assertThat(last).isNotEmpty();
+        assertThat(last.get(0) instanceof ToolResponseMessage).as("请求不得以悬空工具回执开头").isFalse();
+        assertNoDanglingToolCalls(last);
+    }
+
+    /** 请求序列合法性的判据：每个带 tool_calls 的助手消息必须紧跟工具回执 */
+    private static void assertNoDanglingToolCalls(List<Message> instructions) {
+        for (int i = 0; i < instructions.size(); i++) {
+            Message m = instructions.get(i);
+            if (m instanceof AssistantMessage a && !a.getToolCalls().isEmpty()) {
+                boolean followedByToolResult = i + 1 < instructions.size()
+                        && instructions.get(i + 1) instanceof ToolResponseMessage;
+                assertThat(followedByToolResult).as("tool_calls 必须紧跟工具回执，位置 %s", i).isTrue();
+            }
+        }
     }
 }
