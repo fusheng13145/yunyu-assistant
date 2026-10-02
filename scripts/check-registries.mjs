@@ -830,5 +830,37 @@ console.log('\n[14] 模型流式调用：超时与取消都只有单点（v2.71 
     lagSites.length === 0, lagSites.join('、'))
 }
 
+console.log('\n[15] 交付面三处口径落定（v2.74 · 批次 I：字体自托管 / 路由级分包恢复 / 登出撤销失败可见）')
+{
+  const VITE = read('frontend/vite.config.ts')
+  const STYLE = read('frontend/src/style.css')
+  const SHELL = read('frontend/src/components/PageShell.vue')
+
+  // ---- 分包 ----
+  check('分包判据锚 node_modules 路径段（裸 id.includes(\'vue\') 会命中 .vue 视图路径本身，路由级懒加载整体失效）',
+    /manualChunks\(id\)/.test(VITE) && VITE.includes("id.includes('node_modules')"))
+  check('axios 死代码分支已删（全仓无该依赖，留着＝下一个读配置的人继续误判依赖面）',
+    !VITE.includes("id.includes('axios')"))
+  check('路由组件不再被 manualChunks 吞进单一 chunk（判据锚目录段 @vue|vue|vue-router，不是子串）',
+    VITE.includes('(@vue|vue|vue-router)'))
+
+  // ---- 字体 ----
+  check('字体自托管：@font-face 指向仓内资产，不再运行期 @import Google Fonts CDN',
+    STYLE.includes('@font-face') && STYLE.includes('assets/fonts/inter-var.woff2')
+      && STYLE.includes('assets/fonts/jetbrains-mono-var.woff2') && !STYLE.includes('fonts.googleapis.com'))
+  // 反向锚点：只锁 CSS 会被"删了字体文件"骗过，文件本体必须真的在仓里
+  let fontFilesExist = true
+  for (const f of ['frontend/src/assets/fonts/inter-var.woff2', 'frontend/src/assets/fonts/jetbrains-mono-var.woff2']) {
+    try { readFileSync(join(ROOT, f)) } catch { fontFilesExist = false }
+  }
+  check('字体文件本体入库（删文件＝@font-face 指向空，构建期就断）', fontFilesExist)
+
+  // ---- 登出 ----
+  const catchBody = SHELL.split('logout(refreshToken).catch')[1] ?? ''
+  check('登出撤销失败有可见出口（fail-open 保留——网络再差用户也要走得掉；吞错不保留）',
+    SHELL.includes('logout(refreshToken).catch') && catchBody.includes('showNotification('))
+  check('登出仍无条件本地清场（反向锚点：可见化不许被改成 fail-closed 卡住用户）',
+    /clearSession\(\)\s*\n\s*router\.push\('\/login'\)/.test(SHELL))
+}
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)
 process.exit(failures === 0 ? 0 : 1)

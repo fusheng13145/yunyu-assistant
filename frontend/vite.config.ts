@@ -54,16 +54,19 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'static',
     chunkSizeWarningLimit: 1000, // 增大包体积警告阈值
-    // 分包优化
+    // 分包优化（v2.74 修复）：判据必须锚 node_modules 路径段——旧判据 id.includes('vue') 会命中
+    // .vue 视图文件路径本身，把所有路由组件打进同一个 chunk，路由级懒加载（router 的动态 import）
+    // 整体失效，首屏只能下载全站代码。路由组件因此不再进 manualChunks，由 Rollup 按动态 import 切分
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('vue')) {
-            return 'vue';
+          if (!id.includes('node_modules')) {
+            return undefined
           }
-          if (id.includes('axios')) {
-            return 'vendor';
+          if (/[\\/]node_modules[\\/](@vue|vue|vue-router)[\\/]/.test(id)) {
+            return 'vue'
           }
+          return 'vendor'
         }
       }
     }

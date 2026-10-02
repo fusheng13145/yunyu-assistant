@@ -44,10 +44,12 @@ import { useRouter } from 'vue-router'
 import { LogOut } from 'lucide-vue-next'
 import NavList from './NavList.vue'
 import { logout, clearSession } from '../api/auth'
+import { useNotification } from '../composables/useNotification'
 
 withDefaults(defineProps<{ subtitle?: string }>(), { subtitle: '助手工作台' })
 
 const router = useRouter()
+const { show: showNotification } = useNotification()
 
 const userName = typeof localStorage !== 'undefined'
   ? (localStorage.getItem('username') || '用户')
@@ -57,8 +59,10 @@ const userInitial = userName.charAt(0).toUpperCase()
 // 正在通话时视图仍在本页挂载，切路由即触发其 onBeforeUnmount 关闭 ws / voiceWs / WebRTC
 const handleLogout = () => {
   const refreshToken = localStorage.getItem('refreshToken') || undefined
+  // fail-open 是既定拍板：网络再差用户也要走得掉；但"服务端没吊销到"必须说出来——
+  // 此前这里静默吞掉，本地显示已登出而该 refresh token 在服务端仍然有效（v2.74 收口 TODO 第二节）
   logout(refreshToken).catch(() => {
-    // 网络异常不阻塞本地登出
+    showNotification('已在本机退出登录；服务端令牌撤销失败，该令牌将在到期后自然失效', 'warning')
   })
   clearSession()
   router.push('/login')

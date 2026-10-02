@@ -1,5 +1,23 @@
-/* Google Fonts 字体引入：Inter（现代无衬线）+ JetBrains Mono（等宽/科技感） */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* 字体自托管（v2.74）：Inter + JetBrains Mono 的 latin 子集可变字体入库，构建期随产物分发。
+   此前运行期 @import Google Fonts CDN——国内公网访问不到该域时全站字体静默退化，
+   DESIGN.md 写进视觉规范的两族字体名随之落空；同一 unicode-range 保留，中文照常走系统字体栈。 */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./assets/fonts/inter-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('./assets/fonts/jetbrains-mono-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 /* Tailwind 核心指令 */
 @tailwind base;
