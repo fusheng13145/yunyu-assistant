@@ -118,9 +118,16 @@
 
             <!-- 消息元信息 -->
             <div
-              v-if="!msg.isStreaming && (msg.costTime || knowledgebaseFlag(msg.knowledgebase) !== 'none' || (msg.tokenUsage && (msg.tokenUsage.promptTokens || msg.tokenUsage.completionTokens)))"
+              v-if="!msg.isStreaming && (msg.costTime || msg.failReason || knowledgebaseFlag(msg.knowledgebase) !== 'none' || (msg.tokenUsage && (msg.tokenUsage.promptTokens || msg.tokenUsage.completionTokens)))"
               class="flex items-center gap-3 pt-2 mt-2 border-t flex-wrap" style="border-color: var(--geek-divider)"
             >
+              <span
+                v-if="msg.failReason"
+                class="text-xs flex items-center gap-1.5" style="color: var(--geek-error)"
+              >
+                <AlertTriangle class="w-3 h-3" />
+                {{ msg.failReason }}
+              </span>
               <span v-if="msg.costTime" class="text-xs flex items-center" style="color: var(--geek-text-faint)">
                 <Clock class="w-3 h-3 mr-1" />
                 {{ (msg.costTime / 1000).toFixed(2) }}s

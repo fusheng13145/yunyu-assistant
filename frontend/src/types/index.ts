@@ -77,6 +77,8 @@ export interface DisplayMessage {
   isStreaming?: boolean
   costTime?: number
   knowledgebase?: KnowledgebaseInfo
+  /** 回合失败标记（v2.73 起随历史外发；实时失败的提示走 error 帧 toast，不落这里） */
+  failReason?: string
   toolCalls?: ToolCallResult[]
   toolName?: string
   toolResult?: string

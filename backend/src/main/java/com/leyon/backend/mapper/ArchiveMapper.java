@@ -25,10 +25,10 @@ public interface ArchiveMapper {
      */
     @Insert("<script>"
             + "INSERT INTO records_archive (id, assistant_id, session_id, call_id, role, message, "
-            + "tool_name, tool_args, tool_result, knowledgebase_info, cost_time, created_at, is_deleted) VALUES "
+            + "tool_name, tool_args, tool_result, knowledgebase_info, fail_reason, cost_time, created_at, is_deleted) VALUES "
             + "<foreach collection='list' item='r' separator=','>"
             + "(#{r.id}, #{r.assistantId}, #{r.sessionId}, #{r.callId}, #{r.role}, #{r.message}, "
-            + " #{r.toolName}, #{r.toolArgs}, #{r.toolResult}, #{r.knowledgebaseInfo}, #{r.costTime}, #{r.createdAt}, #{r.isDeleted})"
+            + " #{r.toolName}, #{r.toolArgs}, #{r.toolResult}, #{r.knowledgebaseInfo}, #{r.failReason}, #{r.costTime}, #{r.createdAt}, #{r.isDeleted})"
             + "</foreach></script>")
     int archiveRecords(@Param("list") List<Record> list);
 

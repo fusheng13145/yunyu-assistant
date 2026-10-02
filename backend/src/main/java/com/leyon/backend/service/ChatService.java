@@ -50,6 +50,12 @@ public class ChatService {
      */
     public static final int MAX_INPUT_CHARS = 2000;
 
+    /**
+     * 失败回合落库的脱敏类别文案（v2.73 · C-143，S-22）：与 WS error 帧同一脱敏口径——
+     * 异常原文可能带 Key 与内网地址，只进服务端日志，落库与外发都是这一句类别。
+     */
+    public static final String TURN_FAIL_REASON = "模型服务异常，本轮回复未完成";
+
     private final ModelAdapter modelAdapter;
     private final KnowledgeProvider knowledgeProvider;
     private final ObjectMapper objectMapper;
@@ -158,8 +164,17 @@ public class ChatService {
 
         /** roundText 是当前轮已生成的正文；CAS 保证一轮只落一次（onComplete 与 onCancel 竞态时的唯一裁决） */
         void saveOnce(String roundText) {
+            save(roundText, null);
+        }
+
+        /** 失败回合（v2.73 · S-22）：用户的话与已生成的部分一起留痕，失败原因落脱敏类别文案 */
+        void saveFailedOnce(String roundText) {
+            save(roundText, TURN_FAIL_REASON);
+        }
+
+        private void save(String roundText, String failReason) {
             if (turnSaved.compareAndSet(false, true)) {
-                saveConversation(userText, roundText, startTime, pendingRows);
+                saveConversation(userText, roundText, startTime, pendingRows, failReason);
             }
         }
     }
@@ -179,6 +194,7 @@ public class ChatService {
             AtomicReference<Disposable> innerSubscription = new AtomicReference<>();
             // 回合级收尾句柄的本地别名：onComplete 与 onCancel 从同一个入口落库
             Runnable saveTurnOnce = () -> turn.saveOnce(fullResponse.toString());
+            Runnable saveTurnFailedOnce = () -> turn.saveFailedOnce(fullResponse.toString());
             // 登记在途订阅：先放进槽、再复核取消位，两侧的先后关系才会覆盖全部交错顺序
             // （只复核不放进槽，或只放进槽不复核，都留得下"取消读到时还没登记、登记时又没看到取消"的漏网订阅）
             Consumer<Disposable> trackInFlight = subscription -> {
@@ -211,9 +227,13 @@ public class ChatService {
                             sink.next(segment);
                         }
                     },
-                    sink::error,
-                    () -> {
-                        if (allResponses.isEmpty()) {
+                    error -> {
+                        // S-22（v2.73）：失败回合不再整轮消失——用户的话与已生成的部分照常入待落队列，
+                        // fail_reason 落脱敏类别文案；异常原文只进各通道自己的日志
+                        saveTurnFailedOnce.run();
+                        sink.error(error);
+                    },
+                    () -> {                        if (allResponses.isEmpty()) {
                             sink.next(createEndChunk(fullResponse.toString(), turn.startTime));
                             sink.complete();
                             return;
@@ -633,10 +653,10 @@ public class ChatService {
     /**
      * 保存对话记录到上下文与实体列表。
      * pendingRows 携带本回合已产生的行（工具前正文、工具轨迹），顺序插在用户行与回答行之间，
-     * 历史回看的展示顺序与实时帧一致（S-19）。
+     * 历史回看的展示顺序与实时帧一致（S-19）。failReason 非空＝失败回合（S-22），落类别文案。
      */
     private synchronized void saveConversation(String userText, String assistantText, long startTime,
-                                                List<Record> pendingRows) {
+                                                List<Record> pendingRows, String failReason) {
         long costTime = System.currentTimeMillis() - startTime;
         // 维护消息上下文（用户消息已在回合开始入列，这里只补助手回复）
         conversationHistory.add(new AssistantMessage(assistantText));
@@ -652,6 +672,11 @@ public class ChatService {
         chatRecords.addAll(pendingRows);
 
         Record assistantRecord = new Record();
+        assistantRecord.setRole(Record.ROLE_ASSISTANT);
+        assistantRecord.setMessage(assistantText);
+        if (StringUtils.hasText(failReason)) {
+            assistantRecord.setFailReason(failReason);
+        }
         assistantRecord.setRole(Record.ROLE_ASSISTANT);
         assistantRecord.setMessage(assistantText);
         assistantRecord.setCostTime(costTime);

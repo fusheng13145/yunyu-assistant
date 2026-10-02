@@ -399,6 +399,53 @@ class ChatServiceTest {
                 List.of(new AssistantMessage.ToolCall("tc1", "function", "weather", arguments)));
     }
 
+    // ===================== 失败回合也要留痕（v2.73 · C-143，S-22 收口） =====================
+
+    @Test
+    void modelError_persistsFailedTurnWithCategoryReason() {
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.error(new RuntimeException("upstream 500")));
+
+        StepVerifier.create(chatService.chatStream("这条会失败的问题"))
+                .expectError(RuntimeException.class)
+                .verify();
+
+        // 用户的话不再消失：失败回合落 [user, assistant(空正文 + fail_reason)]；此前该会话 records 0 行
+        List<Record> rows = chatService.drainPendingRecords();
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0).getRole()).isEqualTo(Record.ROLE_USER);
+        assertThat(rows.get(0).getMessage()).isEqualTo("这条会失败的问题");
+        assertThat(rows.get(1).getRole()).isEqualTo(Record.ROLE_ASSISTANT);
+        assertThat(rows.get(1).getFailReason()).isEqualTo(ChatService.TURN_FAIL_REASON);
+        // 取出即清：错误路径也只能计入一次
+        assertThat(chatService.drainPendingRecords()).isEmpty();
+    }
+
+    @Test
+    void modelErrorAfterPartialText_persistsPartialAndMarksFailed() {
+        Generation gen = new Generation(new AssistantMessage("已经吐出的前半"));
+        when(modelAdapter.stream(any(Prompt.class)))
+                .thenReturn(Flux.just(new ChatResponse(List.of(gen))).concatWith(Flux.error(new RuntimeException("boom"))));
+
+        StepVerifier.create(chatService.chatStream("问"))
+                .expectNextCount(1)
+                .expectError(RuntimeException.class)
+                .verify();
+
+        List<Record> rows = chatService.drainPendingRecords();
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(1).getMessage()).isEqualTo("已经吐出的前半");
+        assertThat(rows.get(1).getFailReason()).isEqualTo(ChatService.TURN_FAIL_REASON);
+    }
+
+    @Test
+    void successTurn_carriesNoFailReason() {
+        Generation gen = new Generation(new AssistantMessage("正常回答"));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(new ChatResponse(List.of(gen))));
+        StepVerifier.create(chatService.chatStream("问")).expectNextCount(2).verifyComplete();
+        List<Record> rows = chatService.drainPendingRecords();
+        assertThat(rows.get(1).getFailReason()).isNull();
+    }
+
     @Test
     void buildPrompt_disablesInternalToolExecutionOnlyWhenToolsPresent() {
         // S-24 的判据本体：撤掉 buildPrompt 里那行开关，其余全部单测照样绿（ModelAdapter 是 mock，

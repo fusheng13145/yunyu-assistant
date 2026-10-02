@@ -124,6 +124,7 @@ class DeadOutwardColumnSuppressionTest {
             record.setSessionId("sess_probe");
             record.setAssistantId("assist_probe");
             record.setKnowledgebase(new Record.Knowledgebase(2, java.util.List.of("a.pdf"), false));
+            record.setFailReason("模型服务异常，本轮回复未完成");
 
             String json = objectMapper.writeValueAsString(record);
 
@@ -131,6 +132,8 @@ class DeadOutwardColumnSuppressionTest {
             assertThat(json).contains("\"id\"", "\"role\"", "\"message\"");
             // costTime / sessionId / assistantId 也必须在：配额读数与归属判定都看它们
             assertThat(json).contains("\"costTime\"", "\"sessionId\"", "\"assistantId\"");
+            // failReason 随失败回合落库（v2.73），历史回看要据此渲染"回复失败"标记
+            assertThat(json).contains("\"failReason\"");
             // knowledgebase 由 v2.41 折成对象外发，形状不能被本批改掉（原始 JSON 列名仍不外发）
             assertThat(json).contains("\"knowledgebase\"", "\"docCount\"")
                     .doesNotContain("\"knowledgebaseInfo\"");

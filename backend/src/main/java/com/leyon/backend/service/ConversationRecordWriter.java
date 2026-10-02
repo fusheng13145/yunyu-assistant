@@ -55,8 +55,10 @@ public class ConversationRecordWriter {
         int failed = 0;
         String firstUserMessage = null;
         for (Record record : pending) {
-            // 工具轨迹行（role 2/3）的 message 为空但 toolName 必有：只按 message 判空会把它们整行丢掉
-            if (!StringUtils.hasText(record.getMessage()) && !StringUtils.hasText(record.getToolName())) {
+            // 三类行必须留住：普通消息（message 有值）、工具轨迹行（message 空但 toolName 必有，S-19）、
+            // 失败回合的空正文助手行（message 空但 failReason 必有，S-22）——只按 message 判空会把后两类整行丢掉
+            if (!StringUtils.hasText(record.getMessage()) && !StringUtils.hasText(record.getToolName())
+                    && !StringUtils.hasText(record.getFailReason())) {
                 continue;
             }
             if (firstUserMessage == null && Record.ROLE_USER == record.getRole()) {

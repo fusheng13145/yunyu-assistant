@@ -24,7 +24,16 @@ function parseJsonScalar(raw: string | null | undefined): string {
 
 export function mapHistoryRecord(r: ChatRecordMessage): DisplayMessage | null {
   if (r.role === 0) return { role: 'user', text: r.message }
-  if (r.role === 1) return { role: 'assistant', text: r.message, costTime: r.costTime, knowledgebase: r.knowledgebase }
+  if (r.role === 1) {
+    return {
+      role: 'assistant',
+      text: r.message,
+      costTime: r.costTime,
+      knowledgebase: r.knowledgebase,
+      // 失败回合标记（v2.73 · S-22 收口后落库）：历史里可辨"回复失败"而不是一段戛然而止的空白
+      failReason: r.failReason,
+    }
+  }
   // 工具轨迹行（v2.72 · S-19 收口后落库）：形状与实时帧 push-tool-call/push-tool-result 落下的消息一致
   if (r.role === 2) return { role: 'tool_call', toolName: r.toolName, text: r.toolArgs || '' }
   if (r.role === 3) {

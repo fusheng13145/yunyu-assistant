@@ -80,6 +80,14 @@ console.log('\n[2] 检索状态必须穿过历史映射抵达展示消息（v2.4
   check('旧数据/未挂知识库整段缺失 → none 而非报错', knowledgebaseFlag(legacy?.knowledgebase) === 'none')
 }
 
+console.log('\n[2.5] 失败回合的标记必须穿过历史映射（v2.73 · C-143，S-22 收口）')
+{
+  const failed = mapHistoryRecord({ id: '10', role: 1, message: '吐到一半的正文', failReason: '模型服务异常，本轮回复未完成' })
+  check('失败轮的 failReason 未被映射吃掉', failed?.failReason === '模型服务异常，本轮回复未完成')
+  check('失败轮的正文照常带出（已生成部分不丢）', failed?.text === '吐到一半的正文')
+  check('正常轮不带失败标记', mapHistoryRecord({ id: '11', role: 1, message: '答' })?.failReason === undefined)
+}
+
 console.log('\n[3] 三态两两不同形：故障绝不能被读成"知识库没答案"')
 {
   const flag = (kb) => knowledgebaseFlag(mapHistoryRecord({ id: 'x', role: 1, message: '答', knowledgebase: kb })?.knowledgebase)
@@ -111,6 +119,8 @@ console.log('\n[5] 前端声明必须对得上后端真实外发的形状（v2.6
     /role === 2/.test(map) && /role === 3/.test(map) && /toolName/.test(map))
   check('ChatRecordMessage 声明后端会外发的 tool* 字段',
     /toolName/.test(sessionApi) && /toolArgs/.test(sessionApi) && /toolResult/.test(sessionApi))
+  check('ChatRecordMessage 声明 failReason（失败回合标记）',
+    /failReason/.test(sessionApi) && /failReason: r\.failReason/.test(map))
   check('用户表不渲染零写入路径的昵称/邮箱/手机号',
     !/昵称|邮箱|手机号|\.nickname|\.email|\.phone/.test(admin))
   // 反向锚点：只验"有"会让整块被误删也判绿，所以同时钉住"该有的还在"

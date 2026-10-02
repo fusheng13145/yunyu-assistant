@@ -87,6 +87,20 @@ class ConversationRecordWriterTest {
     }
 
     @Test
+    void persist_failedEmptyAssistantRowSurvivesBlankMessageFilter() {
+        // 失败回合的空正文助手行（message 空 + failReason 必有）：判空再吞掉它，S-22 就只收到一半（v2.73 真机取证抓到）
+        Record failedRow = new Record();
+        failedRow.setRole(Record.ROLE_ASSISTANT);
+        failedRow.setFailReason("模型服务异常，本轮回复未完成");
+
+        ConversationRecordWriter.Result result =
+                writer.persist(List.of(record(Record.ROLE_USER, "问"), failedRow), "a1", "s1", null);
+
+        assertThat(result.saved()).isEqualTo(2);
+        verify(recordService, org.mockito.Mockito.times(2)).add(any(Record.class));
+    }
+
+    @Test
     void persist_textChannel_stampsSessionAndTitlesFromFirstUserMessage() {
         ConversationRecordWriter.Result result = writer.persist(
                 List.of(record(Record.ROLE_USER, "第一个问题"), record(Record.ROLE_ASSISTANT, "回答")),

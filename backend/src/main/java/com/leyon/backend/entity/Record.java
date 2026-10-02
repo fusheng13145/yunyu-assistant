@@ -96,6 +96,12 @@ public class Record {
     private String knowledgebaseInfo;
 
     /**
+     * 失败原因（v2.73 · C-143）：类别文案，不含异常原文（异常串可能带 Key 与内网地址，与 WS error 帧同一脱敏口径）。
+     * NULL＝该轮不是失败轮；存量行不回填。
+     */
+    private String failReason;
+
+    /**
      * AI 响应耗时(毫秒)，仅助手消息记录该字段
      */
     private Long costTime;
@@ -255,6 +261,16 @@ public class Record {
         } catch (Exception e) {
             this.knowledgebaseInfo = null;
         }
+    }
+
+    /** 失败原因随历史接口外发（有写入路径，NON_NULL），前端据此在历史里渲染"回复失败"标记 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public String getFailReason() {
+        return failReason;
+    }
+
+    public void setFailReason(String failReason) {
+        this.failReason = failReason;
     }
 
     public Long getCostTime() {
