@@ -11,6 +11,8 @@ export interface AdminOverview {
   messageCount: number
   sessionCount: number
   auditLogCount: number
+  /** 录音落盘失败的通话数（v2.78 · ⑳ 告警面：上传失败写入 call_records.recording_fail_reason） */
+  recordingFailCount: number
 }
 
 export function fetchOverview(): Promise<AdminOverview> {

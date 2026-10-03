@@ -9,6 +9,7 @@ import com.leyon.backend.service.UserService;
 import com.leyon.backend.util.ClientIpResolver;
 import com.leyon.backend.util.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,6 +29,13 @@ public class AuthController {
     private final UserService userService;
     private final JwtUtil jwtUtil;
     private final TokenBlacklistService tokenBlacklistService;
+
+    /**
+     * 黑名单条目在令牌剩余有效期之上追加的保险余量（毫秒，JWT_BLACKLIST_TTL_MARGIN_MS，默认 60 秒）：
+     * 覆盖校验与写库之间极小的时钟偏移。C-95 收口后黑名单存活 = 令牌剩余期 + 余量，不再写死 7 天。
+     */
+    @Value("${app.jwt.blacklist-ttl-margin-ms:60000}")
+    private long blacklistTtlMarginMs;
     private final InviteCodeService inviteCodeService;
     private final ClientIpResolver clientIpResolver;
 
@@ -156,7 +164,7 @@ public class AuthController {
         // 旧 refresh token 作废（轮换）
         String oldJti = jwtUtil.getJtiFromToken(refreshToken);
         if (oldJti != null) {
-            tokenBlacklistService.blacklist(oldJti, 7 * 24 * 3600_000L);
+            tokenBlacklistService.blacklist(oldJti, jwtUtil.getRemainingValidityMs(refreshToken) + blacklistTtlMarginMs);
         }
 
         Map<String, String> result = new java.util.HashMap<>();
@@ -182,7 +190,7 @@ public class AuthController {
             if (jwtUtil.validateAccessToken(accessToken)) {
                 String jti = jwtUtil.getJtiFromToken(accessToken);
                 if (jti != null) {
-                    tokenBlacklistService.blacklist(jti, 7 * 24 * 3600_000L);
+                    tokenBlacklistService.blacklist(jti, jwtUtil.getRemainingValidityMs(accessToken) + blacklistTtlMarginMs);
                 }
             }
         }
@@ -192,7 +200,7 @@ public class AuthController {
             if (StringUtils.hasText(refreshToken) && jwtUtil.isTokenType(refreshToken, JwtUtil.TOKEN_TYPE_REFRESH)) {
                 String jti = jwtUtil.getJtiFromToken(refreshToken);
                 if (jti != null) {
-                    tokenBlacklistService.blacklist(jti, 7 * 24 * 3600_000L);
+                    tokenBlacklistService.blacklist(jti, jwtUtil.getRemainingValidityMs(refreshToken) + blacklistTtlMarginMs);
                 }
             }
         }

@@ -1,6 +1,7 @@
 {
   "properties": [
-    {
+    {"name": "app.jwt.blacklist-ttl-margin-ms", "type": "java.lang.Long", "defaultValue": 60000, "sourceType": "com.leyon.backend.controller.AuthController", "description": "登出黑名单条目在令牌剩余有效期之上追加的保险余量（毫秒）。C-95 收口后黑名单存活 = 剩余期 + 余量，不再写死 7 天。"},
+  {
       "name": "app.ai.stream-timeout-ms",
       "type": "java.lang.Long",
       "description": "模型流式调用的静默超时（毫秒），默认 60000（v2.71）。每收到一个分块重新计时，约束的是上游卡住而非回答长度；判据只在 OpenAiModelAdapter 一处，文本 WS、语音 WS、开放 SSE 三条通道与每一轮工具续答共用。超时到点以 TimeoutException 收场，走各通道既有的失败出口。"

@@ -32,6 +32,33 @@ import static org.mockito.Mockito.when;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class JwtUtilAccessTokenTest {
 
+    /**
+     * v2.78 · C-95 收口：登出黑名单的 TTL 以令牌剩余期为基准——
+     * 判据读真实签发令牌的 exp（真签名 + 真 claim 编解码，mock 无证明力）。
+     */
+    @Test
+    void getRemainingValidityMs_tracksTokenExpiration() {
+        ReflectionTestUtils.setField(jwtUtil, "expiration", 60_000L);
+        String token = jwtUtil.generateToken("u-1", "alice");
+        long remaining = jwtUtil.getRemainingValidityMs(token);
+        // 允许签发与判定之间流逝少量真实毫秒
+        assertThat(remaining).isBetween(55_000L, 60_000L);
+    }
+
+    @Test
+    void getRemainingValidityMs_expiredOrGarbageReturnsZero() {
+        assertThat(jwtUtil.getRemainingValidityMs("not-a-jwt-at-all")).isZero();
+        // 过期令牌：签发一个 1 秒生命期的令牌，等它过期后剩余必须收敛到 0（不为负）
+        ReflectionTestUtils.setField(jwtUtil, "expiration", 50L);
+        String token = jwtUtil.generateToken("u-1", "alice");
+        try {
+            Thread.sleep(120);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+        assertThat(jwtUtil.getRemainingValidityMs(token)).isZero();
+    }
+
     /** 测试专用密钥（非任何环境真实凭据），≥32 字节以通过启动期强度校验 */
     private static final String TEST_SECRET = "unit-test-only-secret-key-32-bytes-or-more!!";
 

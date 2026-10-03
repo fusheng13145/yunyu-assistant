@@ -427,8 +427,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
-  Users, Bot, PhoneCall, MessageSquare, MessagesSquare, ScrollText, Archive, Gauge, Ticket,
-} from 'lucide-vue-next'
+  Users, Bot, PhoneCall, MessageSquare, MessagesSquare, ScrollText, Archive, Gauge, Ticket, MicOff } from 'lucide-vue-next'
 import PageShell from '../components/PageShell.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { useNotification } from '../composables/useNotification'
@@ -450,6 +449,8 @@ const overviewCards = computed(() => [
   { label: '消息', icon: MessageSquare, color: 'var(--geek-warning)', value: (o: AdminOverview) => o.messageCount },
   { label: '会话', icon: MessagesSquare, color: 'var(--geek-tag-purple)', value: (o: AdminOverview) => o.sessionCount },
   { label: '审计', icon: ScrollText, color: 'var(--geek-error)', value: (o: AdminOverview) => o.auditLogCount },
+  // ⑳ 告警面（v2.78）：录音落盘失败的通话数，非零＝有电话的录音没存下来，需要查 recording_fail_reason
+  { label: '录音失败', icon: MicOff, color: 'var(--geek-error)', value: (o: AdminOverview) => o.recordingFailCount },
 ])
 
 // 左列表的五个面板

@@ -100,7 +100,8 @@ class AdminControllerTest {
     void overview_aggregatesAllCounters() {
         when(userMapper.selectCount(any())).thenReturn(7L);
         when(assistantMapper.selectCount(any())).thenReturn(3L);
-        when(callRecordMapper.selectCount(any())).thenReturn(120L);
+        // ⑳ 告警面（v2.78）：概览对 call_records 做两次计数——总数在前、录音落盘失败数在后
+        when(callRecordMapper.selectCount(any())).thenReturn(120L, 2L);
         when(recordMapper.selectCount(any())).thenReturn(4000L);
         when(sessionMapper.selectCount(any())).thenReturn(88L);
         when(auditLogService.countAll()).thenReturn(233L);
@@ -113,6 +114,7 @@ class AdminControllerTest {
                 .containsEntry("callRecordCount", 120L)
                 .containsEntry("messageCount", 4000L)
                 .containsEntry("sessionCount", 88L)
+                .containsEntry("recordingFailCount", 2L)
                 .containsEntry("auditLogCount", 233L);
     }
 

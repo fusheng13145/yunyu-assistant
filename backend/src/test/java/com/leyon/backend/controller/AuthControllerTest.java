@@ -8,6 +8,7 @@ import com.leyon.backend.service.UserService;
 import com.leyon.backend.util.ClientIpResolver;
 import com.leyon.backend.util.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -60,6 +61,12 @@ class AuthControllerTest {
     @InjectMocks
     private AuthController authController;
 
+    @BeforeEach
+    void injectBlacklistMargin() {
+        // @Value 不参与 @InjectMocks：余量在此显式注入，判据才可断言精确 TTL
+        org.springframework.test.util.ReflectionTestUtils.setField(authController, "blacklistTtlMarginMs", 60_000L);
+    }
+
     private final Map<String, String> body = Map.of("oldPassword", "Old1234", "newPassword", "New12345");
 
     @Test
@@ -95,10 +102,26 @@ class AuthControllerTest {
         when(request.getHeader("Authorization")).thenReturn("Bearer access-token");
         when(jwtUtil.validateAccessToken("access-token")).thenReturn(true);
         when(jwtUtil.getJtiFromToken("access-token")).thenReturn("jti-1");
+        when(jwtUtil.getRemainingValidityMs("access-token")).thenReturn(900_000L);
 
         authController.logout(null, request);
 
-        verify(tokenBlacklistService).blacklist(eq("jti-1"), anyLong());
+        // C-95 收口：黑名单 TTL = 令牌剩余期 + 余量，不再写死 7 天（7 天 = 604_800_000ms）
+        verify(tokenBlacklistService).blacklist(eq("jti-1"), eq(960_000L));
+        verify(tokenBlacklistService, never()).blacklist(eq("jti-1"), eq(604_800_000L));
+    }
+
+    @Test
+    void logout_expiredTokenStillBlacklistedWithMarginFloor() {
+        // 已过期令牌剩余期为 0：TTL 仍须 ≥ 余量（黑名单服务内部还有 1 秒下限），不能出现 0/负值
+        when(request.getHeader("Authorization")).thenReturn("Bearer access-token");
+        when(jwtUtil.validateAccessToken("access-token")).thenReturn(true);
+        when(jwtUtil.getJtiFromToken("access-token")).thenReturn("jti-expired");
+        when(jwtUtil.getRemainingValidityMs("access-token")).thenReturn(0L);
+
+        authController.logout(null, request);
+
+        verify(tokenBlacklistService).blacklist(eq("jti-expired"), eq(60_000L));
     }
 
     @Test
@@ -167,6 +190,7 @@ class AuthControllerTest {
         when(jwtUtil.validateToken("refresh-token")).thenReturn(true);
         when(jwtUtil.getUserIdFromToken("refresh-token")).thenReturn("u-1");
         when(jwtUtil.getJtiFromToken("refresh-token")).thenReturn("jti-1");
+        when(jwtUtil.getRemainingValidityMs("refresh-token")).thenReturn(604_800_000L);
         User user = new User();
         user.setId("u-1");
         user.setUsername("alice");
@@ -179,7 +203,8 @@ class AuthControllerTest {
         assertThat(result.getData()).containsEntry("role", User.ROLE_ADMIN)
                 .containsEntry("username", "alice")
                 .containsEntry("userId", "u-1");
-        verify(tokenBlacklistService).blacklist(eq("jti-1"), anyLong());
+        // C-95 收口：轮换出的旧 refresh 令牌，黑名单 TTL = 剩余期 + 余量
+        verify(tokenBlacklistService).blacklist(eq("jti-1"), eq(604_800_000L + 60_000L));
     }
 
     @Test

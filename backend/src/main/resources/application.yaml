@@ -183,6 +183,8 @@ app:
     # （续期阈值 RENEW_SKEW_MS=60 秒），故 access 短周期不影响正常使用，
     # 只压缩被盗令牌在没有凭据版本戳时的存活窗口（v2.42）
     expiration: ${JWT_EXPIRATION:900000}
+    # 登出黑名单条目在令牌剩余有效期之上追加的保险余量（毫秒，v2.78 C-95 收口）：黑名单存活 = 剩余期 + 余量，不再写死 7 天
+    blacklist-ttl-margin-ms: ${JWT_BLACKLIST_TTL_MARGIN_MS:60000}
     # 刷新令牌有效期（毫秒），默认 7 天
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
   # RAG 知识库服务（未配置时允许启动，检索功能降级）

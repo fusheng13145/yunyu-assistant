@@ -1,6 +1,7 @@
 package com.leyon.backend.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.leyon.backend.annotation.Audit;
 import com.leyon.backend.common.ApiResponse;
 import com.leyon.backend.entity.Assistant;
@@ -88,6 +89,10 @@ public class AdminController {
         result.put("messageCount", recordMapper.selectCount(new LambdaQueryWrapper<>()));
         result.put("sessionCount", sessionMapper.selectCount(new LambdaQueryWrapper<>()));
         result.put("auditLogCount", auditLogService.countAll());
+        // ⑳ 告警面（v2.78 · C-150）：录音落盘失败的通话数——上传失败时写入 recording_fail_reason。
+        // 刻意用字符串列名的 QueryWrapper 而非 lambda 形态：概览在纯单测环境跑，lambda 需要实体的 TableInfo 缓存
+        result.put("recordingFailCount", callRecordMapper.selectCount(
+                new QueryWrapper<CallRecord>().isNotNull("recording_fail_reason")));
         return ApiResponse.success(result);
     }
 

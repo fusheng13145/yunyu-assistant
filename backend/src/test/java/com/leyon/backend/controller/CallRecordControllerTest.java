@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.io.Resource;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -101,6 +103,28 @@ class CallRecordControllerTest {
         MockMultipartFile empty = new MockMultipartFile("file", "", "audio/webm", new byte[0]);
         ApiResponse<Void> result = controller.uploadRecording(CALL_ID, empty, req(USER));
         assertThat(result.getCode()).isEqualTo(400);
+    }
+
+    @Test
+    void uploadRecording_diskFailure_persistsFailureMarker() throws Exception {
+        // ⑳ 告警面（v2.78 · C-150）：落盘失败必须留下 recording_fail_reason，
+        // 与"这通电话本来就没录"（recording_name 为 NULL）从此可辨
+        when(callRecordService.getById(CALL_ID)).thenReturn(ownedRecord());
+        Path blocker = tempDir.resolve("blocker");
+        Files.writeString(blocker, "占位文件使 createDirectories 必然失败");
+
+        Field f = CallRecordController.class.getDeclaredField("recordingDir");
+        f.setAccessible(true);
+        f.set(controller, blocker.toString());
+
+        ApiResponse<Void> result = controller.uploadRecording(CALL_ID, new MockMultipartFile(
+                "file", "a.webm", "audio/webm", new byte[]{1}), req(USER));
+
+        assertThat(result.getCode()).isEqualTo(400);
+        ArgumentCaptor<CallRecord> captor = ArgumentCaptor.forClass(CallRecord.class);
+        verify(callRecordService).update(captor.capture());
+        assertThat(captor.getValue().getRecordingFailReason()).isEqualTo("录音保存失败");
+        assertThat(captor.getValue().getRecordingName()).isNull();
     }
 
     @Test

@@ -167,6 +167,24 @@ public class JwtUtil {
      * @param token JWT令牌
      * @return 载荷对象
      */
+    /**
+     * 令牌剩余有效毫秒数（已过期或不可解析返回 0）。
+     * 登出黑名单条目的存活时长以它为准（v2.78 · C-95 收口）：此前三处调用写死 7 天——
+     * 比 access 令牌的 15 分钟剩余期长几个数量级属无害浪费，但一旦令牌有效期调大，
+     * 黑名单先于令牌过期就会出现"登出后仍可用"的窗口。
+     */
+    public long getRemainingValidityMs(String token) {
+        try {
+            java.util.Date expiration = getClaimsByToken(token).getExpiration();
+            if (expiration == null) {
+                return 0;
+            }
+            return Math.max(0, expiration.getTime() - System.currentTimeMillis());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     private Claims getClaimsByToken(String token) {
         return Jwts.parser()
                 .verifyWith(getSigningKey())

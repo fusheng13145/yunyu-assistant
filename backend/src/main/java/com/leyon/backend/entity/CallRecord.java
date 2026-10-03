@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.LocalDateTime;
 
@@ -87,6 +88,9 @@ public class CallRecord {
      * 通话录音文件名（如 `{callId}.webm`，NULL 表示无录音）
      */
     private String recordingName;
+
+    /** 录音保存失败原因（类别文案，v2.78）：NULL=无失败 */
+    private String recordingFailReason;
 
     /**
      * 创建时间
@@ -187,6 +191,19 @@ public class CallRecord {
 
     public void setRecordingName(String recordingName) {
         this.recordingName = recordingName;
+    }
+
+    /**
+     * 录音保存失败原因（v2.78 · C-150，⑳ 告警面 + ㉝ 一半）：类别文案，不含异常原文。
+     * NULL＝该通电话没有录音失败记录；有值时管理端概览计入 recordingFailCount。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public String getRecordingFailReason() {
+        return recordingFailReason;
+    }
+
+    public void setRecordingFailReason(String recordingFailReason) {
+        this.recordingFailReason = recordingFailReason;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -160,6 +160,11 @@ public class CallRecordController {
             return ApiResponse.success();
         } catch (Exception e) {
             logger.error("保存通话录音失败，通话ID:{}", id, e);
+            // ⑳ 告警面（v2.78 · C-150）：失败落进 call_records.recording_fail_reason，
+            // 与"这通电话本来就没录"（recording_name 与本列同为 NULL）从此可辨；
+            // 文案是类别不是异常原文（异常串可能带绝对路径）
+            record.setRecordingFailReason("录音保存失败");
+            callRecordService.update(record);
             return ApiResponse.paramError("保存录音失败");
         }
     }
