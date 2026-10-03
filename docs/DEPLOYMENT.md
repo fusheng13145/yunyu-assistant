@@ -91,6 +91,9 @@
    漏配的表现是"能登录、点什么都没反应"且后端日志无异常栈。
 3. **HTTPS/WSS 反代细节**：`Upgrade`/`Connection` 头透传、WS 路径不缓冲、长超时；HTTP 只留 301 与证书签发。
 4. **录音目录**：`RECORDING_DIR` 指向持久卷且服务账号可写；多实例部署时各实例的录音互不可见（已登记为限制）。
+5. **安全响应头由 nginx 下发**（v2.76）：`add_header X-Frame-Options DENY always;` 与
+   `add_header X-Content-Type-Options nosniff always;`——meta 标签对 X-Frame-Options **无效**
+   （浏览器忽略并控制台告警，index.html 已撤）；CSP 可暂留 meta 形态，收口到响应头时同步搬。
 
 ## 6. 单实例 / 多实例
 

@@ -11,14 +11,12 @@
   <!-- 基础SEO -->
   <meta name="description" content="云谕助手 - 智能助手应用">
   <!-- 安全策略头 -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ws: wss: https://platform.deepseek.com https://demo.ragflow.io; img-src 'self' data: blob:;">
+  <!-- CSP（v2.76 收紧）：字体已自托管，Google Fonts 白名单撤除；模型/RAGFlow 一律走后端代理，浏览器不直连，connect-src 相应收窄 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob:;">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
-  <meta http-equiv="X-Frame-Options" content="DENY">
   <meta name="referrer-policy" content="strict-origin-when-cross-origin">
   <title>云谕助手</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 </head>
 <body class="m-0 p-0 bg-white text-gray-800 overflow-x-hidden">
   <div id="app" class="min-h-screen"></div>

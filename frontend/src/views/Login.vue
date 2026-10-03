@@ -64,10 +64,8 @@
             class="geek-btn geek-btn-primary submit-btn"
           >
             <span v-if="loading" class="btn-loading">
-              <svg class="spin-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 5.824 3 7.938l3-2.647z"></path>
-              </svg>
+              <!-- C-145：手绘 spinner 路径缺一个参数，浏览器每次解析都报错——换 lucide 同族图标 -->
+              <LoaderCircle class="w-4 h-4 animate-spin" style="color: var(--geek-text-on-primary)" />
               登录中...
             </span>
             <span v-else>登录</span>
@@ -102,7 +100,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Eye, EyeOff } from 'lucide-vue-next'
+import { Eye, EyeOff, LoaderCircle } from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { login, saveSession } from '../api/auth'
@@ -329,16 +327,7 @@ const handleLogin = async () => {
   gap: 8px;
 }
 
-.spin-icon {
-  width: 16px;
-  height: 16px;
-  animation: spin 0.8s linear infinite;
-  color: var(--geek-text-on-primary);
-}
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 
 /* 表单底部跳转 */
 .form-footer {
