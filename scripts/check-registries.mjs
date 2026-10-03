@@ -755,8 +755,11 @@ console.log('\n[14] 模型流式调用：超时与取消都只有单点（v2.71 
     timeoutSites.length === 1 && timeoutSites[0] === ADAPTER_FILE, timeoutSites.join(','))
   check('ChatService 不自己计时（写进对话循环＝只有它服务的通道被保护，且每轮工具续答要各写一遍）',
     !CHAT.includes('.timeout('))
-  check('超时挂在 stream() 的出口上（挂在构造期或客户端层就量不到"分块之间的静默"）',
-    ADAPTER.includes('return chatModel.stream(prompt).timeout(streamTimeout);'))
+  check('超时与线程切换单点都在 stream() 的出口链上（挂在构造期或客户端层就量不到"分块之间的静默"；publishOn 撤掉＝回调跑回共享 worker）',
+    ADAPTER.includes('chatModel.stream(prompt)') && ADAPTER.includes('.timeout(streamTimeout)')
+      && ADAPTER.includes('.publishOn(Schedulers.boundedElastic())'))
+  check('S-26 收口判据：连接器取值被钉住（撤依赖＝静默回落 JDK HttpClient，取消传播退化）',
+    read('backend/src/test/java/com/leyon/backend/BackendApplicationTests.java').includes('ReactorClientHttpConnector'))
   check('超时值由配置注入（写死＝公网实例遇到慢供应商只能改码重发）',
     ADAPTER.includes('@Value("${app.ai.stream-timeout-ms}")'))
 

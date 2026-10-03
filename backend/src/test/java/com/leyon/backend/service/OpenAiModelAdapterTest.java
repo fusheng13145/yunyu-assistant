@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -72,5 +73,26 @@ class OpenAiModelAdapterTest {
                 .thenAwait(Duration.ofSeconds(1))
                 .expectNextCount(5)
                 .verifyComplete();
+    }
+
+    /**
+     * v2.77 · C-149（S-25 收口）：下游回调必须落在有界弹性池，而不是出站流的共享 worker——
+     * 此前 onNext/onComplete/落库跑在 JDK HttpClient 的共享 worker 上，一条连接的慢库写会拖垮其他在途调用。
+     * 判据是线程名：boundedElastic 是 reactor 的托管池；publishOn 撤掉后本用例红。
+     */
+    @Test
+    void stream_downstreamCallbacksRunOnBoundedElasticNotSharedWorker() {
+        ChatModel chatModel = mock(ChatModel.class);
+        OpenAiModelAdapter adapter = new OpenAiModelAdapter(chatModel, 5000);
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> Flux.just(chunk("块1"), chunk("块2")));
+
+        AtomicReference<String> onNextThread = new AtomicReference<>();
+        List<ChatResponse> seen = adapter.stream(new Prompt("你好"))
+                .doOnNext(r -> onNextThread.set(Thread.currentThread().getName()))
+                .collectList()
+                .block(Duration.ofSeconds(5));
+
+        assertThat(seen).hasSize(2);
+        assertThat(onNextThread.get()).as("回调线程名").contains("boundedElastic");
     }
 }

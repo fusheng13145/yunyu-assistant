@@ -6,6 +6,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 
@@ -43,9 +44,22 @@ public class OpenAiModelAdapter implements ModelAdapter {
      * 分帧节奏另有一层：Spring AI 1.0.0 的 stream() 用 {@code buffer(2, 1)} 为累计用量攒相邻两块，
      * 第 N 块要等第 N+1 块到达才向下游发出，最后一块只在流正常收尾时补发。真机读数（手册 7.5 v2.71 行）：
      * 上游两拍间隔 150ms，前端两帧间隔 2ms；中断轮次落库的正文比上游已吐出的少最后一块。
+     * <p>
+     * 两个收口（v2.77 · C-148 / C-149）：
+     * <ul>
+     *   <li><b>取消传播到交换层</b>——WebClient 连接器按类路径择优，引入 reactor-netty 后
+     *       {@code dispose} 会拆断到模型服务的 TCP 交换（此前 JDK HttpClient 不随订阅取消而拆，
+     *       用户已走后上游照跑完一轮，S-26）；</li>
+     *   <li><b>回调线程与共享 worker 解耦</b>——S-25：模型流的 onNext/onComplete/落库此前跑在
+     *       JDK HttpClient 的共享 worker 上，一条连接的慢库写会拖垮其他在途调用；
+     *       {@code publishOn(boundedElastic)} 把整条下游链路（含取消回调，CAS 守卫为其而立）搬到
+     *       有界弹性池。</li>
+     * </ul>
      */
     @Override
     public Flux<ChatResponse> stream(Prompt prompt) {
-        return chatModel.stream(prompt).timeout(streamTimeout);
+        return chatModel.stream(prompt)
+                .timeout(streamTimeout)
+                .publishOn(Schedulers.boundedElastic());
     }
 }

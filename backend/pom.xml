@@ -90,6 +90,17 @@
             <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
 
+        <!--
+            reactor-netty HTTP 连接器（v2.77 · C-148，收口 S-26）：WebClient 的连接器按类路径择优，
+            此前只有 JDK HttpClient 可用 ⇒ 用户取消/超时只撤 Reactor 订阅，到模型服务的在途 HTTP 交换
+            不中止（真机实测连接挂 8 分钟）。引入后 ClientHttpConnectorAutoConfiguration 选中
+            ReactorClientHttpConnector，dispose 会拆断 TCP 交换。版本由 Spring Boot BOM 管理。
+        -->
+        <dependency>
+            <groupId>io.projectreactor.netty</groupId>
+            <artifactId>reactor-netty-http</artifactId>
+        </dependency>
+
         <!-- JWT 令牌认证 -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
