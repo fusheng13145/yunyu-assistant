@@ -131,6 +131,21 @@ scripts/smoke.sh              # 分节冒烟；登录失败即 exit 2
 - 清理一次性账号后**审计行保留不删**，因此开发库必然留下悬空 `audit_logs.user_id` 引用——这是流程产物、不是脏数据，不必逐轮表态；判据与现状读数见手册 6.4（v2.56 口径），可读性缺口登记为候选 ㊹。
 - 探针自身要先证明可信（过期即退出、显式关闭码、区分"键为 null"与"键不存在"），见 AGENTS.md 安全与验证纪律。
 
+### 7.3 浏览器级 E2E 守卫（frontend/e2e，v2.75）
+
+```bash
+# 前置：后端就绪（8091）；打桩版后端 = OPENAI_BASE_URL 指向 .scratch/stub-openai.mjs（127.0.0.1:8123）
+VITE_PROXY_TARGET=http://127.0.0.1:8091 npm run dev &          # 2) vite（手动后台拉起，别用 E2E_START_WEB）
+set -a; . ../.scratch/smoke-admin.env; set +a                   # 3) 登录账号
+E2E_USER="$SMOKE_ADMIN_USER" E2E_PASS="$SMOKE_ADMIN_PASS"   E2E_LIVE=1 npx playwright test                                # 4) 六条用例，约 10 秒
+```
+
+- 不带 `E2E_LIVE=1` 时两条真实模型流用例（工具回合 / 失败回合）**具名 SKIP**，其余照跑；SKIP 不算绿，别把它读成"全过"。
+- 会话与"专属助手/会话"夹具由 `e2e/auth.setup.ts` 自建自删（按精确 id）；**登录在限流 AUTH 档（容量 5/窗口）**，运行全程只登录两次（setup 一次 + 错误口令用例一次），逐用例各自登录会把额度打光，表现为"同一条用例时绿时不绿"。
+- **不要用 playwright 的 `E2E_START_WEB=1` 拉起 vite**（应急通道）：Windows 下该方式拉起的 dev server 跑过一轮带 WS 代理的用例后会失稳，表现为连接拒绝/列表加载失败这类**伪缺陷**；首选上面第 2 步的手动后台拉起。
+- E2E 抓到过真缺陷：WS 未就绪时 `send` 静默丢帧 ⇒ 用户首条消息蒸发 + 打字态锁死（v2.75 · C-144，修为待发队列）；判据在 `check-chat-frame.mjs` 第 6 组。
+- 残留：夹具助手逻辑删除后，其 `records`/`sessions` 行留在库里（无删除接口），与冒烟残渣同口径——按 `assistants.name='E2E探针助手' AND is_deleted=1` 反查精确主键清理。
+
 ## 8. 文档维护
 
 `scripts/check-docs.py` 当前检查五类：目录↔标题、表格竖线数、相对链接与跨文件锚点、遗留标记、手册变更记录连续性。

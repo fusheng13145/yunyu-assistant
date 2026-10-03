@@ -137,5 +137,19 @@ console.log('\n[5] 视图接入收口（防第三次复制粘贴，C-89/C-91 同
     typeof initialChatStreamState === 'function' && initialChatStreamState().typing === false)
 }
 
+console.log('\n[6] WS 未就绪的发送必须排队而不是丢（v2.75 · C-144，E2E 守卫首跑抓到）')
+{
+  const WS_MOD = new URL('../frontend/src/utils/websocket.ts', import.meta.url).href
+  const wsSrc = readFileSync(new URL(WS_MOD), 'utf8').replace(/\r/g, '')
+  // 负向判据只扫 send 函数体：flushPendingSends 里同形的守卫 return 是合法 no-op，不该被咬
+  const sendFn = wsSrc.slice(wsSrc.indexOf('const send ='), wsSrc.indexOf('const close ='))
+  check('send 在未 OPEN 时不再裸 return 丢帧（裸丢＝选完助手立刻说话会蒸发并锁死打字态）',
+    /pendingSends\.push\(payload\)/.test(sendFn) && !/readyState !== WebSocket\.OPEN\) return/.test(sendFn))
+  check('握手完成后按序补发，且认证帧仍在业务消息之前',
+    /flushPendingSends\(\)/.test(wsSrc)
+      && wsSrc.indexOf("type: 'auth'") !== -1
+      && wsSrc.indexOf('flushPendingSends()') > wsSrc.indexOf("type: 'auth'"))
+  check('待发队列有上限（连接已坏时排队只是拖延暴露）', /MAX_PENDING_SENDS/.test(wsSrc))
+}
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)
 process.exit(failures === 0 ? 0 : 1)

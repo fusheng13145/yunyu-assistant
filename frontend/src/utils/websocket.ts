@@ -50,6 +50,8 @@ export function useWebSocket(url: string, handlers: WebSocketHandlers = {}) {
         ws?.send(JSON.stringify({ type: 'auth', token }))
         authSent = true
       }
+      // 认证帧之后按序补发握手窗口内积压的业务消息（auth 在前，顺序不乱）
+      flushPendingSends()
       handlers.onOpen?.(event as Event)
       startHeartbeat()
     }
@@ -80,10 +82,31 @@ export function useWebSocket(url: string, handlers: WebSocketHandlers = {}) {
     ws.onerror = handlers.onError ?? (() => {})
   }
 
-  /** 发送消息，自动序列化对象 */
-  const send = (data: string | object) => {
+  /**
+   * WS 未就绪时的待发队列（v2.75 · C-144）。
+   * 选完助手立刻发首条消息会撞上异步建链窗口（connect 里还要先取令牌，此刻 ws 为 null）：
+   * 此前的实现直接 return 静默丢帧——用户的话蒸发、打字态永久锁死，E2E 守卫首跑抓到的正是它。
+   * 上限 20：握手竞态通常毫秒级，攒满说明连接已坏，再排队只是拖延暴露。
+   */
+  const pendingSends: string[] = []
+  const MAX_PENDING_SENDS = 20
+
+  const flushPendingSends = () => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return
+    while (pendingSends.length > 0 && ws.readyState === WebSocket.OPEN) {
+      ws.send(pendingSends.shift() as string)
+    }
+  }
+
+  /** 发送消息，自动序列化对象；未就绪时入队（close 之后没有未来，仍丢弃） */
+  const send = (data: string | object) => {
     const payload = typeof data === 'string' ? data : JSON.stringify(data)
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      if (!manuallyClosed && pendingSends.length < MAX_PENDING_SENDS) {
+        pendingSends.push(payload)
+      }
+      return
+    }
     ws.send(payload)
   }
 

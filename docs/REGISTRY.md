@@ -156,6 +156,30 @@
 | 内部聊天 WS 的失败出口退化（该拒的没拒、错误正文跑到帧顶层而不是 `data` 下、越权没挂断、`ping` 无 `pong`、流式失败缺 `error` 帧） | `smoke.sh` §7.2 十六条帧级与握手码真机读数（人工，上线前；需 Node ≥22，缺项整节具名 SKIP）+ `check-registries.mjs` 第 12 组的"三帧齐全且顺序固定"（CI `frontend`）+ `ChatWebSocketHandlerTest` 两条具名用例。**关闭码不参与判定**（除越权 1003 外，失败出口与正常收尾同为 1000，读数分不开） |
 | 门禁脚本自己失效（打印红却 `exit 0`，CI 收下不判；新增 `check-*.mjs` 没接退出码） | `check-registries.mjs` 第 13 组（CI `frontend`，v2.70 · C-138：逐字锁每道 Node 门禁的 `process.exit(failures === 0 ? 0 : 1)` 收尾，缺行与退化为 `exit 0` 都红；同组锁 `smoke.sh` 的"有 FAIL 即 exit 1"门与 §7.2 两条具名 SKIP 边界）。**边界**：锁行文不保证受检门禁把计数数得真，python 门禁不归它管（S-23，未修） |
 | 一次模型调用收不了场（上游不回字节 ⇒ 本轮既不成功也不失败、打字态与 WS 订阅一起悬着；用户已走 ⇒ 内层订阅被丢弃，这一轮既不落库也无人消费；超时出现第二份判据 ⇒ 三条通道各有结论） | `check-registries.mjs` 第 14 组（CI `frontend`，v2.71 · C-139/C-140：超时唯一落点 + `modelAdapter.stream(` 全仓恰一处 + 取消句柄形状 + 四处配置与两处文档口径一致 + 三条边界互指）+ `OpenAiModelAdapterTest` 2 例与 `ChatServiceTest` 新增 2 例；**在途 HTTP 交换不中止是登记边界而非判据（S-26）** |
+### 6.2 覆盖映射（哪个改动由哪道门禁兜）
+
+| 改动面 | 兜它的检查 |
+|---|---|
+| 后端任何逻辑 | `./mvnw test`（CI `backend`） |
+| 前端 `utils/*` 纯模块 | 对应 `check-*.mjs` |
+| 前端视图接线（是否走统一入口） | 桩测里的静态断言 |
+| 页面形状（整屏根回来、第二份导航或登出、左列表槽丢失） | `check-page-layout.mjs`（CI `frontend`）+ 浏览器逐页走查（人工） |
+| 模板类型窄化 | `npm run build`（`type:check` 查不到） |
+| 拦截器顺序 / 序列化 / 限流 / 握手 | `smoke.sh`（人工，上线前） |
+| 文档、配置登记 | 两个 Python 门禁 |
+| 登记表与代码漂移（新增 Kind / 工具 / 迁移 / 开放端点 / 门禁脚本而没在本文件登记） | `check-registries.mjs`（CI `frontend`） |
+| 授权依据表 `knowledgebases` 多出第二个写入点（含已删的 `/api/knowledges` 控制器悄悄回来、`index.sql` 与迁移不同口径） | `check-registries.mjs` 第 6 组（CI `frontend`）+ `smoke.sh` §5 两条 404 锚点（人工） |
+| 助手级成本参数出现第二份模型清单、或装配点绕过钳制直读实体（界面选得到却不被执行 / 越界值静默生效） | `check-registries.mjs` 第 7 组（CI `frontend`）+ `smoke.sh` §3.5 写侧拒绝与反向锚点（人工） |
+| 配额数值出现第二份上界或第二处关闭文案（含前端复制上界、校验被挪到写库之后） | `check-registries.mjs` 第 8 组（CI `frontend`）+ `smoke.sh` §8.1 越界拒绝、反向锚点与"库内值逐字段不变"（人工） |
+| 某条对话通道不再按可见范围收敛知识库（出现第二份求交实现、私有包装回来、或新装配点直接把 `knowledge_ids` 交给 ChatService） | `check-registries.mjs` 第 9 组（CI `frontend`）+ 三条通道各自的求交单测 |
+| 单日通话时长不再逐轮复核（回合边界丢掉"本通已活秒数"、改用发起侧判据逐轮扣次数、被拒回合只发帧不挂断、或顺手给语音/PSTN 加半套墙钟） | `check-registries.mjs` 第 10 组（CI `frontend`，含三条反向锚点）+ `QuotaServiceTest` 的 `ongoingCallSec_*` 六例与处理器那条用例（**无真机冒烟**：本机无语音网关） |
+| 助手模型的局部更新不再区分三态（后端把"空白"折回 null ⇒ 界面上选"默认模型"点了没反应；后端把"没带这一列"也归一成清空 ⇒ 保存人设/音色顺手毁掉模型配置；前端任一提交点退回折空值；其余四处 PUT 带上该列） | `check-registries.mjs` 第 11 组（CI `frontend`，含两条"缺字段不许动列"的反向用例与"其余三列不许顺手扩"判据）+ `smoke.sh` §3.6 六条真机锚点（空串真的清空、只改名不清空、空串与缺失可辨） |
+| 实体新增凭据列没表态（字段名命中凭据词表却能被 Jackson 序列化带出、或 `toString()` 打印凭据），或一次性明文改由"整颗实体当响应载荷"交付 | `EntityCredentialSuppressionTest`（随 `./mvnw test` 与 CI `backend` 跑；**刻意不是第 10 道 Node 桩测**——受检对象是编译后的字节码行为，源码正则证不出"输出里没这个键"）+ `smoke.sh` §7.10 三条成对断言（人工，上线前） |
+| 内部聊天 WS 的失败出口退化（该拒的没拒、错误正文跑到帧顶层而不是 `data` 下、越权没挂断、`ping` 无 `pong`、流式失败缺 `error` 帧） | `smoke.sh` §7.2 十六条帧级与握手码真机读数（人工，上线前；需 Node ≥22，缺项整节具名 SKIP）+ `check-registries.mjs` 第 12 组的"三帧齐全且顺序固定"（CI `frontend`）+ `ChatWebSocketHandlerTest` 两条具名用例。**关闭码不参与判定**（除越权 1003 外，失败出口与正常收尾同为 1000，读数分不开） |
+| 门禁脚本自己失效（打印红却 `exit 0`，CI 收下不判；新增 `check-*.mjs` 没接退出码） | `check-registries.mjs` 第 13 组（CI `frontend`，v2.70 · C-138：逐字锁每道 Node 门禁的 `process.exit(failures === 0 ? 0 : 1)` 收尾，缺行与退化为 `exit 0` 都红；同组锁 `smoke.sh` 的"有 FAIL 即 exit 1"门与 §7.2 两条具名 SKIP 边界）。**边界**：锁行文不保证受检门禁把计数数得真，python 门禁不归它管（S-23，未修） |
+| 一次模型调用收不了场（上游不回字节 ⇒ 本轮既不成功也不失败、打字态与 WS 订阅一起悬着；用户已走 ⇒ 内层订阅被丢弃，这一轮既不落库也无人消费；超时出现第二份判据 ⇒ 三条通道各有结论） | `check-registries.mjs` 第 14 组（CI `frontend`，v2.71 · C-139/C-140：超时唯一落点 + `modelAdapter.stream(` 全仓恰一处 + 取消句柄形状 + 四处配置与两处文档口径一致 + 三条边界互指）+ `OpenAiModelAdapterTest` 2 例与 `ChatServiceTest` 新增 2 例；**在途 HTTP 交换不中止是登记边界而非判据（S-26）** |
+
+**浏览器级 E2E 守卫（frontend/e2e，v2.75）不在本台账**：它是 npm 脚本（`npm run e2e`）而非 `scripts/` 门禁，需要外部后端与数据库，刻意不进 CI；跑法与边界见 docs/DEVELOPMENT.md 7.3。
 
 ## 7. 相关文档
 

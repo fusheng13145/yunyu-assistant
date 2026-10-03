@@ -1,0 +1,30 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://127.0.0.1:5173",
+      "localStorage": [
+        {
+          "name": "token",
+          "value": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyX2FkbWluIiwidXNlcm5hbWUiOiJhZG1pbiIsInR5cGUiOiJhY2Nlc3MiLCJ0diI6MCwianRpIjoiNTljZTNjYWQtZDRiNi00YzllLWFhNTYtNDM2YzlmMDlkMTlmIiwiaWF0IjoxNzkwOTkzMTE1LCJleHAiOjE3OTEwNzk1MTV9.WC-K66pj_Q4zqWMNdD8NCrsZULs1SscRbsxWp2f_VQA"
+        },
+        {
+          "name": "refreshToken",
+          "value": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyX2FkbWluIiwidXNlcm5hbWUiOiJhZG1pbiIsInR5cGUiOiJyZWZyZXNoIiwidHYiOjAsImp0aSI6IjE5YjVlYzhlLTM1MDktNGQ3My1iYmJiLTQ1NzQ5N2Y0YTMyYyIsImlhdCI6MTc5MDk5MzExNSwiZXhwIjoxNzkxNTk3OTE1fQ.VbRsM0z5nzxX-On3htGAaoeMvdUE8HNsr0jN0PWPqf4"
+        },
+        {
+          "name": "userId",
+          "value": "user_admin"
+        },
+        {
+          "name": "username",
+          "value": "admin"
+        },
+        {
+          "name": "role",
+          "value": "admin"
+        }
+      ]
+    }
+  ]
+}
