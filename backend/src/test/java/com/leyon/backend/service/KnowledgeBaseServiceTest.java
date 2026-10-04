@@ -205,4 +205,50 @@ class KnowledgeBaseServiceTest {
                     .containsExactly("d1", "d2");
         }
     }
+
+
+    // ===================== ㊺ 保存侧可见性校验（v2.79 · C-152） =====================
+
+    /**
+     * 保存侧包装的三个出口。spy 自身打桩 retainVisibleDatasetIds：
+     * 求交单点的分支已有 13+ 例覆盖，这里只锁"包装不复判、消息点名不可见项、空配置放行"三个形状。
+     */
+    @Nested
+    class RejectInvisibleDatasetIds {
+
+        private KnowledgeBaseService spyService;
+
+        @BeforeEach
+        void spySelf() {
+            spyService = org.mockito.Mockito.spy(knowledgeBaseService);
+        }
+
+        @Test
+        void blankConfig_returnsNullWithoutQuery() {
+            assertThat(spyService.rejectInvisibleDatasetIds(null, "u-1")).isNull();
+            assertThat(spyService.rejectInvisibleDatasetIds("  ", "u-1")).isNull();
+            org.mockito.Mockito.verifyNoInteractions(knowledgeBaseMapper);
+        }
+
+        @Test
+        void invalidJson_returnsReadableError() {
+            String message = spyService.rejectInvisibleDatasetIds("not-json", "u-1");
+            assertThat(message).contains("合法的 ID 列表");
+        }
+
+        @Test
+        void invisibleIds_areNamedInMessage() {
+            org.mockito.Mockito.doReturn(List.of("kb-1"))
+                    .when(spyService).retainVisibleDatasetIds(java.util.List.of("kb-1", "kb-secret"), "u-1");
+            String message = spyService.rejectInvisibleDatasetIds("[\"kb-1\",\"kb-secret\"]", "u-1");
+            assertThat(message).contains("kb-secret").doesNotContain("kb-1\"");
+        }
+
+        @Test
+        void allVisible_returnsNull() {
+            org.mockito.Mockito.doReturn(List.of("kb-1"))
+                    .when(spyService).retainVisibleDatasetIds(java.util.List.of("kb-1"), "u-1");
+            assertThat(spyService.rejectInvisibleDatasetIds("[\"kb-1\"]", "u-1")).isNull();
+        }
+    }
 }

@@ -13,6 +13,8 @@ export interface ChatMessage {
 }
 
 export interface Assistant {
+  /** 乐观锁版本号（v2.79 · ㊿）：保存时随 PUT 回传，冲突时后端拒绝 */
+  version?: number
   id: string
   name: string
   description: string
@@ -162,6 +164,8 @@ export interface CreateAssistantData {
 
 export interface UpdateAssistantData extends CreateAssistantData {
   id: string
+  /** 乐观锁版本号（v2.79 · ㊿）：PUT 携带，服务端版本不匹配时拒绝并提示刷新 */
+  version?: number
 }
 
 /** AI 工具字典项（后端按运行时注册结果下发） */

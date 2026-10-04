@@ -99,6 +99,31 @@ public class KnowledgeBaseService {
      * @param userId     当前用户ID
      * @return 可见的数据集ID列表；全部不可见或未传时返回空列表（即本轮不检索知识库）
      */
+    /**
+     * 助手保存侧的可见性校验（v2.79 · C-152，收口候选 ㊺）：knowledge_ids 的 JSON 串里若包含
+     * 当前用户不可见（不存在/已删除/无权限）的数据集，返回点名报错文案；全部可见或空配置返回 null。
+     * 判据复用 {@link #retainVisibleDatasetIds}（唯一求交单点）——写侧与读侧从此同源，
+     * "库里挂着 3 个知识库、实际检索 0 个、界面无提示"的形状不再出现。
+     */
+    public String rejectInvisibleDatasetIds(String knowledgeIdsJson, String userId) {
+        if (knowledgeIdsJson == null || knowledgeIdsJson.isBlank()) {
+            return null;
+        }
+        List<String> requested;
+        try {
+            requested = new com.fasterxml.jackson.databind.ObjectMapper().readValue(
+                    knowledgeIdsJson, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() { });
+        } catch (Exception e) {
+            return "知识库配置不是合法的 ID 列表，请刷新后重试";
+        }
+        List<String> visible = retainVisibleDatasetIds(requested, userId);
+        if (visible.size() >= requested.size()) {
+            return null;
+        }
+        List<String> invisible = requested.stream().filter(id -> !visible.contains(id)).distinct().toList();
+        return "以下知识库不可见或已删除：" + invisible + "，请刷新后重试";
+    }
+
     public List<String> retainVisibleDatasetIds(List<String> datasetIds, String userId) {
         if (datasetIds == null || datasetIds.isEmpty()) {
             return List.of();

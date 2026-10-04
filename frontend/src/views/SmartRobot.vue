@@ -1146,8 +1146,9 @@ const savePersonality = async () => {
     ws?.send({ type: 'prompt', content: personalityText.value })
     // 持久化到服务器助手记录，避免切换/重连后人设丢失
     if (bot?.id) {
-      await updateAssistant({
+      bot.version = await updateAssistant({
         id: bot.id,
+        version: bot.version,
         name: bot.name,
         description: bot.description,
         personality: personalityText.value,
@@ -1407,8 +1408,8 @@ const saveTools = async () => {
   const bot = settingsAssistant.value
   if (!bot?.id) return
   try {
-    await updateAssistant({
-      id: bot.id,
+    const nextVersion = await updateAssistant({
+
       name: bot.name,
       description: bot.description,
       personality: bot.personality,
@@ -1416,6 +1417,7 @@ const saveTools = async () => {
       knowledgeIds: normalizeKnowledgeIds(bot.knowledgeIds),
       tools: [...settingsTools.value],
     })
+    bot.version = nextVersion
     bot.tools = [...settingsTools.value]
     if (selectedAssistant.value?.id === bot.id) {
       selectedAssistant.value.tools = [...settingsTools.value]
@@ -1433,14 +1435,15 @@ const saveVoice = async () => {
   const bot = settingsAssistant.value
   if (!bot?.id) return
   try {
-    await updateAssistant({
-      id: bot.id,
+    const nextVersion = await updateAssistant({
+
       name: bot.name,
       description: bot.description,
       personality: bot.personality,
       voice: settingsVoice.value,
       knowledgeIds: normalizeKnowledgeIds(bot.knowledgeIds),
     })
+    bot.version = nextVersion
     bot.voice = settingsVoice.value
     // 同步选中助手
     if (selectedAssistant.value?.id === bot.id) {
@@ -1457,8 +1460,8 @@ const saveModelParams = async () => {
   const bot = settingsAssistant.value
   if (!bot?.id) return
   try {
-    await updateAssistant({
-      id: bot.id,
+    const nextVersion = await updateAssistant({
+
       name: bot.name,
       description: bot.description,
       personality: bot.personality,
@@ -1469,6 +1472,7 @@ const saveModelParams = async () => {
       maxTokens: settingsMaxTokens.value,
       knowledgeIds: normalizeKnowledgeIds(bot.knowledgeIds),
     })
+    bot.version = nextVersion
     bot.modelName = settingsModelName.value
     bot.temperature = settingsTemperature.value
     bot.maxTokens = settingsMaxTokens.value
@@ -1781,14 +1785,15 @@ const persistKnowledgeIds = async (ids: string[]) => {
   const assistant = selectedAssistant.value
   if (!assistant?.id) return
   try {
-    await updateAssistant({
-      id: assistant.id,
+    const nextVersion = await updateAssistant({
+
       name: assistant.name,
       description: assistant.description,
       personality: assistant.personality,
       voice: assistant.voice,
       knowledgeIds: ids,
     })
+    assistant.version = nextVersion
   } catch (error) {
     console.error('持久化知识库关联失败:', error)
     showNotification(`知识库关联没保存上：${(error as Error).message}`, 'error')

@@ -447,11 +447,14 @@ console.log('\n[9] 知识库可见性求交：三条对话通道共用同一判�
   const kbTests = (KB_TEST.match(/^\s+@Test/gm) ?? []).length
   check('判据自身有单测覆盖（≥13 例：可见集 + 归属闸门 + 求交契约）', kbTests >= 13, `解析到 ${kbTests}`)
 
-  // 写入侧不做可见性校验是本批刻意保留的口径（会改变助手保存行为）；漂移要先经过这里
-  const writeSide = [`${SRC}/service/AssistantService.java`, `${SRC}/controller/AssistantController.java`]
-    .filter(f => read(f).includes('retainVisibleDatasetIds'))
-  check('助手保存侧仍不做可见性校验（要做需先立口径，不许顺手改写入行为）',
-    writeSide.length === 0, writeSide.join(','))
+  // ㊺（v2.79 · C-152）：写入侧校验收口——保存侧必须过同一判据（rejectInvisibleDatasetIds 内部调 retainVisibleDatasetIds），
+  // 旧的"不许顺手加校验"反向锚点随用户裁决翻转；判据单点仍只有一处定义（上面的 defs.length === 1 继续守着）
+  const CONTROLLER = read(`${SRC}/controller/AssistantController.java`)
+  check('助手保存侧（create/update）必须过同一可见性判据（写侧宽松读侧严格的口径已按 ㊺ 裁决翻转）',
+    (CONTROLLER.match(/knowledgeBaseService\.rejectInvisibleDatasetIds\(/g) ?? []).length === 2)
+  check('保存侧校验复用求交单点而非自建第二份（判据本体在 KnowledgeBaseService 内部）',
+    read(`${SRC}/service/KnowledgeBaseService.java`).includes('rejectInvisibleDatasetIds')
+      && read(`${SRC}/service/KnowledgeBaseService.java`).indexOf('rejectInvisibleDatasetIds') < read(`${SRC}/service/KnowledgeBaseService.java`).indexOf('public boolean canManageDataset'))
 }
 
 console.log('\n[10] 通话时长配额：发起前与回合边界共用同一判据，通话中不烧次数（v2.59 · C-126 · 方案 A）')

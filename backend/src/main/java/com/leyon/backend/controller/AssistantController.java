@@ -7,6 +7,7 @@ import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.entity.Org;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
+import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.OrgService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
@@ -27,12 +28,14 @@ public class AssistantController {
     private final AssistantService assistantService;
     private final OrgService orgService;
     private final AssistantPolicy assistantPolicy;
+    private final KnowledgeBaseService knowledgeBaseService;
 
     public AssistantController(AssistantService assistantService, OrgService orgService,
-                               AssistantPolicy assistantPolicy) {
+                               AssistantPolicy assistantPolicy, KnowledgeBaseService knowledgeBaseService) {
         this.assistantService = assistantService;
         this.orgService = orgService;
         this.assistantPolicy = assistantPolicy;
+        this.knowledgeBaseService = knowledgeBaseService;
     }
 
     /**
@@ -43,6 +46,12 @@ public class AssistantController {
     @PostMapping
     public ApiResponse<Assistant> create(@RequestBody Assistant assistant, HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");
+        // ㊺（v2.79 · C-152）：保存侧与读侧同一判据——不可见的数据集 id 在这里点名拒绝，
+        // 不再写进库等每轮对话被读侧静默收敛
+        String kbError = knowledgeBaseService.rejectInvisibleDatasetIds(assistant.getKnowledgeIds(), userId);
+        if (kbError != null) {
+            return ApiResponse.paramError(kbError);
+        }
         // 越界的模型/温度/最大输出/人设在写库前拒掉并讲清上限：静默改写用户刚填的配置不可诊断
         try {
             assistantPolicy.validateForWrite(assistant);
@@ -52,6 +61,8 @@ public class AssistantController {
         assistant.setUserId(userId);
         assistant.setOrgId(resolveCreateOrg(assistant.getOrgId(), userId));
         Assistant created = assistantService.create(assistant);
+        // ㊿（v2.79 · C-151）：INSERT 不走乐观锁，DB 默认 0——响应补上版本号，客户端下一轮 PUT 才有仲裁依据
+        created.setVersion(0L);
         return ApiResponse.success(created);
     }
 
@@ -134,7 +145,7 @@ public class AssistantController {
      */
     @Audit(action = "ASSISTANT_UPDATE", targetType = "assistant")
     @PutMapping
-    public ApiResponse<Void> update(@RequestBody Assistant assistant, HttpServletRequest request) {
+    public ApiResponse<Long> update(@RequestBody Assistant assistant, HttpServletRequest request) {
         String userId = (String) request.getAttribute("userId");
         if (assistant == null || !StringUtils.hasText(assistant.getId())) {
             return ApiResponse.paramError("助手ID不能为空");
@@ -145,6 +156,11 @@ public class AssistantController {
             return ApiResponse.paramError("助手不存在或无操作权限");
         }
         requireManage(exist.getOrgId(), exist.getUserId(), userId);
+        // ㊺（v2.79 · C-152）：与 create 同一判据
+        String kbError = knowledgeBaseService.rejectInvisibleDatasetIds(assistant.getKnowledgeIds(), userId);
+        if (kbError != null) {
+            return ApiResponse.paramError(kbError);
+        }
         try {
             assistantPolicy.validateForWrite(assistant);
         } catch (IllegalArgumentException e) {
@@ -154,9 +170,12 @@ public class AssistantController {
         assistant.setOrgId(exist.getOrgId());
         boolean result = assistantService.update(assistant);
         if (!result) {
-            return ApiResponse.paramError("更新失败");
+            // ㊿（v2.79 · C-151）：乐观锁版本不匹配与"助手已被删除"在此同形——都要求用户刷新拿最新行
+            return ApiResponse.paramError("助手不存在或已被他人修改，请刷新后重试");
         }
-        return ApiResponse.success();
+        // ㊿：把自增后的版本号发回去，客户端下一轮保存不用被迫刷新（旧值重放会被拒绝）。
+        // 乐观锁拦截器已在 updateById 时把实体的 version 内存值推进到与库一致，直接取它即可，不要再 +1
+        return ApiResponse.success(assistant.getVersion());
     }
 
     /**

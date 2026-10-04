@@ -311,6 +311,22 @@ public class Assistant {
         this.isDeleted = isDeleted;
     }
 
+    /**
+     * 乐观锁版本号（v2.79 · C-151，收口候选 ㊿）：PUT 整行保存携带，UPDATE 带 WHERE version = ?，
+     * 多标签页后保存方拿旧值覆盖他列的形状被库层拒绝（控制器返回"已被他人修改，请刷新后重试"）。
+     * 服务端内部的部分更新（仅 id+personality 的临时实体）version 为 NULL，乐观锁条件自动跳过——单写者无需仲裁。
+     */
+    @com.baomidou.mybatisplus.annotation.Version
+    private Long version;
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
+    }
+
     @Override
     public String toString() {
         return "Assistant{" +

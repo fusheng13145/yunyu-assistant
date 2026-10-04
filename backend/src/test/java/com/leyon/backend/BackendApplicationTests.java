@@ -25,4 +25,12 @@ class BackendApplicationTests {
         assertThat(connector).isInstanceOf(ReactorClientHttpConnector.class);
     }
 
+    @Test
+    void optimisticLockerInterceptorIsRegistered(@Autowired com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor interceptor) {
+        // ㊿（v2.79 · C-151）：@Version 是注解、乐观锁是拦截器——拦截器被撤＝UPDATE 不带版本条件，
+        // 多标签页丢更新无声回归，故与实体的注解判据成对钉住
+        assertThat(interceptor.getInterceptors())
+                .anyMatch(i -> i instanceof com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor);
+    }
+
 }

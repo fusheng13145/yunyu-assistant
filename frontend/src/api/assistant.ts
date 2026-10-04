@@ -27,8 +27,9 @@ export function createAssistant(data: CreateAssistantData): Promise<Assistant> {
   return request<Assistant>(`${API_BASE}/assistants`, { method: 'POST', body: JSON.stringify(data) })
 }
 
-export async function updateAssistant(data: UpdateAssistantData): Promise<void> {
-  await request<void>(`${API_BASE}/assistants`, { method: 'PUT', body: JSON.stringify(data) })
+export async function updateAssistant(data: UpdateAssistantData): Promise<number> {
+  // ㊿（v2.79）：服务端返回自增后的版本号，调用方回写内存行，下一轮保存才有正确的仲裁依据
+  return request<number>(`${API_BASE}/assistants`, { method: 'PUT', body: JSON.stringify(data) })
 }
 
 export async function deleteAssistant(id: string): Promise<void> {

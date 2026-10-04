@@ -71,6 +71,7 @@ CREATE TABLE `assistants` (
     `temperature` DECIMAL(2,1) DEFAULT NULL COMMENT '温度 0-2',
     `max_tokens` INT DEFAULT NULL COMMENT '最大输出 Token 数',
     `knowledge_ids` JSON DEFAULT NULL COMMENT '关联知识库ID列表（JSON 数组）',
+    `version` BIGINT NOT NULL DEFAULT 0 COMMENT '乐观锁版本号（@Version 自增，PUT 携带用于多标签页冲突检测）',
     `tools` VARCHAR(500) DEFAULT NULL COMMENT '可用工具白名单（JSON 数组，空=全部已注册工具，v2.28）',
     `user_id` VARCHAR(36) NOT NULL COMMENT '所属用户ID',
     `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）',

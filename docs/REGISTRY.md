@@ -93,6 +93,7 @@
 | `0007_kb_dataset_unique.sql` | `knowledgebases.dataset_id` 加唯一索引；建索引前先 `yunyu_assert` "没有同一 dataset_id 的多行"，有冲突即中止 | 可（索引可 DROP），但退回无约束状态＝退回"能不能访问由存储顺序决定" |
 | `0008_records_fail_reason.sql` | `records` / `records_archive` 加可空 `fail_reason`（失败回合的脱敏类别文案，v2.73 收口 S-22）；存量行不回填 | 可（加列） |
 | `0009_call_records_recording_fail_reason.sql` | `call_records` / `call_records_archive` 加可空 `recording_fail_reason`（录音落盘失败的类别文案，v2.78 收口 ⑳ 告警面 + ㉝ 一半）；存量行不回填 | 可（加列） |
+| `0010_assistants_version.sql` | `assistants` 加 `version BIGINT NOT NULL DEFAULT 0`（@Version 乐观锁，v2.79 收口 ㊿ 多标签页丢更新）；存量行从 0 起步 | 可（加列） |
 
 ⇒ 上线顺序固定为**先迁移、再上新代码**；0006 跑之前先整表备份（手册 5.4 / 5.8）。
 

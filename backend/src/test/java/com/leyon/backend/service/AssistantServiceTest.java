@@ -205,4 +205,16 @@ class AssistantServiceTest {
             verify(assistantMapper).updateById(a);
         }
     }
+
+
+    // ===================== ㊿ 乐观锁（v2.79 · C-151） =====================
+
+    @Test
+    void assistantEntityCarriesVersionAnnotationForOptimisticLock() throws Exception {
+        // 乐观锁的两个前提各有一道判据：本例锁实体注解，MybatisPlusConfig 的拦截器注册由
+        // BackendApplicationTests#optimisticLockerInterceptorIsRegistered 钉住——任一缺失＝㊿ 静默失效
+        assertThat(com.leyon.backend.entity.Assistant.class
+                .getDeclaredField("version")
+                .isAnnotationPresent(com.baomidou.mybatisplus.annotation.Version.class)).isTrue();
+    }
 }

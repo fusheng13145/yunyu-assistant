@@ -6,6 +6,7 @@ import com.leyon.backend.common.ForbiddenException;
 import com.leyon.backend.entity.Assistant;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
+import com.leyon.backend.service.KnowledgeBaseService;
 import com.leyon.backend.service.ModelCatalog;
 import com.leyon.backend.service.OrgService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -44,14 +45,83 @@ class AssistantControllerTest {
     @Mock
     private OrgService orgService;
     @Mock
+    private KnowledgeBaseService knowledgeBaseService;
+    @Mock
     private HttpServletRequest request;
 
     private AssistantController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new AssistantController(assistantService, orgService, new AssistantPolicy(new ModelCatalog()));
+        controller = new AssistantController(assistantService, orgService, new AssistantPolicy(new ModelCatalog()), knowledgeBaseService);
         when(request.getAttribute("userId")).thenReturn(USER);
+    }
+
+    // ===================== ㊺ 保存侧可见性校验（v2.79 · C-152） =====================
+
+    @Test
+    void create_rejectsInvisibleDatasetIds() {
+        Assistant a = new Assistant();
+        a.setName("新助手");
+        a.setKnowledgeIds("[\"kb-1\",\"kb-secret\"]");
+        when(knowledgeBaseService.rejectInvisibleDatasetIds("[\"kb-1\",\"kb-secret\"]", USER))
+                .thenReturn("以下知识库不可见或已删除：[\"kb-secret\"]，请刷新后重试");
+
+        ApiResponse<Assistant> result = controller.create(a, request);
+
+        assertThat(result.getCode()).isEqualTo(400);
+        assertThat(result.getMessage()).contains("kb-secret");
+        // 校验先于写库：不可见的配置不允许先落一半
+        verify(assistantService, never()).create(any());
+    }
+
+    @Test
+    void create_allVisibleDatasets_passesValidation() {
+        Assistant a = new Assistant();
+        a.setName("新助手");
+        a.setKnowledgeIds("[\"kb-1\"]");
+        when(knowledgeBaseService.rejectInvisibleDatasetIds("[\"kb-1\"]", USER)).thenReturn(null);
+        when(assistantService.create(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ApiResponse<Assistant> result = controller.create(a, request);
+
+        assertThat(result.getCode()).isEqualTo(200);
+    }
+
+    @Test
+    void update_rejectsInvisibleDatasetIds() {
+        Assistant exist = ownedAssistant();
+        when(assistantService.getById("a1")).thenReturn(exist);
+        Assistant a = new Assistant();
+        a.setId("a1");
+        a.setKnowledgeIds("[\"kb-secret\"]");
+        when(knowledgeBaseService.rejectInvisibleDatasetIds("[\"kb-secret\"]", USER))
+                .thenReturn("以下知识库不可见或已删除：[\"kb-secret\"]，请刷新后重试");
+        when(orgService.isMember(any(), any())).thenReturn(false);
+
+        ApiResponse<Long> result = controller.update(a, request);
+
+        assertThat(result.getCode()).isEqualTo(400);
+        assertThat(result.getMessage()).contains("kb-secret");
+        verify(assistantService, never()).update(any());
+    }
+
+    // ===================== ㊿ 乐观锁冲突（v2.79 · C-151） =====================
+
+    @Test
+    void update_versionConflict_reportsRefreshableError() {
+        Assistant exist = ownedAssistant();
+        when(assistantService.getById("a1")).thenReturn(exist);
+        when(orgService.isMember(any(), any())).thenReturn(false);
+        Assistant a = new Assistant();
+        a.setId("a1");
+        // updateById 返回 false：版本不匹配（0 行更新）与"已被删除"同形，都要求用户刷新拿最新行
+        when(assistantService.update(any())).thenReturn(false);
+
+        ApiResponse<Long> result = controller.update(a, request);
+
+        assertThat(result.getCode()).isEqualTo(400);
+        assertThat(result.getMessage()).isEqualTo("助手不存在或已被他人修改，请刷新后重试");
     }
 
     private Assistant ownedAssistant() {
@@ -120,7 +190,7 @@ class AssistantControllerTest {
         body.setId("a1");
         body.setTemperature(2.5);
 
-        ApiResponse<Void> response = controller.update(body, request);
+        ApiResponse<Long> response = controller.update(body, request);
 
         assertThat(response.getCode()).isEqualTo(400);
         assertThat(response.getMessage()).contains("温度");
@@ -137,7 +207,7 @@ class AssistantControllerTest {
         body.setModelName("");
 
         // 候选 ㊸：选"默认模型"发的是空串。写侧闸门若把它当越界值拒掉，界面就只剩"能改不能清"
-        ApiResponse<Void> response = controller.update(body, request);
+        ApiResponse<Long> response = controller.update(body, request);
 
         assertThat(response.getCode()).isEqualTo(200);
         verify(assistantService).update(body);
