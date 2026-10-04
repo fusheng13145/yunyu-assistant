@@ -10,7 +10,7 @@
     "build": "vue-tsc -b && vite build",
     "build:test": "vue-tsc -b && vite build --mode test",
     "preview": "vite preview",
-    "type:check": "vue-tsc --noEmit",
+    "type:check": "vue-tsc -b",
     "lint": "eslint \"src/**/*.{ts,vue}\"",
     "lint:fix": "eslint \"src/**/*.{ts,vue}\" --fix",
     "check:auth": "node ../scripts/check-auth-session.mjs",

@@ -1409,6 +1409,8 @@ const saveTools = async () => {
   if (!bot?.id) return
   try {
     const nextVersion = await updateAssistant({
+      id: bot.id,
+      version: bot.version,
 
       name: bot.name,
       description: bot.description,
@@ -1436,6 +1438,8 @@ const saveVoice = async () => {
   if (!bot?.id) return
   try {
     const nextVersion = await updateAssistant({
+      id: bot.id,
+      version: bot.version,
 
       name: bot.name,
       description: bot.description,
@@ -1461,6 +1465,8 @@ const saveModelParams = async () => {
   if (!bot?.id) return
   try {
     const nextVersion = await updateAssistant({
+      id: bot.id,
+      version: bot.version,
 
       name: bot.name,
       description: bot.description,
@@ -1786,6 +1792,8 @@ const persistKnowledgeIds = async (ids: string[]) => {
   if (!assistant?.id) return
   try {
     const nextVersion = await updateAssistant({
+      id: assistant.id,
+      version: assistant.version,
 
       name: assistant.name,
       description: assistant.description,
