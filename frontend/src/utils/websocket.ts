@@ -1,4 +1,3 @@
-import { ensureFreshToken } from '../api/auth'
 
 interface WebSocketHandlers {
   onMessage?: (event: MessageEvent) => void
@@ -13,9 +12,12 @@ const HEARTBEAT_INTERVAL = 30000
 /** 最大重连次数 */
 const MAX_RECONNECT_ATTEMPTS = 5
 
-export function useWebSocket(url: string, handlers: WebSocketHandlers = {}) {
+/**
+ * url 支持传函数（v2.80 · S-10）：握手即鉴权后令牌必须随 URL 走，
+ * 每次建链/重连都经 provider 现取最新令牌——重连不再携带旧令牌，也不再需要 auth 帧。
+ */
+export function useWebSocket(url: string | (() => Promise<string>), handlers: WebSocketHandlers = {}) {
   let ws: WebSocket | null = null
-  let authSent = false
   let manuallyClosed = false
   let reconnectAttempts = 0
   let heartbeatTimer: number | null = null
@@ -37,20 +39,14 @@ export function useWebSocket(url: string, handlers: WebSocketHandlers = {}) {
   }
 
   const connect = async () => {
-    // 令牌在每次建链/重连时重取：页面存活期跨过一次静默续期后，重连不能再携带旧令牌
-    const token = await ensureFreshToken()
+    // 令牌在每次建链/重连时由 provider 现取（S-10：握手即鉴权，令牌随 URL 走）
+    const resolvedUrl = typeof url === 'function' ? await url() : url
     if (manuallyClosed) return
-    ws = new WebSocket(url)
-    authSent = false
+    ws = new WebSocket(resolvedUrl)
 
     ws.onopen = (event) => {
       reconnectAttempts = 0
-      // 连接建立后立即发送认证消息
-      if (token && !authSent) {
-        ws?.send(JSON.stringify({ type: 'auth', token }))
-        authSent = true
-      }
-      // 认证帧之后按序补发握手窗口内积压的业务消息（auth 在前，顺序不乱）
+      // 握手已认证，握手窗口内积压的业务消息按序补发
       flushPendingSends()
       handlers.onOpen?.(event as Event)
       startHeartbeat()

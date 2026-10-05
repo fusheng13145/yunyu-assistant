@@ -1032,6 +1032,7 @@ import { useWebRTC } from '../composables/useWebRTC'
 import { uploadRecording } from '../api/callRecord'
 import { finishRecordingUpload } from '../utils/recordingUpload'
 import { fetchAssistantsPage, createAssistant, deleteAssistant, updateAssistant, fetchVoices, fetchModels, fetchTools } from '../api/assistant'
+import { ensureFreshToken } from '../api/auth'
 import { RagflowApi } from '../api/ragflow'
 import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, VoiceInfo, ModelInfo, ToolInfo } from '../types'
 
@@ -1501,7 +1502,12 @@ const startVoiceCall = async () => {
     const offerSDP = await webrtc.createOffer()
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
-    const wsUrl = `${protocol}//${host}/ws-voice/${selectedAssistant.value.id}`
+    const wsUrl = async () => {
+      const token = await ensureFreshToken()
+      const aid = selectedAssistant.value?.id
+      if (!aid) return ''
+      return `${protocol}//${host}/ws-voice/${aid}?token=${encodeURIComponent(token ?? '')}`
+    }
 
     voiceWs = useWebSocket(wsUrl, {
       onOpen: () => voiceWs?.send({ type: 'offer', sdp: offerSDP }),
@@ -1579,7 +1585,13 @@ const connectWebSocket = () => {
   if (!selectedAssistant.value?.id) return
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
-  const wsUrl = `${protocol}//${host}/ws/${selectedAssistant.value.id}`
+  // S-10（v2.80）：握手即鉴权，令牌随 URL 走且每次建链现取
+  const wsUrl = async () => {
+    const token = await ensureFreshToken()
+    const aid = selectedAssistant.value?.id
+    if (!aid) return ''
+    return `${protocol}//${host}/ws/${aid}?token=${encodeURIComponent(token ?? '')}`
+  }
 
   ws = useWebSocket(wsUrl, {
     onOpen: () => {

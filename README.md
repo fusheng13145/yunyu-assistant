@@ -150,7 +150,6 @@ npm run dev
 | `LOGIN_LOCK_USERNAME_FAILURES` | **（v2.44 新增）** 账号维度登录失败锁定阈值，默认 15（锁 5 分钟）。主判定已改为来源维度（20 次/15 分，不可配），账号维度只作"换 IP 慢爆号"的粗兜底；调回 5 会重新打开"匿名把任意账号锁在登录页外"的窗口，调太高则共享出口（校园网 / 公司 NAT）下容易被他人失败次数牵连（手册 2.1、6.6） |
 | `OPENAPI_WS_URL_KEY_ALLOWED` | **（v2.50 新增）** 开放语音握手是否接受 `?api_key=` 这条 URL 查询参数通道，**默认 `false`**。浏览器 `WebSocket` 设不了自定义头，故该通道确有真实用途，但 query 会进反代 access_log / 浏览器历史 / `Referer` ⇒ 长期 Key 一旦进过 URL 就算已泄露。关闸的表现是"只带 URL Key 的握手按未携带凭据回 401"，同时记 `URL_KEY_REJECTED`；显式放开后仍被使用则记 `URL_KEY_USED`——**这两格合起来就是"能不能干脆删掉通道"的依据，不要靠猜**。HTTP 侧 `/api/open/**` 从不读 query，只认 `X-API-Key`（本批把它升为真机断言）。详见手册 2.12 与 7.4 C-110 |
 
-| `WS_UNAUTHENTICATED_IDLE_MS` | **（v2.32 新增）** 未认证 WebSocket 连接的存活上限，默认 30000。`/ws/*` 与 `/ws-voice/*` 允许免令牌握手后用首条 `auth` 帧认证，故该上限必须由应用层回收器执行（Tomcat 不回收服务端会话，`setMaxIdleTimeout()` 在服务端是空操作）；回收器 10 秒扫一次，实际关闭时间＝该值向上取整到 10 秒格。详见手册 3.4 |
 
 ## 文档
 

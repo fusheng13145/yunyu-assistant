@@ -602,6 +602,7 @@ import { useWebRTC } from '../composables/useWebRTC'
 import { uploadRecording } from '../api/callRecord'
 import { finishRecordingUpload } from '../utils/recordingUpload'
 import { fetchAssistant } from '../api/assistant'
+import { ensureFreshToken } from '../api/auth'
 import { RagflowApi } from '../api/ragflow'
 import { createSession, fetchSessions, updateSession, deleteSession, fetchSessionMessages } from '../api/session'
 import type { Assistant, DisplayMessage, KnowledgeBase, AsrDeltaData, ChatSession } from '../types'
@@ -755,9 +756,12 @@ const connectWebSocket = () => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
   const bizSessionId = currentSession.value?.id
-  const wsUrl = bizSessionId
-    ? `${protocol}//${host}/ws/${assistantId}?sessionId=${encodeURIComponent(bizSessionId)}`
-    : `${protocol}//${host}/ws/${assistantId}`
+  // S-10（v2.80）：握手即鉴权，令牌随 URL 走且每次建链现取
+  const wsUrl = async () => {
+    const token = await ensureFreshToken()
+    const session = bizSessionId ? `&sessionId=${encodeURIComponent(bizSessionId)}` : ''
+    return `${protocol}//${host}/ws/${assistantId}?token=${encodeURIComponent(token ?? '')}${session}`
+  }
 
   ws = useWebSocket(wsUrl, {
     onOpen: () => {
@@ -804,7 +808,12 @@ const startVoiceCall = async () => {
     const offerSDP = await webrtc.createOffer()
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
-    const wsUrl = `${protocol}//${host}/ws-voice/${currentAssistant.value.id}`
+    const wsUrl = async () => {
+      const token = await ensureFreshToken()
+      const aid = currentAssistant.value?.id
+      if (!aid) return ''
+      return `${protocol}//${host}/ws-voice/${aid}?token=${encodeURIComponent(token ?? '')}`
+    }
 
     voiceWs = useWebSocket(wsUrl, {
       onOpen: () => {

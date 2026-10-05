@@ -17,7 +17,6 @@ import com.leyon.backend.service.OrgService;
 import com.leyon.backend.service.QuotaService;
 import com.leyon.backend.service.RecordService;
 import com.leyon.backend.service.SessionService;
-import com.leyon.backend.task.UnauthenticatedSocketReaper;
 import com.leyon.backend.tool.ToolRegistry;
 import com.leyon.backend.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,8 +79,6 @@ class ChatWebSocketHandlerTest {
     @Mock
     private JwtUtil jwtUtil;
     @Mock
-    private UnauthenticatedSocketReaper socketReaper;
-    @Mock
     private ChatService chatService;
     @Mock
     private ConversationRecordWriter recordWriter;
@@ -96,7 +93,7 @@ class ChatWebSocketHandlerTest {
     void setUp() throws Exception {
         handler = new ChatWebSocketHandler(modelAdapter, knowledgeProvider, assistantService, recordService,
                 sessionService, orgService, quotaService, knowledgeBaseService, objectMapper, jwtUtil, toolRegistry,
-                socketReaper, new AssistantPolicy(new ModelCatalog()), recordWriter);
+                new AssistantPolicy(new ModelCatalog()), recordWriter);
         when(session.getId()).thenReturn("ws-1");
         when(session.isOpen()).thenReturn(true);
         when(session.getAttributes()).thenReturn(attributes);

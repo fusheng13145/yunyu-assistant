@@ -145,10 +145,9 @@ console.log('\n[6] WS 未就绪的发送必须排队而不是丢（v2.75 · C-14
   const sendFn = wsSrc.slice(wsSrc.indexOf('const send ='), wsSrc.indexOf('const close ='))
   check('send 在未 OPEN 时不再裸 return 丢帧（裸丢＝选完助手立刻说话会蒸发并锁死打字态）',
     /pendingSends\.push\(payload\)/.test(sendFn) && !/readyState !== WebSocket\.OPEN\) return/.test(sendFn))
-  check('握手完成后按序补发，且认证帧仍在业务消息之前',
+  check('握手完成后按序补发（S-10 后握手即鉴权，auth 帧已随通道退役）',
     /flushPendingSends\(\)/.test(wsSrc)
-      && wsSrc.indexOf("type: 'auth'") !== -1
-      && wsSrc.indexOf('flushPendingSends()') > wsSrc.indexOf("type: 'auth'"))
+      && wsSrc.indexOf('flushPendingSends()') > wsSrc.indexOf('ws = new WebSocket('))
   check('待发队列有上限（连接已坏时排队只是拖延暴露）', /MAX_PENDING_SENDS/.test(wsSrc))
 }
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)

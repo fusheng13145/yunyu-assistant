@@ -19,7 +19,6 @@ import com.leyon.backend.service.OrgService;
 import com.leyon.backend.service.QuotaService;
 import com.leyon.backend.service.RecordService;
 import com.leyon.backend.service.SessionService;
-import com.leyon.backend.task.UnauthenticatedSocketReaper;
 import com.leyon.backend.tool.ToolRegistry;
 import com.leyon.backend.util.JwtUtil;
 import org.slf4j.Logger;
@@ -69,7 +68,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private static final String MSG_TYPE_ASSISTANT_INFO = "assistant_info";
     private static final String MSG_TYPE_ASSISTANT_MSG = "assistant_message";
     private static final String MSG_TYPE_QUERY_END = "query_end";
-    private static final String MSG_TYPE_AUTH = "auth";
     private static final String MSG_TYPE_PING = "ping";
     private static final String MSG_TYPE_PONG = "pong";
 
@@ -105,7 +103,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final JwtUtil jwtUtil;
     private final ToolRegistry toolRegistry;
-    private final UnauthenticatedSocketReaper socketReaper;
     private final AssistantPolicy assistantPolicy;
     private final ConversationRecordWriter recordWriter;
 
@@ -118,9 +115,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ConcurrentHashMap<String, String> sessionAssistantMap = new ConcurrentHashMap<>();
     /** 会话ID -> 业务会话ID（session model，可能为空） */
     private final ConcurrentHashMap<String, String> businessSessionMap = new ConcurrentHashMap<>();
-    /** 已认证的会话ID集合 */
-    private final ConcurrentHashMap<String, Boolean> authenticatedSessions = new ConcurrentHashMap<>();
-
     public ChatWebSocketHandler(ModelAdapter modelAdapter,
                                 KnowledgeProvider knowledgeProvider,
                                 AssistantService assistantService,
@@ -132,7 +126,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 ObjectMapper objectMapper,
                                 JwtUtil jwtUtil,
                                 ToolRegistry toolRegistry,
-                                UnauthenticatedSocketReaper socketReaper,
                                 AssistantPolicy assistantPolicy,
                                 ConversationRecordWriter recordWriter) {
         this.modelAdapter = modelAdapter;
@@ -146,7 +139,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
         this.toolRegistry = toolRegistry;
-        this.socketReaper = socketReaper;
         this.assistantPolicy = assistantPolicy;
         this.recordWriter = recordWriter;
     }
@@ -156,18 +148,17 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(@NonNull WebSocketSession session) {
         String sessionId = session.getId();
         try {
-            // 先登记等待认证：本路径允许免令牌握手，未认证的连接需有存活上限（见 UnauthenticatedSocketReaper）
-            socketReaper.watch(session);
-            // 检查是否已在握手阶段完成认证
+            // S-10（v2.80）：握手即鉴权（WebSocketAuthInterceptor 强制令牌并注入 userId），
+            // "免令牌握手 + auth 帧延迟认证"通道与回收器随之移除
             String userId = (String) session.getAttributes().get(SESSION_ATTR_USER_ID);
-            if (userId != null && !userId.isBlank()) {
-                // 握手阶段已认证，直接初始化会话
-                socketReaper.release(sessionId);
-                authenticatedSessions.put(sessionId, true);
-                initializeChatSession(session, sessionId, userId);
+            if (userId == null || userId.isBlank()) {
+                // 防御分支：拦截器口径若被放松，这里宁可关连接也不开免认证会话
+                logger.warn("WebSocket 握手未携带身份，拒绝建立会话，会话ID:{}", sessionId);
+                sendMessage(session, MSG_TYPE_ERROR, "连接初始化失败");
+                closeSession(session);
+                return;
             }
-            // 否则等待客户端发送 auth 消息
-            logger.info("WebSocket 连接已建立，等待认证消息，会话ID:{}", sessionId);
+            initializeChatSession(session, sessionId, userId);
         } catch (Exception e) {
             logger.error("WebSocket 连接初始化异常，会话ID:{}", sessionId, e);
             sendMessage(session, MSG_TYPE_ERROR, "连接初始化失败");
@@ -265,12 +256,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             JsonNode node = objectMapper.readTree(message.getPayload());
             String type = node.get(FIELD_TYPE).asText();
 
-            // 处理认证消息（在会话初始化之前）
-            if (MSG_TYPE_AUTH.equals(type)) {
-                handleAuth(session, sessionId, node);
-                return;
-            }
-
             // 非认证消息需要会话已初始化
             ChatService chatService = chatServices.get(sessionId);
             if (chatService == null) {
@@ -286,33 +271,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             // 安全改进：不再将异常详情返回给客户端
             sendMessage(session, MSG_TYPE_ERROR, "消息处理失败，请重试");
         }
-    }
-
-    /**
-     * 处理认证消息（首条消息携带 token）
-     * @throws IOException 
-     */
-    private void handleAuth(WebSocketSession session, String sessionId, JsonNode node) throws IOException {
-        // 已认证则忽略重复认证请求
-        if (authenticatedSessions.containsKey(sessionId)) {
-            return;
-        }
-
-        String token = node.path("token").asText("");
-        if (token.isBlank() || !jwtUtil.validateAccessToken(token)) {
-            sendMessage(session, MSG_TYPE_ERROR, "认证失败：无效的 Token");
-            closeSession(session);
-            return;
-        }
-
-        String userId = jwtUtil.getUserIdFromToken(token);
-        session.getAttributes().put(SESSION_ATTR_USER_ID, userId);
-        socketReaper.release(sessionId);
-        authenticatedSessions.put(sessionId, true);
-
-        logger.info("WebSocket 认证成功，会话ID:{}，用户ID:{}", sessionId, userId);
-        // 认证通过后初始化聊天会话
-        initializeChatSession(session, sessionId, userId);
     }
 
     /**
@@ -469,8 +427,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         String sessionId = session.getId();
         logger.info("WebSocket 连接断开，会话ID:{}，关闭状态:{}", sessionId, status);
 
-        socketReaper.release(sessionId);
-
         // 停止流式订阅
         Disposable subscription = activeSubscriptions.remove(sessionId);
         if (subscription != null && !subscription.isDisposed()) {
@@ -484,7 +440,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
         sessionAssistantMap.remove(sessionId);
         businessSessionMap.remove(sessionId);
-        authenticatedSessions.remove(sessionId);
     }
 
     // 状态持久化

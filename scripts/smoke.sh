@@ -660,13 +660,15 @@ ws_assert() {
         *)      bad "$1" "期望 $4，实际 ${line:-无响应} —— $5" ;;
     esac
 }
-ws_assert '聊天路由 /ws/{assistantId} 握手' 'ws/smoke' '' 101 '404 ⇒ 路由未注册；无 Origin 时放行，令牌走首条消息认证'
-ws_assert '语音信令路由 /ws-voice/{id} 握手' 'ws-voice/smoke' '' 101 '404 ⇒ 语音路由未注册（第二阶段做语音时这条是链路前提）'
+# S-10（v2.80）：握手即鉴权——无令牌握手一律 401，令牌随 URL 走
+ws_assert '无令牌握手 /ws/{assistantId} 被拒' 'ws/smoke' '' 401 '101 ⇒ 免令牌握手通道仍开着（S-10 收口回潮）'
+ws_assert '无令牌握手 /ws-voice/{id} 被拒' 'ws-voice/smoke' '' 401 '101 ⇒ 语音免令牌握手通道仍开着（S-10 收口回潮）'
 if [ -n "${SMOKE_ORIGIN:-}" ]; then
-    ws_assert "带站点 Origin（$SMOKE_ORIGIN）握手" 'ws/smoke' "$SMOKE_ORIGIN" 101 \
+    # S-10 后拦截器 401 先于 CORS 403：Origin 判别面需带合法令牌才能到达
+    ws_assert "带站点 Origin（$SMOKE_ORIGIN）+令牌 握手" "ws/smoke?token=$TOKEN" "$SMOKE_ORIGIN" 101         "401/403 ⇒ 合法令牌被拒或来源白名单未含 $SMOKE_ORIGIN —— 浏览器 WS 握手必带 Origin，聊天与语音都会断"
         "403 ⇒ CORS_ALLOWED_ORIGINS（app.cors.allowed-origins）未含 $SMOKE_ORIGIN —— 浏览器 WS 握手必带 Origin，聊天与语音都会断"
     # 反向断言：白名单必须真的在拒。只验放行等于把"配置成 * 或全放行"也判成通过。
-    ws_assert '白名单外 Origin 握手被拒' 'ws/smoke' 'https://smoke-not-allowed.invalid' 403 \
+    ws_assert '白名单外 Origin（带令牌）握手被拒' "ws/smoke?token=$TOKEN" 'https://smoke-not-allowed.invalid' 403         "101 ⇒ 来源白名单未生效（可能被改成通配），跨站页面可直接连 WS"
         "101 ⇒ 来源白名单未生效（可能被改成通配），跨站页面可直接连 WS"
 else
     skip '带站点 Origin 握手' '未提供 SMOKE_ORIGIN；正式部署必须带，否则 CORS_ALLOWED_ORIGINS 漏配无人发现'
@@ -755,24 +757,23 @@ async function probe(tag, path, actions) {
 }
 
 const cases = [
-  ['ok', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 1200 }]],
-  ['badtoken', `/ws/${AID}`, [{ send: { type: 'auth', token: 'not-a-jwt-at-all' } }, { wait: 1200 }]],
-  ['emptytoken', `/ws/${AID}`, [{ send: { type: 'auth', token: '' } }, { wait: 1200 }]],
-  ['preauth', `/ws/${AID}`, [{ send: { type: 'chat', content: 'hi' } }, { wait: 900 }]],
-  ['norfound', '/ws/ffffffffffffffffffffffffffffffff', [{ send: { type: 'auth', token } }, { wait: 1200 }]],
-  ['nosesion', `/ws/${AID}?sessionId=99999999999999999999999999999999`, [{ send: { type: 'auth', token } }, { wait: 1200 }]],
-  ['emptysend', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: { type: 'chat', content: '   ' } }, { wait: 900 }]],
-  ['toolong', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: { type: 'chat', content: 'a'.repeat(2001) } }, { wait: 900 }]],
-  ['unknown', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: { type: 'totally-unknown' } }, { wait: 900 }]],
-  ['badjson', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: '{"type":' }, { wait: 900 }]],
-  ['notype', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: { content: 'no type field' } }, { wait: 900 }]],
-  ['ping', `/ws/${AID}`, [{ send: { type: 'auth', token } }, { wait: 900 }, { send: { type: 'ping' } }, { wait: 600 }]],
+  ['ok', `/ws/${AID}?token=${encodeURIComponent(token)}`, [{ wait: 1200 }]],
+  ['hsrej-notoken', '/ws/' + AID, [{ wait: 1200 }]],
+  ['hsrej-badtoken', `/ws/${AID}?token=not-a-jwt-at-all`, [{ wait: 1200 }]],
+  ['norfound', '/ws/ffffffffffffffffffffffffffffffff?token=' + encodeURIComponent(token), [{ wait: 1200 }]],
+  ['nosesion', `/ws/${AID}?sessionId=99999999999999999999999999999999&token=${encodeURIComponent(token)}`, [{ wait: 1200 }]],
+  ['emptysend', `/ws/${AID}?token=${encodeURIComponent(token)}`, [{ wait: 900 }, { send: { type: 'chat', content: '   ' } }, { wait: 900 }]],
+  ['toolong', `/ws/${AID}?token=${encodeURIComponent(token)}`, [{ wait: 900 }, { send: { type: 'chat', content: 'a'.repeat(2001) } }, { wait: 900 }]],
+  ['unknown', `/ws/${AID}?token=${encodeURIComponent(token)}`, [{ wait: 900 }, { send: { type: 'totally-unknown' } }, { wait: 900 }]],
+  ['badjson', `/ws/${AID}?token=${encodeURIComponent(token)}`, [{ wait: 900 }, { send: '{"type":' }, { wait: 900 }]],
+  ['notype', `/ws/${AID}?token=${encodeURIComponent(token)}`, [{ wait: 900 }, { send: { content: 'no type field' } }, { wait: 900 }]],
+  ['ping', `/ws/${AID}?token=${encodeURIComponent(token)}`, [{ wait: 900 }, { send: { type: 'ping' } }, { wait: 600 }]],
 ];
-if (OTHER) cases.push(['forbidden', `/ws/${OTHER}`, [{ send: { type: 'auth', token } }, { wait: 1200 }]]);
-if (AID2 && SID) cases.push(['mismatch', `/ws/${AID2}?sessionId=${SID}`, [{ send: { type: 'auth', token } }, { wait: 1200 }]]);
+if (OTHER) cases.push(['forbidden', `/ws/${OTHER}?token=${encodeURIComponent(token)}`, [{ wait: 1200 }]]);
+if (AID2 && SID) cases.push(['mismatch', `/ws/${AID2}?sessionId=${SID}&token=${encodeURIComponent(token)}`, [{ wait: 1200 }]]);
 if (process.env.WS_LIVE === '1') {
-  cases.push(['live', `/ws/${AID}${SID ? '?sessionId=' + SID : ''}`, [
-    { send: { type: 'auth', token } }, { wait: 900 },
+  cases.push(['live', `/ws/${AID}${SID ? '?sessionId=' + SID + '&token=' : '?token='}${encodeURIComponent(token)}`, [
+    { wait: 900 },
     { send: { type: 'chat', content: 'smoke frame probe' } }, { until: 'query_end', ms: 45000 }]]);
 }
 // 探针自己也要表态：一条都没回报时，bash 侧的"缺项"判据会把整节标成探针失效
@@ -807,11 +808,23 @@ WSJS
         ok "$desc —— [$t]${e:+ ｜ $e}"
     }
 
-    ws_frame_case 'ok' 'auth 通过后下发 assistant_info 且不关闭' 'assistant_info' '^' 0
-    ws_frame_case 'badtoken' '首条 auth 带无效令牌 → error 帧并关闭' 'error' '认证失败：无效的 Token' 1 1000
-    ws_frame_case 'emptytoken' 'auth 带空令牌 → 同一条拒绝出口' 'error' '认证失败：无效的 Token' 1 1000
-    ws_frame_case 'preauth' '未认证就发消息 → error 帧点名未认证，连接留着等 auth' 'error' \
-        'Session not initialized or not authenticated' 0
+    hsrej_case() {
+        local tag="$1" desc="$2"
+        local t o
+        if [ -z "$(printf '%s
+' "$WS_FRAME_OUT" | grep -m1 "^F|$tag|")" ]; then
+            bad "$desc" '探针没有回报这一项（探针自身没跑成，不构成服务端结论）'; return
+        fi
+        o="$(wsf "$tag" 5)"; t="$(wsf "$tag" 3)"
+        if [ "$o" = "0" ] && [ "$t" = "" ]; then
+            ok "$desc —— 握手被拒（未升级、无帧）"
+        else
+            bad "$desc" "opened=$o types=[$t] —— 握手鉴权被绕过（S-10 收口回潮）"
+        fi
+    }
+    hsrej_case 'hsrej-notoken' '无令牌握手被拒（不升级、无帧）'
+    hsrej_case 'hsrej-badtoken' '非法令牌握手被拒（不升级、无帧）'
+    ws_frame_case 'ok' '握手即鉴权后直接下发 assistant_info 且不关闭' 'assistant_info' '^' 0
     ws_frame_case 'norfound' '助手不存在 → error 帧并关闭' 'error' 'Assistant not found' 1 1000
     ws_frame_case 'nosesion' '业务会话不存在 → error 帧并关闭（不给半个 assistant_info）' 'error' \
         '会话不存在或无访问权限' 1 1000

@@ -15,9 +15,8 @@ import java.util.Map;
 
 /**
  * WebSocket 握手鉴权拦截器
- * 握手阶段校验 JWT Token，支持两种传参方式：Authorization 头、URL 查询参数
- * （已移除 Sec-WebSocket-Protocol 子协议传递方式，改由首条消息认证）
- * 校验通过后将用户ID存入会话属性
+ * 握手阶段校验 JWT Token（S-10 · v2.80 起强制：缺失/无效一律 401，延迟认证通道已移除），
+ * 支持两种传参方式：Authorization 头、URL 查询参数。校验通过后将用户ID存入会话属性。
  *
  * @author leyon
  */
@@ -46,19 +45,17 @@ public class WebSocketAuthInterceptor implements HandshakeInterceptor {
     public boolean beforeHandshake(@NonNull ServerHttpRequest request, @NonNull ServerHttpResponse response,
                                    @NonNull WebSocketHandler wsHandler, @NonNull Map<String, Object> attributes) {
         String token = extractToken(request);
-        // Token 为空时允许握手（延迟到首条消息认证），Token 存在则立即校验；同样只接受 access 令牌
-        if (token != null && !token.isBlank() && !jwtUtil.validateAccessToken(token)) {
+        // S-10（v2.80）：握手必须携带令牌——"免令牌握手 + 首条 auth 帧认证"的延迟通道已随收口移除，
+        // 未认证连接从此在握手层就被 401 拒绝，不再有空占连接槽的窗口（原回收器亦随之退役）
+        if (token == null || token.isBlank()) {
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
         }
-
-        // 如果 Token 已在握手阶段提供，直接解析用户ID
-        if (token != null && !token.isBlank()) {
-            String userId = jwtUtil.getUserIdFromToken(token);
-            attributes.put("userId", userId);
+        if (!jwtUtil.validateAccessToken(token)) {
+            response.setStatusCode(HttpStatus.UNAUTHORIZED);
+            return false;
         }
-        // 否则 userId 将在 ChatWebSocketHandler 收到 auth 消息后设置
-
+        attributes.put("userId", jwtUtil.getUserIdFromToken(token));
         return true;
     }
 
