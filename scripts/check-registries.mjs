@@ -207,8 +207,11 @@ console.log('\n[6] 知识库本地授权登记表：写入面只能有一处（v
   check('全仓唯一写入点是 RAGFlow 创建回执（datasetId 来自上游响应，不来自请求体）',
     writers.length === 1 && writers[0].endsWith('RagflowProxyController.java'), writers.join(','))
   const writes = KB_SERVICE.match(/knowledgeBaseMapper\.(insert|update\w*|delete)\(/g) ?? []
-  check('KnowledgeBaseService 只剩一条写语句（insert），读侧判定里不夹带写口',
-    writes.length === 1 && writes[0].includes('insert'), writes.join(','))
+  // ㊳/㊶（v2.81）后合法写语句扩为三条：insert（创建同步）、delete（上游删除注销）、updateById（改名对账）；
+  // 出现清单之外的写形态仍是回归信号（读侧判定 isOwnedDataset/listVisibleDatasetIds 里不许夹带写口）
+  check('KnowledgeBaseService 写语句恰为三类（insert/delete/updateById），读侧判定里不夹带写口',
+    writes.length === 3 && writes[0].includes('insert') && writes[1].includes('delete')
+      && writes[2].includes('updateById'), writes.join(','))
   const MIG_DIR = 'backend/src/main/resources/db/migrations'
   const MIG_NAME = '0007_kb_dataset_unique.sql'
   // 0007 被删掉正是本组要拦的回归之一，所以先列目录再读：缺文件要报成一条具名 FAIL，不能是 ENOENT 堆栈

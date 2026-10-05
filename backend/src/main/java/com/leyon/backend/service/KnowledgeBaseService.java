@@ -47,6 +47,58 @@ public class KnowledgeBaseService {
     }
 
     /**
+     * 上游数据集删除后注销本地归属声明（v2.81 · C-155，收口候选 ㊳）：
+     * 此前上游删除只转发请求，本地行继续被 listVisibleDatasetIds 放行，
+     * 表现为"检索时上游报错或空命中"而非越权，但死归属声明不可辨。
+     * 逻辑删除（is_deleted=1）而非物理删，历史引用可追溯。
+     */
+    public int markLocalRowsDeletedByDatasetIds(java.util.List<String> datasetIds) {
+        if (datasetIds == null || datasetIds.isEmpty()) {
+            return 0;
+        }
+        return knowledgeBaseMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeBase>()
+                .in(KnowledgeBase::getDatasetId, datasetIds));
+    }
+
+    /**
+     * 上游元数据对账（v2.81 · C-156，收口候选 ㊶）：上游改名后本地行的 name/description 同步更新——
+     * 此前本地行只在创建时同步一次、之后不可改，上游改名的漂移随使用累积。
+     * 摘要条目：id/name/description；无变化的行不写（避免每次列表的写放大）。
+     * 只做元数据同步、不做注销：上游缺失可能只是分页未覆盖，注销的语义归 deleteDataset 的立即注销。
+     */
+    public int reconcileLocalMetadata(java.util.List<KnowledgeBase> upstreamDatasets) {
+        if (upstreamDatasets == null || upstreamDatasets.isEmpty()) {
+            return 0;
+        }
+        java.util.Map<String, KnowledgeBase> upstream = new java.util.LinkedHashMap<>();
+        for (KnowledgeBase ds : upstreamDatasets) {
+            if (ds.getDatasetId() != null && !ds.getDatasetId().isBlank()) {
+                upstream.put(ds.getDatasetId(), ds);
+            }
+        }
+        int changed = 0;
+        java.util.List<KnowledgeBase> localRows = knowledgeBaseMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeBase>()
+                        .in(KnowledgeBase::getDatasetId, upstream.keySet()));
+        for (KnowledgeBase local : localRows) {
+            KnowledgeBase up = upstream.get(local.getDatasetId());
+            String upstreamName = up.getName() == null || up.getName().isBlank() ? local.getName() : up.getName();
+            String upstreamDesc = up.getDescription() == null ? local.getDescription() : up.getDescription();
+            boolean nameChanged = !java.util.Objects.equals(local.getName(), upstreamName);
+            boolean descChanged = !java.util.Objects.equals(local.getDescription(), upstreamDesc);
+            if (nameChanged || descChanged) {
+                KnowledgeBase patch = new KnowledgeBase();
+                patch.setId(local.getId());
+                patch.setName(upstreamName);
+                patch.setDescription(upstreamDesc);
+                knowledgeBaseMapper.updateById(patch);
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    /**
      * 校验指定数据集是否属于当前用户/组织（读取级授权，防越权）
      * 个人数据按 userId；组织数据要求当前用户为组织成员（viewer 以上可读）
      *

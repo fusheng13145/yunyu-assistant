@@ -93,7 +93,6 @@ CREATE TABLE `knowledgebases` (
     `name` VARCHAR(100) NOT NULL COMMENT '知识库名',
     `description` TEXT DEFAULT NULL COMMENT '知识库描述',
     `dataset_id` VARCHAR(64) DEFAULT NULL COMMENT 'RAGFlow 数据集ID（外部键）',
-    `content` TEXT DEFAULT NULL COMMENT '知识库内容',
     `user_id` VARCHAR(36) NOT NULL COMMENT '所属用户ID',
     `org_id` VARCHAR(36) DEFAULT NULL COMMENT '所属组织ID（空=个人数据）',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

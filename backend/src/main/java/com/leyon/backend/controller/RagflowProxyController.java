@@ -187,6 +187,20 @@ public class RagflowProxyController {
             if (data instanceof ObjectNode paged && paged.has("total")) {
                 paged.put("total", datasets.size());
             }
+            // ㊶（v2.81 · C-156）：上游改名后本地元数据同步（无变化的行不写）；本地行归属判定不变
+            java.util.List<KnowledgeBase> upstream = new java.util.ArrayList<>();
+            for (JsonNode dataset : datasets) {
+                KnowledgeBase kb = new KnowledgeBase();
+                kb.setDatasetId(dataset.path("id").asText(""));
+                kb.setName(dataset.path("name").asText(""));
+                kb.setDescription(dataset.path("description").asText(null));
+                upstream.add(kb);
+            }
+            try {
+                knowledgeBaseService.reconcileLocalMetadata(upstream);
+            } catch (Exception ex) {
+                log.warn("本地知识库元数据对账失败（不影响列表返回）: {}", ex.getMessage());
+            }
             return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON)
                     .body(objectMapper.writeValueAsString(root));
         } catch (Exception e) {
@@ -266,6 +280,13 @@ public class RagflowProxyController {
             String url = endpoint + RAGFLOW_API_PREFIX + "/datasets";
             HttpEntity<String> requestEntity = new HttpEntity<>(body, createAuthHeaders());
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.DELETE, requestEntity, String.class);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                // ㊳（v2.81 · C-155）：上游删除成功即注销本地归属声明——死归属声明继续放行的形状（上游报错/空命中不可辨）不再出现
+                int removed = knowledgeBaseService.markLocalRowsDeletedByDatasetIds(datasetIds);
+                if (removed > 0) {
+                    log.info("已注销 {} 行本地知识库元数据（上游数据集已删除）", removed);
+                }
+            }
             return response;
         } catch (Exception e) {
             log.error("删除数据集失败: {}", e.getMessage(), e);

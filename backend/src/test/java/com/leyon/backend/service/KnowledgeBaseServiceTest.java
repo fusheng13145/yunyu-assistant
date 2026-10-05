@@ -207,6 +207,75 @@ class KnowledgeBaseServiceTest {
     }
 
 
+    // ===================== ㊳ 上游删除注销 + ㊱ 上游改名对账（v2.81 · C-155 / C-156） =====================
+
+    @Test
+    void markLocalRowsDeletedByDatasetIds_deletesByDatasetId() {
+        // ㊳：上游删除成功后本地归属声明按 dataset_id 注销（MP @TableLogic 逻辑删）；
+        // 空/-null 入参不产生任何数据库交互
+        when(knowledgeBaseMapper.delete(any())).thenReturn(2);
+        assertThat(knowledgeBaseService.markLocalRowsDeletedByDatasetIds(List.of("ds-1", "ds-2"))).isEqualTo(2);
+        assertThat(knowledgeBaseService.markLocalRowsDeletedByDatasetIds(List.of())).isZero();
+        assertThat(knowledgeBaseService.markLocalRowsDeletedByDatasetIds(null)).isZero();
+        org.mockito.Mockito.verify(knowledgeBaseMapper, org.mockito.Mockito.times(1)).delete(any());
+    }
+
+    @Test
+    void reconcileLocalMetadata_updatesChangedRowsOnly() {
+        KnowledgeBase local = new KnowledgeBase();
+        local.setId("kb-1");
+        local.setDatasetId("ds-1");
+        local.setName("旧名");
+        local.setDescription("旧描述");
+        when(knowledgeBaseMapper.selectList(any())).thenReturn(List.of(local));
+
+        KnowledgeBase up = new KnowledgeBase();
+        up.setDatasetId("ds-1");
+        up.setName("新名");
+        up.setDescription("新描述");
+        int changed = knowledgeBaseService.reconcileLocalMetadata(List.of(up));
+
+        assertThat(changed).isEqualTo(1);
+        org.mockito.ArgumentCaptor<KnowledgeBase> captor = org.mockito.ArgumentCaptor.forClass(KnowledgeBase.class);
+        verify(knowledgeBaseMapper).updateById(captor.capture());
+        assertThat(captor.getValue().getId()).isEqualTo("kb-1");
+        assertThat(captor.getValue().getName()).isEqualTo("新名");
+        assertThat(captor.getValue().getDescription()).isEqualTo("新描述");
+    }
+
+    @Test
+    void reconcileLocalMetadata_unchangedRowsDoNotWrite() {
+        KnowledgeBase local = new KnowledgeBase();
+        local.setId("kb-1");
+        local.setDatasetId("ds-1");
+        local.setName("同名");
+        local.setDescription("同描述");
+        when(knowledgeBaseMapper.selectList(any())).thenReturn(List.of(local));
+
+        KnowledgeBase up = new KnowledgeBase();
+        up.setDatasetId("ds-1");
+        up.setName("同名");
+        up.setDescription("同描述");
+        assertThat(knowledgeBaseService.reconcileLocalMetadata(List.of(up))).isZero();
+        verify(knowledgeBaseMapper, never()).updateById(org.mockito.ArgumentMatchers.<KnowledgeBase>any(KnowledgeBase.class));
+    }
+
+    @Test
+    void reconcileLocalMetadata_blankUpstreamFallsBackToLocal() {
+        // 上游摘要缺 name/description 时回退本地值：对账不能把本地行洗成空白
+        KnowledgeBase local = new KnowledgeBase();
+        local.setId("kb-1");
+        local.setDatasetId("ds-1");
+        local.setName("本地名");
+        local.setDescription("本地描述");
+        when(knowledgeBaseMapper.selectList(any())).thenReturn(List.of(local));
+
+        KnowledgeBase up = new KnowledgeBase();
+        up.setDatasetId("ds-1");
+        assertThat(knowledgeBaseService.reconcileLocalMetadata(List.of(up))).isZero();
+        verify(knowledgeBaseMapper, never()).updateById(org.mockito.ArgumentMatchers.<KnowledgeBase>any(KnowledgeBase.class));
+    }
+
     // ===================== ㊺ 保存侧可见性校验（v2.79 · C-152） =====================
 
     /**

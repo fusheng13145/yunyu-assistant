@@ -45,11 +45,6 @@ public class KnowledgeBase {
     private String datasetId;
 
     /**
-     * 知识库正文内容
-     */
-    private String content;
-
-    /**
      * 归属用户ID
      */
     private String userId;
@@ -81,12 +76,11 @@ public class KnowledgeBase {
     public KnowledgeBase() {
     }
 
-    public KnowledgeBase(String id, String name, String description, String content, String userId,
+    public KnowledgeBase(String id, String name, String description, String userId,
                          LocalDateTime createdAt, LocalDateTime updatedAt, Integer isDeleted) {
         this.id = id;
         this.name = name;
         this.description = description;
-        this.content = content;
         this.userId = userId;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -124,14 +118,6 @@ public class KnowledgeBase {
 
     public void setDatasetId(String datasetId) {
         this.datasetId = datasetId;
-    }
-
-    public String getContent() {
-        return content;
-    }
-
-    public void setContent(String content) {
-        this.content = content;
     }
 
     public String getUserId() {
@@ -181,7 +167,6 @@ public class KnowledgeBase {
                 "id='" + id + '\'' +
                 ", name='" + name + '\'' +
                 ", description='" + description + '\'' +
-                ", content='" + content + '\'' +
                 ", userId='" + userId + '\'' +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
