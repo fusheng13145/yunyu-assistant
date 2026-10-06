@@ -92,7 +92,8 @@ class OpenApiChatControllerTest {
     void setUp() {
         controller = new OpenApiChatController(assistantService, orgService, quotaService,
                 sessionService, recordService, webhookService, modelAdapter, knowledgeProvider, new ObjectMapper(),
-                toolRegistry, new AssistantPolicy(new ModelCatalog()), knowledgeBaseService, recordWriter);
+                toolRegistry, new com.leyon.backend.service.ToolQuotaGuard(quotaService, 200),
+                new AssistantPolicy(new ModelCatalog()), knowledgeBaseService, recordWriter);
         request = org.mockito.Mockito.mock(HttpServletRequest.class);
         lenient().when(request.getAttribute(OpenApiAuthInterceptor.ATTR_USER_ID)).thenReturn("u-owner");
         lenient().when(toolRegistry.resolveToolCallbacks(any())).thenReturn(List.of());

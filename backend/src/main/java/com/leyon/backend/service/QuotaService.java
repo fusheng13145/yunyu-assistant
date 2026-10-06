@@ -269,6 +269,18 @@ public class QuotaService {
      *
      * @return true 表示额度已被本次调用占用
      */
+    /**
+     * 工具调用的日限次判据（v2.82 · C-158，收口候选 ⑩）：按"用户 × 工具名"分格计量，
+     * 上限由环境变量默认值给出（管理端 quotas 表暂不管理该维度）。
+     *
+     * @param userId   发起对话的用户（开放通道为应用属主）
+     * @param toolName 工具名（web_search / generate_image / …）
+     * @param limit    当日该工具的调用上限（来自 ToolQuotaGuard 的环境变量）
+     */
+    public void checkToolCall(String userId, String toolName, int limit) {
+        consumeOrThrow(getEffective(userId), "daily_tool:" + toolName, limit, "工具调用", "次");
+    }
+
     public boolean consumeDaily(String scopeType, String scopeId, String metric, int limit) {
         LocalDate today = LocalDate.now();
         if (quotaDailyUsageMapper.updateDailyUsage(scopeType, scopeId, metric, today, limit) > 0) {

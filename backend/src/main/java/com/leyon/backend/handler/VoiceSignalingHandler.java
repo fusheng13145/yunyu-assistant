@@ -10,6 +10,7 @@ import com.leyon.backend.entity.CallRecord;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.WebhookDelivery;
 import com.leyon.backend.service.ApiAppService;
+import com.leyon.backend.service.ToolQuotaGuard;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
@@ -105,6 +106,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private final ApiAppService apiAppService;
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
+    private final ToolQuotaGuard toolQuotaGuard;
     private final JwtUtil jwtUtil;
     private final AssistantPolicy assistantPolicy;
     private final ConversationRecordWriter recordWriter;
@@ -140,6 +142,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                                  ApiAppService apiAppService,
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
+                                 ToolQuotaGuard toolQuotaGuard,
                                  JwtUtil jwtUtil,
                                  AssistantPolicy assistantPolicy,
                                  ConversationRecordWriter recordWriter) {
@@ -156,6 +159,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         this.apiAppService = apiAppService;
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
+        this.toolQuotaGuard = toolQuotaGuard;
         this.jwtUtil = jwtUtil;
         this.assistantPolicy = assistantPolicy;
         this.recordWriter = recordWriter;
@@ -312,7 +316,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
                 runtime.personality(), knowledgeIds,
-                toolRegistry.resolveToolCallbacks(assistant.getToolList())
+                toolQuotaGuard.guard(userId, toolRegistry.resolveToolCallbacks(assistant.getToolList()))
         );
         // 注册挂断监听器：LLM 调用 hangup 工具时主动挂断通话
         chatService.setHangupListener(reason -> handleLlmHangup(session, reason));

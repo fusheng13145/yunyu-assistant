@@ -8,6 +8,7 @@ import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.Session;
 import com.leyon.backend.entity.WebhookDelivery;
 import com.leyon.backend.service.AssistantPolicy;
+import com.leyon.backend.service.ToolQuotaGuard;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.ConversationRecordWriter;
@@ -65,6 +66,7 @@ public class OpenApiChatController {
     private final KnowledgeProvider knowledgeProvider;
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
+    private final ToolQuotaGuard toolQuotaGuard;
     private final AssistantPolicy assistantPolicy;
     private final KnowledgeBaseService knowledgeBaseService;
     private final ConversationRecordWriter recordWriter;
@@ -79,6 +81,7 @@ public class OpenApiChatController {
                                  KnowledgeProvider knowledgeProvider,
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
+                                 ToolQuotaGuard toolQuotaGuard,
                                  AssistantPolicy assistantPolicy,
                                  KnowledgeBaseService knowledgeBaseService,
                                  ConversationRecordWriter recordWriter) {
@@ -92,6 +95,7 @@ public class OpenApiChatController {
         this.knowledgeProvider = knowledgeProvider;
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
+        this.toolQuotaGuard = toolQuotaGuard;
         this.assistantPolicy = assistantPolicy;
         this.knowledgeBaseService = knowledgeBaseService;
         this.recordWriter = recordWriter;
@@ -165,7 +169,7 @@ public class OpenApiChatController {
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
                 runtime.personality(), knowledgeIds,
-                toolRegistry.resolveToolCallbacks(assistant.getToolList())
+                toolQuotaGuard.guard(userId, toolRegistry.resolveToolCallbacks(assistant.getToolList()))
         );
         chatService.setModelParams(runtime.model(), runtime.temperature(), runtime.maxTokens());
         List<Record> history = recordService.listBySessionIdLimit(bizSessionId, HISTORY_LIMIT);

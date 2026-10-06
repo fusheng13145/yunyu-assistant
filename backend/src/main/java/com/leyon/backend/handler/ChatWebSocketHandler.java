@@ -9,6 +9,7 @@ import com.leyon.backend.entity.Org;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.Session;
 import com.leyon.backend.service.AssistantPolicy;
+import com.leyon.backend.service.ToolQuotaGuard;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.ConversationRecordWriter;
@@ -105,6 +106,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ToolRegistry toolRegistry;
     private final AssistantPolicy assistantPolicy;
     private final ConversationRecordWriter recordWriter;
+    private final ToolQuotaGuard toolQuotaGuard;
 
     // 会话内存缓存
     /** 会话ID -> 聊天实例 */
@@ -127,7 +129,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 JwtUtil jwtUtil,
                                 ToolRegistry toolRegistry,
                                 AssistantPolicy assistantPolicy,
-                                ConversationRecordWriter recordWriter) {
+                                ConversationRecordWriter recordWriter,
+                                ToolQuotaGuard toolQuotaGuard) {
         this.modelAdapter = modelAdapter;
         this.knowledgeProvider = knowledgeProvider;
         this.assistantService = assistantService;
@@ -141,6 +144,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.toolRegistry = toolRegistry;
         this.assistantPolicy = assistantPolicy;
         this.recordWriter = recordWriter;
+        this.toolQuotaGuard = toolQuotaGuard;
     }
 
     // 连接建立
@@ -224,7 +228,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
                 runtime.personality(), knowledgeIds,
-                toolRegistry.resolveToolCallbacks(assistant.getToolList())
+                toolQuotaGuard.guard(userId, toolRegistry.resolveToolCallbacks(assistant.getToolList()))
         );
         // 应用助手级模型参数（覆盖全局默认）
         chatService.setModelParams(runtime.model(), runtime.temperature(), runtime.maxTokens());

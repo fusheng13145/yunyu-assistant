@@ -1,6 +1,7 @@
 {
   "properties": [
-    {"name": "app.jwt.blacklist-ttl-margin-ms", "type": "java.lang.Long", "defaultValue": 60000, "sourceType": "com.leyon.backend.controller.AuthController", "description": "登出黑名单条目在令牌剩余有效期之上追加的保险余量（毫秒）。C-95 收口后黑名单存活 = 剩余期 + 余量，不再写死 7 天。"},
+    {"name": "app.quota.daily-tool-call-limit", "type": "java.lang.Integer", "defaultValue": 200, "sourceType": "com.leyon.backend.service.ToolQuotaGuard", "description": "单个用户对单个工具的当日调用上限（⑩ 工具级计量限次）。0 = 关闭该维度（不包装不建账本行）。"},
+  {"name": "app.jwt.blacklist-ttl-margin-ms", "type": "java.lang.Long", "defaultValue": 60000, "sourceType": "com.leyon.backend.controller.AuthController", "description": "登出黑名单条目在令牌剩余有效期之上追加的保险余量（毫秒）。C-95 收口后黑名单存活 = 剩余期 + 余量，不再写死 7 天。"},
   {
       "name": "app.ai.stream-timeout-ms",
       "type": "java.lang.Long",

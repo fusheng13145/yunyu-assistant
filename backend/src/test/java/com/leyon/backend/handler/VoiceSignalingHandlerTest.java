@@ -100,7 +100,8 @@ class VoiceSignalingHandlerTest {
     void setUp() throws Exception {
         handler = new VoiceSignalingHandler(rustPBXService, assistantService, modelAdapter, knowledgeProvider,
                 recordService, callRecordService, orgService, quotaService, knowledgeBaseService,
-                webhookService, apiAppService, new ObjectMapper(), toolRegistry, jwtUtil,
+                webhookService, apiAppService, new ObjectMapper(), toolRegistry,
+                new com.leyon.backend.service.ToolQuotaGuard(quotaService, 100), jwtUtil,
                 new AssistantPolicy(new ModelCatalog()), recordWriter);
         when(session.getId()).thenReturn("ws-1");
         when(session.isOpen()).thenReturn(true);

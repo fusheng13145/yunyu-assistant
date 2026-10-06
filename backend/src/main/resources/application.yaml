@@ -151,6 +151,8 @@ app:
     daily-call-limit: ${APP_QUOTA_DAILY_CALL:20}
     daily-call-sec-limit: ${APP_QUOTA_DAILY_CALL_SEC:3600}
     daily-msg-limit: ${APP_QUOTA_DAILY_MSG:500}
+    # 工具调用的日限次默认值（v2.82 · ⑩ 工具级计量限次）：按"用户 × 工具名"分格，0 = 关闭该维度
+    daily-tool-call-limit: ${QUOTA_DAILY_TOOL_CALL_LIMIT:200}
   # PSTN 外呼网关（P2-17）：可插拔 HTTP 网关，未配置 gateway-url 时外呼任务置 FAILED
   pstn:
     # 外呼网关地址（POST JSON {taskId, assistantId, phoneNumber, callbackUrl}），空=不启用
