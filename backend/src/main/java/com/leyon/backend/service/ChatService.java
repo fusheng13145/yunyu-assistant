@@ -128,6 +128,18 @@ public class ChatService {
      * @return 流式响应数据
      */
     public Flux<Map<String, Object>> chatStream(String text) {
+        return chatStream(text, java.util.List.of());
+    }
+
+    /**
+     * 多模态入口（v2.82 · C-160，收口候选 ⑪）：images 携带 base64 图片附件，
+     * 经 Spring AI 的 Media 组装进 UserMessage——模型侧需支持视觉（如 qwen-vl 系列），
+     * 纯文本模型会忽略或报错（上游行为）。图片不落库：records 只存文本与占位标记，
+     * 图片持久化需要对象存储/BLOB 列，属真诉求再立（见 6.6 边界）。
+     *
+     * @param images 附件列表，元素为 {mime, dataBase64}
+     */
+    public Flux<Map<String, Object>> chatStream(String text, List<ChatImage> images) {
         if (!StringUtils.hasText(text)) {
             return Flux.empty();
         }
@@ -137,11 +149,34 @@ public class ChatService {
         // 用户消息在回合开始即入上下文：工具回合的续答请求在 handleToolCalls 里组装，
         // 那一刻收尾落库还没发生，等 saveConversation 才入历史会让续答请求丢掉用户原话
         synchronized (this) {
-            conversationHistory.add(new UserMessage(text));
+            conversationHistory.add(buildUserMessage(text, images));
         }
         List<Message> messages = buildMessages(effectiveSystemPrompt);
         Prompt prompt = buildPrompt(messages);
         return doChatLoop(prompt, turn, 0);
+    }
+
+    /**
+     * 组装多模态 UserMessage：无附件退化为纯文本（形状与既有历史一致）；
+     * 附件上限（数量 4 / 单张 4MB）由 WS 入口（handleChat）先行校验，这里只做组装。
+     */
+    private UserMessage buildUserMessage(String text, List<ChatImage> images) {
+        if (images == null || images.isEmpty()) {
+            return new UserMessage(text);
+        }
+        List<org.springframework.ai.content.Media> media = new ArrayList<>();
+        for (ChatImage image : images) {
+            byte[] bytes = java.util.Base64.getDecoder().decode(image.dataBase64());
+            media.add(org.springframework.ai.content.Media.builder()
+                    .mimeType(org.springframework.util.MimeTypeUtils.parseMimeType(image.mime()))
+                    .data(new org.springframework.core.io.ByteArrayResource(bytes))
+                    .build());
+        }
+        return UserMessage.builder().text(text).media(media).build();
+    }
+
+    /** 多模态附件载体（WS 消息体解析后的形状） */
+    public record ChatImage(String mime, String dataBase64) {
     }
 
     /**

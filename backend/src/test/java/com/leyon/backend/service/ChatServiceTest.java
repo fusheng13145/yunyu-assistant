@@ -399,6 +399,51 @@ class ChatServiceTest {
                 List.of(new AssistantMessage.ToolCall("tc1", "function", "weather", arguments)));
     }
 
+    // ===================== 多模态图片附件（v2.82 · C-160，⑪） =====================
+
+    @Test
+    void chatStream_withImages_buildsMultimodalUserMessage() {
+        String png = java.util.Base64.getEncoder().encodeToString(new byte[]{1, 2, 3});
+        List<ChatService.ChatImage> images = List.of(new ChatService.ChatImage("image/png", png));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("看到了"))))));
+
+        StepVerifier.create(chatService.chatStream("看这张图", images))
+                .expectNextCount(2)
+                .verifyComplete();
+
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(modelAdapter).stream(captor.capture());
+        org.springframework.ai.chat.messages.UserMessage userMessage = captor.getValue().getInstructions().stream()
+                .filter(m -> m instanceof org.springframework.ai.chat.messages.UserMessage)
+                .map(m -> (org.springframework.ai.chat.messages.UserMessage) m)
+                .findFirst().orElseThrow();
+        // 附件进 Media：多模态模型收得到；文本仍随消息走
+        assertThat(userMessage.getMedia()).hasSize(1);
+        assertThat(userMessage.getMedia().get(0).getMimeType().toString()).isEqualTo("image/png");
+        assertThat(userMessage.getText()).isEqualTo("看这张图");
+    }
+
+    @Test
+    void chatStream_withoutImages_staysPlainUserMessage() {
+        // 反向锚点：无附件不得构造 media 列表（形状与既有历史注入一致）
+        Generation gen = new Generation(new AssistantMessage("回答"));
+        when(modelAdapter.stream(any(Prompt.class))).thenReturn(Flux.just(new ChatResponse(List.of(gen))));
+
+        StepVerifier.create(chatService.chatStream("纯文本"))
+                .expectNextCount(2)
+                .verifyComplete();
+
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(modelAdapter).stream(captor.capture());
+        org.springframework.ai.chat.messages.UserMessage userMessage = captor.getValue().getInstructions().stream()
+                .filter(m -> m instanceof org.springframework.ai.chat.messages.UserMessage)
+                .map(m -> (org.springframework.ai.chat.messages.UserMessage) m)
+                .findFirst().orElseThrow();
+        assertThat(userMessage.getMedia()).isEmpty();
+        assertThat(userMessage.getText()).isEqualTo("纯文本");
+    }
+
     // ===================== 失败回合也要留痕（v2.73 · C-143，S-22 收口） =====================
 
     @Test

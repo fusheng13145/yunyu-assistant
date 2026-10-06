@@ -153,7 +153,7 @@ class ChatWebSocketHandlerTest {
 
     @Test
     void chat_success_emitsQueryEndCarryingEndChunk() throws Exception {
-        when(chatService.chatStream("你好")).thenReturn(
+        when(chatService.chatStream("你好", List.of())).thenReturn(
                 Flux.just(segmentChunk("你"), segmentChunk("好"), endChunk("你好呀")));
 
         handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"你好\"}"));
@@ -170,7 +170,7 @@ class ChatWebSocketHandlerTest {
 
     @Test
     void chat_error_emitsQueryEndWithNonNullPayload() throws Exception {
-        when(chatService.chatStream(anyString())).thenReturn(Flux.error(new RuntimeException("模型不可用")));
+        when(chatService.chatStream(anyString(), any())).thenReturn(Flux.error(new RuntimeException("模型不可用")));
 
         handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"你好\"}"));
 
@@ -185,7 +185,7 @@ class ChatWebSocketHandlerTest {
 
     @Test
     void chat_error_surfacesErrorFrameBeforeClosingFrames() throws Exception {
-        when(chatService.chatStream(anyString())).thenReturn(Flux.error(new RuntimeException("模型不可用")));
+        when(chatService.chatStream(anyString(), any())).thenReturn(Flux.error(new RuntimeException("模型不可用")));
 
         handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"你好\"}"));
 
@@ -199,7 +199,7 @@ class ChatWebSocketHandlerTest {
 
     @Test
     void chat_error_errorFrameDoesNotEchoUpstreamDetail() throws Exception {
-        when(chatService.chatStream(anyString())).thenReturn(Flux.error(new RuntimeException("模型不可用")));
+        when(chatService.chatStream(anyString(), any())).thenReturn(Flux.error(new RuntimeException("模型不可用")));
 
         handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"你好\"}"));
 
@@ -213,7 +213,7 @@ class ChatWebSocketHandlerTest {
         handler.handleTextMessage(session, new TextMessage("{\"type\":\"chat\",\"content\":\"   \"}"));
 
         assertThat(sentMessages().stream().map(m -> m.path("type").asText())).contains("error");
-        verify(chatService, never()).chatStream(anyString());
+        verify(chatService, never()).chatStream(anyString(), any());
     }
 
     @Test
@@ -227,7 +227,7 @@ class ChatWebSocketHandlerTest {
         assertThat(messages.stream().anyMatch(m -> "error".equals(m.path("type").asText())
                 && m.path("data").asText().contains(String.valueOf(ChatService.MAX_INPUT_CHARS)))).isTrue();
         verify(quotaService, never()).checkSendMessage(anyString());
-        verify(chatService, never()).chatStream(anyString());
+        verify(chatService, never()).chatStream(anyString(), any());
     }
 
     @Test
@@ -295,7 +295,7 @@ class ChatWebSocketHandlerTest {
     @Test
     void chat_success_persistsTurnBeforeQueryEnd() throws Exception {
         List<Record> pending = List.of(record(Record.ROLE_USER, "你好"), record(Record.ROLE_ASSISTANT, "你好呀"));
-        when(chatService.chatStream("你好")).thenReturn(Flux.just(segmentChunk("你"), endChunk("你好呀")));
+        when(chatService.chatStream("你好", List.of())).thenReturn(Flux.just(segmentChunk("你"), endChunk("你好呀")));
         when(chatService.drainPendingRecords()).thenReturn(pending);
         when(recordWriter.persist(pending, "a1", null, null))
                 .thenReturn(new ConversationRecordWriter.Result(2, 0));
@@ -312,7 +312,7 @@ class ChatWebSocketHandlerTest {
     @Test
     void chat_persistFailure_emitsErrorFrameBeforeQueryEnd() throws Exception {
         List<Record> pending = List.of(record(Record.ROLE_ASSISTANT, "回答"));
-        when(chatService.chatStream(anyString())).thenReturn(Flux.just(endChunk("回答")));
+        when(chatService.chatStream(anyString(), any())).thenReturn(Flux.just(endChunk("回答")));
         when(chatService.drainPendingRecords()).thenReturn(pending);
         when(recordWriter.persist(pending, "a1", null, null))
                 .thenReturn(new ConversationRecordWriter.Result(0, 1));
@@ -332,7 +332,7 @@ class ChatWebSocketHandlerTest {
     void chat_partialPersistFailure_stillEmitsErrorFrame() throws Exception {
         // 与上一例成对：saved>0 但 failed>0 时同样要报——"存了一半"不是成功
         List<Record> pending = List.of(record(Record.ROLE_USER, "问"), record(Record.ROLE_ASSISTANT, "答"));
-        when(chatService.chatStream(anyString())).thenReturn(Flux.just(endChunk("答")));
+        when(chatService.chatStream(anyString(), any())).thenReturn(Flux.just(endChunk("答")));
         when(chatService.drainPendingRecords()).thenReturn(pending);
         when(recordWriter.persist(pending, "a1", null, null))
                 .thenReturn(new ConversationRecordWriter.Result(1, 1));

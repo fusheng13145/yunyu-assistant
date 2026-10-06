@@ -249,6 +249,24 @@
       </div>
 
       <div v-else class="input-row flex items-center gap-3">
+        <!-- ⑪ 多模态：图片附件按钮（v2.82 · C-160） -->
+        <input ref="imageInputRef" type="file" accept="image/*" multiple class="hidden" @change="addImages(($event.target as HTMLInputElement).files); ($event.target as HTMLInputElement).value = ''" />
+        <button
+          @click="imageInputRef?.click()"
+          :disabled="chatFrameState.typing || pendingImages.length >= 4"
+          class="geek-btn geek-btn-ghost w-12 h-12 rounded-full flex items-center justify-center shrink-0"
+          title="添加图片附件（≤4 张，单张 ≤4MB）"
+        >
+          <ImagePlus class="w-5 h-5" />
+        </button>
+        <div v-if="pendingImages.length" class="absolute bottom-full mb-2 left-4 flex gap-2 z-10">
+          <div v-for="(img, idx) in pendingImages" :key="idx" class="relative">
+            <img :src="`data:${img.mime};base64,${img.dataBase64}`" class="w-16 h-16 object-cover rounded-lg border" style="border-color: var(--geek-border)" />
+            <button @click="removeImage(idx)" class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full geek-btn flex items-center justify-center" style="background: var(--geek-error); color: #fff" title="移除">
+              <X class="w-3 h-3" />
+            </button>
+          </div>
+        </div>
         <input
           v-model="inputText"
           type="text"
@@ -1014,8 +1032,7 @@ import {
   Bot, Settings, RotateCcw, MessageCircle,
   Database, FolderOpen, Check, X, Plus, List, LayoutGrid,
   Trash2, ChevronLeft, Upload, FileText, Mic, PhoneOff,
-  Search, Download, Zap
-} from 'lucide-vue-next'
+  Search, Download, Zap, ImagePlus } from 'lucide-vue-next'
 import ChatMessages from '../components/ChatMessages.vue'
 import PageShell from '../components/PageShell.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
@@ -1173,6 +1190,26 @@ const savePersonality = async () => {
 // 知识库状态
 const knowledgeBases = ref<KnowledgeBase[]>([])
 const showKnowledgeModal = ref(false)
+// ⑪ 多模态（v2.82 · C-160）：待发送图片附件（base64 内联，≤4 张、单张 ≤4MB）
+const pendingImages = ref<{ mime: string; dataBase64: string }[]>([])
+const imageInputRef = ref<HTMLInputElement | null>(null)
+
+const addImages = (files: FileList | null) => {
+  if (!files) return
+  for (const file of Array.from(files)) {
+    if (!file.type.startsWith('image/')) { showNotification(`仅支持图片文件：${file.name}`, 'error'); continue }
+    if (file.size > 4 * 1024 * 1024) { showNotification(`图片超过 4MB：${file.name}`, 'error'); continue }
+    if (pendingImages.value.length >= 4) { showNotification('图片附件最多 4 张', 'error'); break }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result)
+      const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+      pendingImages.value.push({ mime: file.type, dataBase64: base64 })
+    }
+    reader.readAsDataURL(file)
+  }
+}
+const removeImage = (index: number) => { pendingImages.value.splice(index, 1) }
 const showCreateKnowledgeForm = ref(false)
 const showFileManager = ref(false)
 const showRetrievalTest = ref(false)
@@ -1636,7 +1673,9 @@ const sendMessage = () => {
   if (!inputText.value.trim() || chatFrameState.value.typing) return
   const content = inputText.value.trim()
   messages.value.push({ role: 'user', text: content } as DisplayMessage)
-  ws?.send({ type: 'chat', content })
+  // ⑪ 多模态：待发附件随帧走；发送即清空（占位 [图片] 由服务端落库）
+  ws?.send({ type: 'chat', content, images: pendingImages.value.length ? pendingImages.value : undefined })
+  pendingImages.value = []
   inputText.value = ''
   chatFrameState.value = { typing: true, firstOfStream: true }
 }

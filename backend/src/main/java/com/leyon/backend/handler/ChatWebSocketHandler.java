@@ -313,6 +313,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        // ⑪ 多模态（v2.82 · C-160）：可选图片附件解析（数量/尺寸/格式守卫先于配额与模型调用）
+        List<ChatService.ChatImage> images;
+        try {
+            images = parseImages(node);
+        } catch (IllegalArgumentException e) {
+            sendMessage(session, MSG_TYPE_ERROR, e.getMessage());
+            return;
+        }
+
         // P2-10 消息配额拦截：单日消息量超限时回错误消息，不发起流式（WS 场景不抛 HTTP 异常）
         if (userId != null) {
             try {
@@ -332,7 +341,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         // 订阅流式响应
         // 捕获流结束分片（含 message/costTime/knowledgebase/tokenUsage），用于收尾下发 query_end
         final AtomicReference<Map<String, Object>> endChunkRef = new AtomicReference<>();
-        Disposable subscription = chatService.chatStream(content)
+        Disposable subscription = chatService.chatStream(content, images)
                 .subscribe(
                         chunk -> {
                             if (Boolean.TRUE.equals(chunk.get(FIELD_STREAM_END))) {
@@ -518,6 +527,38 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
      *
      * @return 落库结果；无待落记录或未初始化助手时返回 {@code null}（调用方据此不发提示）
      */
+    /** 附件上限：数量 4 / 单张 4MB——输入守卫先于配额与模型调用（与 MAX_INPUT_CHARS 同一防线） */
+    private static final int MAX_IMAGES = 4;
+    private static final int MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+    /**
+     * 解析 chat 消息里的可选 images 附件；超量/超尺寸/格式不对以 IllegalArgumentException 点名（调用方转 error 帧）
+     */
+    private List<ChatService.ChatImage> parseImages(JsonNode node) {
+        JsonNode imagesNode = node.get("images");
+        if (imagesNode == null || !imagesNode.isArray() || imagesNode.isEmpty()) {
+            return List.of();
+        }
+        if (imagesNode.size() > MAX_IMAGES) {
+            throw new IllegalArgumentException("图片附件最多 " + MAX_IMAGES + " 张");
+        }
+        List<ChatService.ChatImage> images = new ArrayList<>();
+        for (JsonNode image : imagesNode) {
+            String mime = image.path("mime").asText("");
+            String data = image.path("dataBase64").asText("");
+            if (!StringUtils.hasText(mime) || !mime.startsWith("image/")
+                    || !StringUtils.hasText(data)) {
+                throw new IllegalArgumentException("图片附件格式不合法");
+            }
+            byte[] bytes = java.util.Base64.getDecoder().decode(data);
+            if (bytes.length > MAX_IMAGE_BYTES) {
+                throw new IllegalArgumentException("单张图片不能超过 4MB");
+            }
+            images.add(new ChatService.ChatImage(mime, data));
+        }
+        return images;
+    }
+
     private ConversationRecordWriter.Result persistTurn(@NonNull WebSocketSession session, ChatService chatService) {
         String sessionId = session.getId();
         String assistantId = sessionAssistantMap.get(sessionId);
