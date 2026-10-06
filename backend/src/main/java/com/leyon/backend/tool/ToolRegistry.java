@@ -74,6 +74,25 @@ public class ToolRegistry {
      * @param allowedNames 白名单工具名集合，可为 null/空
      * @return 供 ChatService 注入的工具列表
      */
+    /**
+     * 语音场景的工具解析：在白名单裁剪结果之上**强制携带 hangup**（v2.83 · C-159，收口候选 ⑬）。
+     * hangup 是 LLM 主动挂断通话的唯一通路——语音通话被裁掉它之后，"用户说完了、模型也确认了"
+     * 的通话只能靠 ASR 静默或用户手点结束，挂断承诺落空。清单为空 = 未配置 = 全部可用工具，
+     * hangup 天然在内；显式白名单缺它时在此补挂（重复时以白名单内位置为准，不重复注册）。
+     */
+    public List<ToolCallback> resolveVoiceToolCallbacks(Collection<String> allowedNames) {
+        List<ToolCallback> resolved = new ArrayList<>(resolveToolCallbacks(allowedNames));
+        boolean hasHangup = resolved.stream()
+                .anyMatch(cb -> "hangup".equals(cb.getToolDefinition().name()));
+        if (!hasHangup) {
+            ToolCallback hangup = tools.get("hangup");
+            if (hangup != null) {
+                resolved.add(hangup);
+            }
+        }
+        return resolved;
+    }
+
     public List<ToolCallback> resolveToolCallbacks(Collection<String> allowedNames) {
         if (allowedNames == null || allowedNames.isEmpty()) {
             return getAllToolCallbacks();

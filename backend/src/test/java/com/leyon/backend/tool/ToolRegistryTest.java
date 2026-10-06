@@ -89,4 +89,43 @@ class ToolRegistryTest {
         // 全部无效：该助手无工具可用，不回落"全部可用"（避免配置写错反而放大能力）
         assertThat(registry.resolveToolCallbacks(List.of("已下线工具", "  "))).isEmpty();
     }
+
+
+    // ===================== ⑬ 语音工具白名单强制携带 hangup（v2.83 · C-159） =====================
+
+    @Test
+    void resolveVoiceToolCallbacks_appendsHangupWhenWhitelistOmitsIt() {
+        ToolRegistry registry = registryOf(tool("web_search"), tool("hangup"));
+        List<ToolCallback> resolved = registry.resolveVoiceToolCallbacks(List.of("web_search"));
+        // 白名单裁剪后必须补挂 hangup：LLM 主动挂断是语音通话的唯一自动收尾通路
+        assertThat(resolved).extracting(cb -> cb.getToolDefinition().name())
+                .containsExactly("web_search", "hangup");
+    }
+
+    @Test
+    void resolveVoiceToolCallbacks_noDuplicateWhenWhitelistHasHangup() {
+        ToolRegistry registry = registryOf(tool("web_search"), tool("hangup"));
+        List<ToolCallback> resolved = registry.resolveVoiceToolCallbacks(List.of("hangup"));
+        // 显式白名单已含 hangup：不重复注册
+        assertThat(resolved).extracting(cb -> cb.getToolDefinition().name())
+                .containsExactly("hangup");
+    }
+
+    @Test
+    void resolveVoiceToolCallbacks_emptyWhitelistKeepsAllIncludingHangup() {
+        ToolRegistry registry = registryOf(tool("web_search"), tool("hangup"));
+        // 空白名单 = 全部可用，hangup 天然在内
+        assertThat(registry.resolveVoiceToolCallbacks(null))
+                .extracting(cb -> cb.getToolDefinition().name())
+                .contains("hangup");
+    }
+
+    @Test
+    void resolveToolCallbacks_textChannelDoesNotAutoAppendHangup() {
+        // 反向锚点：文本通道不得被顺手带上 hangup——文本助手没有"通话"可挂
+        ToolRegistry registry = registryOf(tool("web_search"), tool("hangup"));
+        assertThat(registry.resolveToolCallbacks(List.of("web_search")))
+                .extracting(cb -> cb.getToolDefinition().name())
+                .containsExactly("web_search");
+    }
 }

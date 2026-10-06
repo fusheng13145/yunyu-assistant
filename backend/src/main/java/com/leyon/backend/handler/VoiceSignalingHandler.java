@@ -316,7 +316,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
                 runtime.personality(), knowledgeIds,
-                toolQuotaGuard.guard(userId, toolRegistry.resolveToolCallbacks(assistant.getToolList()))
+                toolQuotaGuard.guard(userId, toolRegistry.resolveVoiceToolCallbacks(assistant.getToolList()))
         );
         // 注册挂断监听器：LLM 调用 hangup 工具时主动挂断通话
         chatService.setHangupListener(reason -> handleLlmHangup(session, reason));
