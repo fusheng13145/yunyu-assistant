@@ -95,6 +95,7 @@
 | `0009_call_records_recording_fail_reason.sql` | `call_records` / `call_records_archive` 加可空 `recording_fail_reason`（录音落盘失败的类别文案，v2.78 收口 ⑳ 告警面 + ㉝ 一半）；存量行不回填 | 可（加列） |
 | `0010_assistants_version.sql` | `assistants` 加 `version BIGINT NOT NULL DEFAULT 0`（@Version 乐观锁，v2.79 收口 ㊿ 多标签页丢更新）；存量行从 0 起步 | 可（加列） |
 | `0011_drop_knowledgebases_content.sql` | `knowledgebases` **删除 `content` 死列**（零读取确认，v2.81 收口 ㊴ 库端瘦身；种子 4 行值随删列丢弃） | **不可回退**：列数据随删列丢弃 |
+| `0012_user_memories.sql` | 新建 `user_memories` 用户长期记忆表（v2.85 收口 ⑫，save_memory 工具写入、会话注入、用户可见可删） | 可（删表） |
 
 ⇒ 上线顺序固定为**先迁移、再上新代码**；0006 跑之前先整表备份（手册 5.4 / 5.8）。
 

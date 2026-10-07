@@ -10,7 +10,9 @@ import com.leyon.backend.entity.CallRecord;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.WebhookDelivery;
 import com.leyon.backend.service.ApiAppService;
+import com.leyon.backend.service.MemoryToolService;
 import com.leyon.backend.service.ToolQuotaGuard;
+import com.leyon.backend.service.UserMemoryService;
 import com.leyon.backend.service.AssistantPolicy;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.CallRecordService;
@@ -107,6 +109,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
     private final ToolQuotaGuard toolQuotaGuard;
+    private final MemoryToolService memoryToolService;
+    private final UserMemoryService userMemoryService;
     private final JwtUtil jwtUtil;
     private final AssistantPolicy assistantPolicy;
     private final ConversationRecordWriter recordWriter;
@@ -143,6 +147,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
                                  ToolQuotaGuard toolQuotaGuard,
+                                 MemoryToolService memoryToolService,
+                                 UserMemoryService userMemoryService,
                                  JwtUtil jwtUtil,
                                  AssistantPolicy assistantPolicy,
                                  ConversationRecordWriter recordWriter) {
@@ -160,6 +166,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
         this.toolQuotaGuard = toolQuotaGuard;
+        this.memoryToolService = memoryToolService;
+        this.userMemoryService = userMemoryService;
         this.jwtUtil = jwtUtil;
         this.assistantPolicy = assistantPolicy;
         this.recordWriter = recordWriter;
@@ -313,10 +321,15 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         // 初始化对话服务（使用新的抽象接口依赖；工具集按助手白名单裁剪，语音助手若需 LLM 主动挂断须保留 hangup）
         // 人设与模型参数走 AssistantPolicy 钳制后的值：一次通话可持续数分钟，超限行透传进来的开销收不回来
         AssistantPolicy.Runtime runtime = assistantPolicy.runtime(assistant);
+        // ⑫（v2.85 · C-161）：长期记忆注入系统提示 + save_memory 工具按用户闭包
+        String personality = runtime.personality() + userMemoryService.formatForPrompt(userId);
+        java.util.List<org.springframework.ai.tool.ToolCallback> voiceTools =
+                new java.util.ArrayList<>(toolQuotaGuard.guard(userId,
+                        toolRegistry.resolveVoiceToolCallbacks(assistant.getToolList())));
+        memoryToolService.toolFor(userId).ifPresent(voiceTools::add);
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
-                runtime.personality(), knowledgeIds,
-                toolQuotaGuard.guard(userId, toolRegistry.resolveVoiceToolCallbacks(assistant.getToolList()))
+                personality, knowledgeIds, voiceTools
         );
         // 注册挂断监听器：LLM 调用 hangup 工具时主动挂断通话
         chatService.setHangupListener(reason -> handleLlmHangup(session, reason));

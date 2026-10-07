@@ -9,7 +9,9 @@ import com.leyon.backend.entity.Org;
 import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.Session;
 import com.leyon.backend.service.AssistantPolicy;
+import com.leyon.backend.service.MemoryToolService;
 import com.leyon.backend.service.ToolQuotaGuard;
+import com.leyon.backend.service.UserMemoryService;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.ConversationRecordWriter;
@@ -107,6 +109,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final AssistantPolicy assistantPolicy;
     private final ConversationRecordWriter recordWriter;
     private final ToolQuotaGuard toolQuotaGuard;
+    private final MemoryToolService memoryToolService;
+    private final UserMemoryService userMemoryService;
 
     // 会话内存缓存
     /** 会话ID -> 聊天实例 */
@@ -130,7 +134,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                                 ToolRegistry toolRegistry,
                                 AssistantPolicy assistantPolicy,
                                 ConversationRecordWriter recordWriter,
-                                ToolQuotaGuard toolQuotaGuard) {
+                                ToolQuotaGuard toolQuotaGuard,
+                                MemoryToolService memoryToolService,
+                                UserMemoryService userMemoryService) {
         this.modelAdapter = modelAdapter;
         this.knowledgeProvider = knowledgeProvider;
         this.assistantService = assistantService;
@@ -145,6 +151,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         this.assistantPolicy = assistantPolicy;
         this.recordWriter = recordWriter;
         this.toolQuotaGuard = toolQuotaGuard;
+        this.memoryToolService = memoryToolService;
+        this.userMemoryService = userMemoryService;
     }
 
     // 连接建立
@@ -225,10 +233,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         // 初始化聊天实例（工具集按助手白名单裁剪，白名单为空即全部可用）
         // 人设与三个模型参数一律取钳制后的运行时值：库里可能有本批之前的超限行，透传等于把成本上界交给历史数据
         AssistantPolicy.Runtime runtime = assistantPolicy.runtime(assistant);
+        // ⑫（v2.85 · C-161）：长期记忆注入系统提示 + save_memory 工具按用户闭包
+        String personality = runtime.personality() + userMemoryService.formatForPrompt(userId);
+        java.util.List<org.springframework.ai.tool.ToolCallback> tools =
+                new java.util.ArrayList<>(toolQuotaGuard.guard(userId,
+                        toolRegistry.resolveToolCallbacks(assistant.getToolList())));
+        memoryToolService.toolFor(userId).ifPresent(tools::add);
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
-                runtime.personality(), knowledgeIds,
-                toolQuotaGuard.guard(userId, toolRegistry.resolveToolCallbacks(assistant.getToolList()))
+                personality, knowledgeIds, tools
         );
         // 应用助手级模型参数（覆盖全局默认）
         chatService.setModelParams(runtime.model(), runtime.temperature(), runtime.maxTokens());

@@ -197,6 +197,22 @@ CREATE TABLE `audit_logs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='审计日志表';
 
 -- ----------------------------
+-- 用户长期记忆表: user_memories（v2.85 · ⑫ 跨会话长期记忆）
+-- 写入路径只有 save_memory 工具；会话装配时注入系统提示；用户可见可删（逻辑删除）
+-- ----------------------------
+DROP TABLE IF EXISTS `user_memories`;
+CREATE TABLE `user_memories` (
+    `id` VARCHAR(36) NOT NULL COMMENT '记忆UUID',
+    `user_id` VARCHAR(36) NOT NULL COMMENT '所属用户ID',
+    `content` VARCHAR(500) NOT NULL COMMENT '记忆内容（一句话）',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_mem_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户长期记忆表';
+
+-- ----------------------------
 -- 数据归档表: records_archive（P2-9 数据归档与容量治理）
 -- 与 records 结构对齐，行级复制 + archived_at 归档时间；不启用逻辑删除，is_deleted 仅存原值供追溯
 -- ----------------------------

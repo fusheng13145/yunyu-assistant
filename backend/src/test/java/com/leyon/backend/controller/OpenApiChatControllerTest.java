@@ -48,6 +48,8 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import com.leyon.backend.service.MemoryToolService;
+import com.leyon.backend.service.UserMemoryService;
 
 /**
  * 开放 OpenAPI 文本对话控制器单元测试（P2-10 开放 OpenAPI；v2.15 多轮会话）
@@ -66,6 +68,8 @@ class OpenApiChatControllerTest {
     @Mock
     private QuotaService quotaService;
     @Mock
+    private UserMemoryService userMemoryService;
+    @Mock
     private SessionService sessionService;
     @Mock
     private RecordService recordService;
@@ -77,6 +81,8 @@ class OpenApiChatControllerTest {
     private KnowledgeProvider knowledgeProvider;
     @Mock
     private ToolRegistry toolRegistry;
+    @Mock
+    private MemoryToolService memoryToolService;
     @Mock
     private KnowledgeBaseService knowledgeBaseService;
     @Mock
@@ -93,6 +99,7 @@ class OpenApiChatControllerTest {
         controller = new OpenApiChatController(assistantService, orgService, quotaService,
                 sessionService, recordService, webhookService, modelAdapter, knowledgeProvider, new ObjectMapper(),
                 toolRegistry, new com.leyon.backend.service.ToolQuotaGuard(quotaService, 200),
+                memoryToolService, userMemoryService,
                 new AssistantPolicy(new ModelCatalog()), knowledgeBaseService, recordWriter);
         request = org.mockito.Mockito.mock(HttpServletRequest.class);
         lenient().when(request.getAttribute(OpenApiAuthInterceptor.ATTR_USER_ID)).thenReturn("u-owner");

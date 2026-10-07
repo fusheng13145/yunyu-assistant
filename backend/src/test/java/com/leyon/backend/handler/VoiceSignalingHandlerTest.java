@@ -50,6 +50,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import com.leyon.backend.service.UserMemoryService;
+import com.leyon.backend.service.MemoryToolService;
 
 /**
  * 语音信令处理器单元测试
@@ -79,6 +81,10 @@ class VoiceSignalingHandlerTest {
     @Mock
     private QuotaService quotaService;
     @Mock
+    private com.leyon.backend.service.UserMemoryService userMemoryService;
+    @Mock
+    private MemoryToolService memoryToolService;
+    @Mock
     private KnowledgeBaseService knowledgeBaseService;
     @Mock
     private WebhookService webhookService;
@@ -101,7 +107,8 @@ class VoiceSignalingHandlerTest {
         handler = new VoiceSignalingHandler(rustPBXService, assistantService, modelAdapter, knowledgeProvider,
                 recordService, callRecordService, orgService, quotaService, knowledgeBaseService,
                 webhookService, apiAppService, new ObjectMapper(), toolRegistry,
-                new com.leyon.backend.service.ToolQuotaGuard(quotaService, 100), jwtUtil,
+                new com.leyon.backend.service.ToolQuotaGuard(quotaService, 100),
+                memoryToolService, userMemoryService, jwtUtil,
                 new AssistantPolicy(new ModelCatalog()), recordWriter);
         when(session.getId()).thenReturn("ws-1");
         when(session.isOpen()).thenReturn(true);

@@ -85,6 +85,8 @@ class ChatWebSocketHandlerTest {
     @Mock
     private com.leyon.backend.service.ToolQuotaGuard toolQuotaGuard;
     @Mock
+    private com.leyon.backend.service.UserMemoryService userMemoryService;
+    @Mock
     private WebSocketSession session;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -95,7 +97,9 @@ class ChatWebSocketHandlerTest {
     void setUp() throws Exception {
         handler = new ChatWebSocketHandler(modelAdapter, knowledgeProvider, assistantService, recordService,
                 sessionService, orgService, quotaService, knowledgeBaseService, objectMapper, jwtUtil, toolRegistry,
-                new AssistantPolicy(new ModelCatalog()), recordWriter, toolQuotaGuard);
+                new AssistantPolicy(new ModelCatalog()), recordWriter, toolQuotaGuard,
+                new com.leyon.backend.service.MemoryToolService(userMemoryService),
+                userMemoryService);
         when(session.getId()).thenReturn("ws-1");
         when(session.isOpen()).thenReturn(true);
         when(session.getAttributes()).thenReturn(attributes);

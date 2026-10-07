@@ -8,7 +8,9 @@ import com.leyon.backend.entity.Record;
 import com.leyon.backend.entity.Session;
 import com.leyon.backend.entity.WebhookDelivery;
 import com.leyon.backend.service.AssistantPolicy;
+import com.leyon.backend.service.MemoryToolService;
 import com.leyon.backend.service.ToolQuotaGuard;
+import com.leyon.backend.service.UserMemoryService;
 import com.leyon.backend.service.AssistantService;
 import com.leyon.backend.service.ChatService;
 import com.leyon.backend.service.ConversationRecordWriter;
@@ -67,6 +69,8 @@ public class OpenApiChatController {
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
     private final ToolQuotaGuard toolQuotaGuard;
+    private final MemoryToolService memoryToolService;
+    private final UserMemoryService userMemoryService;
     private final AssistantPolicy assistantPolicy;
     private final KnowledgeBaseService knowledgeBaseService;
     private final ConversationRecordWriter recordWriter;
@@ -82,6 +86,8 @@ public class OpenApiChatController {
                                  ObjectMapper objectMapper,
                                  ToolRegistry toolRegistry,
                                  ToolQuotaGuard toolQuotaGuard,
+                                 MemoryToolService memoryToolService,
+                                 UserMemoryService userMemoryService,
                                  AssistantPolicy assistantPolicy,
                                  KnowledgeBaseService knowledgeBaseService,
                                  ConversationRecordWriter recordWriter) {
@@ -96,6 +102,8 @@ public class OpenApiChatController {
         this.objectMapper = objectMapper;
         this.toolRegistry = toolRegistry;
         this.toolQuotaGuard = toolQuotaGuard;
+        this.memoryToolService = memoryToolService;
+        this.userMemoryService = userMemoryService;
         this.assistantPolicy = assistantPolicy;
         this.knowledgeBaseService = knowledgeBaseService;
         this.recordWriter = recordWriter;
@@ -166,10 +174,15 @@ public class OpenApiChatController {
         List<String> knowledgeIds = knowledgeBaseService.retainVisibleDatasetIds(
                 parseKnowledgeIds(assistant.getKnowledgeIds()), userId);
         AssistantPolicy.Runtime runtime = assistantPolicy.runtime(assistant);
+        // ⑫（v2.85 · C-161）：长期记忆注入系统提示 + save_memory 工具按用户闭包（开放通道用户=应用属主）
+        String personality = runtime.personality() + userMemoryService.formatForPrompt(userId);
+        java.util.List<org.springframework.ai.tool.ToolCallback> openTools =
+                new java.util.ArrayList<>(toolQuotaGuard.guard(userId,
+                        toolRegistry.resolveToolCallbacks(assistant.getToolList())));
+        memoryToolService.toolFor(userId).ifPresent(openTools::add);
         ChatService chatService = new ChatService(
                 modelAdapter, knowledgeProvider, objectMapper,
-                runtime.personality(), knowledgeIds,
-                toolQuotaGuard.guard(userId, toolRegistry.resolveToolCallbacks(assistant.getToolList()))
+                personality, knowledgeIds, openTools
         );
         chatService.setModelParams(runtime.model(), runtime.temperature(), runtime.maxTokens());
         List<Record> history = recordService.listBySessionIdLimit(bizSessionId, HISTORY_LIMIT);
