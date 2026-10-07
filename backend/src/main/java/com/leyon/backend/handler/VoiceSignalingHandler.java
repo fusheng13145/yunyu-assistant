@@ -186,6 +186,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
             return;
         }
         authenticatedSessions.put(sessionId, true);
+        sessionWsMap.put(sessionId, session);
         sendMessage(session, MSG_TYPE_CONNECTED, null);
         logger.info("语音信令连接建立（握手阶段已认证），会话ID:{}", sessionId);
     }
@@ -453,6 +454,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         record.setIsDeleted(CallRecord.NOT_DELETED);
         callRecordService.create(record);
         sessionCallRecordMap.put(sessionId, record.getId());
+        sessionCallStartMs.put(sessionId, System.currentTimeMillis());
 
         // P2-17：记录调用方应用ID（OpenAPI 语音会话注入 appId，内部会话为空），仅第三方应用投递 call.connected
         String appId = (String) session.getAttributes().get(SESSION_ATTR_APP_ID);
@@ -630,6 +632,8 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                             sendMessage(session, MSG_TYPE_QUERY_END,
                                     Map.of(FIELD_MESSAGE, errorMsg, "status", "error"));
                             rustPBXService.sendTTS(rustpbxSessionId, errorMsg, voice);
+                            // S-17：失败回合同样逐轮落库（用户的话与已生成的部分不丢）
+                            persistRound(sessionId, chatService);
                             activeSubscriptions.remove(sessionId);
                         },
                         () -> {
@@ -639,6 +643,9 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
                                 fullReply = String.valueOf(endInfo.getOrDefault(FIELD_MESSAGE, ""));
                             }
                             onVoiceResponseComplete(session, fullReply, endInfo);
+                            // S-17（v2.86 · C-163）：每轮收尾即逐轮落库——drain 取走即清，
+                            // 通话中途崩溃不再丢整轮内容；条数累计进会话级计数，挂断结算时汇总
+                            persistRound(sessionId, chatService);
                             activeSubscriptions.remove(sessionId);
                         }
                 );
@@ -649,6 +656,72 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     /**
      * AI 完整回复生成完毕：执行 TTS 语音播放 + 推送 query_end（含耗时与知识库引用）
      */
+    /** 会话级累计已落库条数（每轮 drain 后累加，挂断结算时进 call_records.message_count） */
+    private final ConcurrentHashMap<String, Integer> sessionPersistedCount = new ConcurrentHashMap<>();
+
+    /** 会话级通话开始时间戳（毫秒）：㊻ 墙钟上限的计时基准（不依赖 ASR 回合是否发生） */
+    private final ConcurrentHashMap<String, Long> sessionCallStartMs = new ConcurrentHashMap<>();
+
+    /** 存活的信令 WebSocket 会话（墙钟清扫要向其对端发挂断帧） */
+    private final ConcurrentHashMap<String, WebSocketSession> sessionWsMap = new ConcurrentHashMap<>();
+
+    /** 通话墙钟上限（秒，VOICE_MAX_CALL_SEC，默认 3600）：㊻——覆盖"静音到底/只听不说"等不产生 ASR 回合的通话；0 = 关闭该上限 */
+    @org.springframework.beans.factory.annotation.Value("${app.voice.max-call-sec:3600}")
+    private long maxCallSec;
+
+    /** 清扫周期（秒，判定精度即为此值） */
+    private static final long SWEEP_PERIOD_SEC = 30;
+
+    /**
+     * 通话墙钟清扫（v2.86 · C-164，收口候选 ㊻）：每 30 秒扫一次在途通话，
+     * 超过墙钟上限的通话以中断状态收尾（复用 releaseSessionResource 的完整资源释放链）。
+     * 与 v2.59 的 ASR 回合复核互补：回合复核管"说话的通话"，墙钟管"静音到底"的通话。
+     */
+    @org.springframework.scheduling.annotation.Scheduled(
+            fixedDelay = SWEEP_PERIOD_SEC * 1000, initialDelay = SWEEP_PERIOD_SEC * 1000)
+    public void sweepOverlongCalls() {
+        if (maxCallSec <= 0 || sessionCallStartMs.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (java.util.Map.Entry<String, Long> entry : sessionCallStartMs.entrySet()) {
+            String sessionId = entry.getKey();
+            if (now - entry.getValue() > maxCallSec * 1000) {
+                logger.warn("通话超过墙钟上限（{} 秒），主动收尾，会话ID:{}", maxCallSec, sessionId);
+                // 先通知前端挂断（要活的 session 才发得出去），再走完整资源释放链
+                WebSocketSession wsSession = sessionWsMap.get(sessionId);
+                if (wsSession != null && wsSession.isOpen()) {
+                    sendMessage(wsSession, MSG_TYPE_HANGUP, null);
+                }
+                releaseSessionResource(sessionId, CallRecord.STATUS_INTERRUPTED, "通话时长达到墙钟上限");
+            }
+        }
+    }
+
+    /**
+     * 每轮 ASR 回答收尾即逐轮落库（v2.86 · C-163，收口候选 S-17）：
+     * 此前整通对话押在连接关闭时的 drain 上，通话中途崩溃/被杀则该通内容全部丢失。
+     * drain 是取出即清，逐轮调用不会重复落库；条数累计进 sessionPersistedCount，
+     * finishCallRecord 用它结算 message_count。
+     */
+    private void persistRound(String sessionId, ChatService chatService) {
+        String assistantId = sessionAssistantMap.get(sessionId);
+        if (assistantId == null) {
+            return;
+        }
+        List<Record> pending = chatService.drainPendingRecords();
+        if (pending.isEmpty()) {
+            return;
+        }
+        ConversationRecordWriter.Result result = recordWriter.persist(
+                pending, assistantId, null, sessionCallRecordMap.get(sessionId));
+        sessionPersistedCount.merge(sessionId, result.saved(), Integer::sum);
+        if (result.hasFailure()) {
+            logger.error("语音逐轮落库有失败，会话ID:{}，助手ID:{}，已保存 {} 条、失败 {} 条",
+                    sessionId, assistantId, result.saved(), result.failed());
+        }
+    }
+
     public void onVoiceResponseComplete(WebSocketSession session, String aiReply, Map<String, Object> endInfo) {
         String sessionId = session.getId();
         String rustpbxSessionId = sessionRustpbxMap.get(sessionId);
@@ -693,6 +766,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(@NonNull WebSocketSession session, @NonNull CloseStatus status) {
         String sessionId = session.getId();
         logger.info("语音信令连接断开，会话ID:{}，关闭状态:{}", sessionId, status);
+        sessionWsMap.remove(sessionId);
         // 区分正常挂断与异常中断：非正常关闭码标记为中断，并把中断原因一起落进通话记录
         if (isNormalClose(status)) {
             releaseSessionResource(sessionId, CallRecord.STATUS_ENDED, null);
@@ -746,13 +820,14 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         // 落库本通新增的对话记录（与文本、开放通道共用同一个落库单点）
         String assistantId = sessionAssistantMap.remove(sessionId);
         ChatService chatService = sessionChatServiceMap.remove(sessionId);
-        int messageCount = 0;
+        // S-17：messageCount 用逐轮落库的累计值；此处兜底 drain 只收残量（取出即清，不会重复落库）
+        int messageCount = sessionPersistedCount.getOrDefault(sessionId, 0);
         if (assistantId != null && chatService != null) {
             List<Record> pending = chatService.drainPendingRecords();
             if (!pending.isEmpty()) {
                 ConversationRecordWriter.Result result = recordWriter.persist(
                         pending, assistantId, null, sessionCallRecordMap.get(sessionId));
-                messageCount = result.saved();
+                messageCount += result.saved();
                 if (result.hasFailure()) {
                     logger.error("通话对话记录落库有失败，会话ID:{}，助手ID:{}，已保存 {} 条、失败 {} 条",
                             sessionId, assistantId, result.saved(), result.failed());
@@ -762,6 +837,7 @@ public class VoiceSignalingHandler extends TextWebSocketHandler {
         // 结束通话记录
         finishCallRecord(sessionId, endStatus, messageCount, failReason);
         sessionVoiceMap.remove(sessionId);
+        sessionPersistedCount.remove(sessionId);
     }
 
     /**

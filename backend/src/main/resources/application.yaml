@@ -176,6 +176,9 @@ app:
     # 失败重试定时扫描周期（毫秒）
     retry-interval-ms: ${WEBHOOK_RETRY_INTERVAL_MS:60000}
   # JWT 认证配置（Secret 长度必须 ≥ 256 位 / 32 字节，生产环境使用强随机生成值）
+  voice:
+    # 通话墙钟上限（秒，v2.86 · ㊻）：覆盖"静音到底/只听不说"等不产生 ASR 回合的通话；0 = 关闭
+    max-call-sec: ${VOICE_MAX_CALL_SEC:3600}
   jwt:
     secret: ${JWT_SECRET}
     # 访问令牌有效期（毫秒），默认 15 分钟：前端 authFetch 会在临期/401 时静默续期
