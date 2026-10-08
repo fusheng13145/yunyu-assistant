@@ -143,6 +143,17 @@ E2E_USER="$SMOKE_ADMIN_USER" E2E_PASS="$SMOKE_ADMIN_PASS"   E2E_LIVE=1 npx playw
 - 不带 `E2E_LIVE=1` 时两条真实模型流用例（工具回合 / 失败回合）**具名 SKIP**，其余照跑；SKIP 不算绿，别把它读成"全过"。
 - 会话与"专属助手/会话"夹具由 `e2e/auth.setup.ts` 自建自删（按精确 id）；**登录在限流 AUTH 档（容量 5/窗口）**，运行全程只登录两次（setup 一次 + 错误口令用例一次），逐用例各自登录会把额度打光，表现为"同一条用例时绿时不绿"。
 - **不要用 playwright 的 `E2E_START_WEB=1` 拉起 vite**（应急通道）：Windows 下该方式拉起的 dev server 跑过一轮带 WS 代理的用例后会失稳，表现为连接拒绝/列表加载失败这类**伪缺陷**；首选上面第 2 步的手动后台拉起。
+- **`VITE_PROXY_TARGET` 漏设同样是伪缺陷，而且形状更骗人**（v2.87 实测）：`vite.config.ts` 的代理默认指向 `http://localhost:8080`，本机 8080 是别人的项目 ⇒ `core` 的登录用例把凭据发给那台应用，收回 `用户名或密码错误` 的 400，读起来像"口令错了 / 限流打光了"，实际后端根本没被碰到。跑 `core` 前先用 `curl` 打一次 vite 端口的 `/api/auth/login`，确认回执里是自己的 `userId`/`token` 形状；`media` 项目不连后端，不受这条影响。
+- **`core` 一轮的后端日志不会 0 ERROR**：本机 `.env` 的 RAGFlow 是演示密钥，工作台每次拉数据集列表都刷一条 `RagflowProxyController` 401；"失败回合"用例本身就在制造模型侧 500 的 ERROR 行。引用"日志干净"这句之前先按 logger 分类，两类预期噪声不算回归。
+- 不带 `--project` 时三个 project 全跑（`setup` + `core` + `media`），其中 `core` 需要后端与打桩模型、`media` 两样都不需要——把它们混在同一次运行里，失败时先确认缺的是哪一侧的前置。
+- **`media` project（v2.87 · C-165，录音混音取证）不登录、不连后端，只要一个 vite**：
+  `npm run dev -- --port 5178 --strictPort --host 127.0.0.1`（5173 在本机常被别的项目占）后
+  `E2E_BASE_URL=http://127.0.0.1:5178 npx playwright test --project=media`。它在页面内 `import` `utils/recordingMix.ts`，
+  用两路振荡器（440Hz / 2400Hz）灌**真实** `MediaRecorder`，录 1.2 秒后 `decodeAudioData` + 频点对齐 DFT 判两频能量，
+  并自带单轨对照的反向锚点。**必须带 `--autoplay-policy=no-user-gesture-required` 且撤 Playwright 默认的 `--mute-audio`**
+  （已在 `playwright.config.ts` 的该 project 上配好）——否则新建的 `AudioContext` 永不 running，取证读到的就是自己造出来的静音。
+  读数每次运行都由用例自己 `console.log` 打印（`混音取证 rms=… low=… high=… far=…`），报告里的绿不代替读数。
+- `core` 六条与 `media` 一条互不依赖，可分别 `--project=core` / `--project=media` 单跑。
 - E2E 抓到过真缺陷：WS 未就绪时 `send` 静默丢帧 ⇒ 用户首条消息蒸发 + 打字态锁死（v2.75 · C-144，修为待发队列）；判据在 `check-chat-frame.mjs` 第 6 组。
 - 残留：夹具助手逻辑删除后，其 `records`/`sessions` 行留在库里（无删除接口），与冒烟残渣同口径——按 `assistants.name='E2E探针助手' AND is_deleted=1` 反查精确主键清理。
 

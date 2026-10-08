@@ -162,6 +162,27 @@ class CallRecordControllerTest {
     }
 
     @Test
+    void recording_uploadThenDownload_returnsByteIdenticalPlayback() throws Exception {
+        // ㉝ 播放侧（v2.87 · C-166）：把"上传成功"与"可回放"接成一条可断言的链——
+        // 同一控制器、同一目录，上传进去的字节必须原样回到回放响应里（含长度与内联处置）
+        CallRecord record = ownedRecord();
+        when(callRecordService.getById(CALL_ID)).thenReturn(record);
+        byte[] payload = "webm-header-plus-opus-frames".getBytes(StandardCharsets.UTF_8);
+
+        assertThat(controller.uploadRecording(CALL_ID, new MockMultipartFile(
+                "file", "client-name.webm", "audio/webm", payload), req(USER)).getCode()).isEqualTo(200);
+
+        ResponseEntity<Resource> response = controller.downloadRecording(CALL_ID, req(USER));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getHeaders().getContentLength()).isEqualTo(payload.length);
+        assertThat(response.getHeaders().getFirst("Content-Disposition"))
+                .isEqualTo("inline; filename=\"" + CALL_ID + ".webm\"");
+        assertThat(response.getBody().getInputStream().readAllBytes()).containsExactly(payload);
+    }
+
+    @Test
     void downloadRecording_noRecordingName_returnsNotFound() {
         when(callRecordService.getById(CALL_ID)).thenReturn(ownedRecord());
         ResponseEntity<Resource> response = controller.downloadRecording(CALL_ID, req(USER));

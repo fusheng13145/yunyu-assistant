@@ -1,5 +1,6 @@
 import { ref, onBeforeUnmount } from 'vue'
 import { request } from '../api/auth'
+import { buildRecordingStream } from '../utils/recordingMix'
 
 /** 从后端 /api/webrtc/config 拉取 ICE 服务器配置（STUN/TURN），生产可配置 TURN 穿透对称 NAT */
 async function fetchIceServers(): Promise<RTCIceServer[]> {
@@ -20,7 +21,7 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 export function useWebRTC() {
   const peerConnection = ref<RTCPeerConnection | null>(null)
   const localStream = ref<MediaStream | null>(null)
-  /** 远端音轨（AI 声音），与麦克风轨一起并入录音用 MediaStream（未做混音，见手册 6.6 v2.38） */
+  /** 远端音轨（AI 声音），与麦克风轨一起送进录音混音分流 */
   const remoteStream = ref<MediaStream | null>(null)
   const isCallActive = ref(false)
   const isConnecting = ref(false)
@@ -85,8 +86,8 @@ export function useWebRTC() {
   }
 
   /**
-   * 开始录制通话音频（把本方麦克风轨与对端 AI 轨并入同一个 MediaStream 交给 MediaRecorder，
-   * webm/opus；项目侧未做混音，多音轨如何编码由浏览器决定，见手册 6.6 v2.38）
+   * 开始录制通话音频：麦克风轨与远端 AI 轨先过混音分流（可混则合成单轨，
+   * 否则回退多轨并留下原因），再交给 MediaRecorder（webm/opus）
    * @returns 是否成功开始
    */
   const startRecording = (): boolean => {
@@ -96,11 +97,18 @@ export function useWebRTC() {
     if (remoteStream.value) tracks.push(...remoteStream.value.getAudioTracks())
     if (tracks.length === 0) return false
     try {
-      const recordStream = new MediaStream(tracks)
+      const source = buildRecordingStream(tracks, audioContext, {
+        pack: (list) => new MediaStream(list),
+        wrap: (track) => new MediaStream([track]),
+      })
+      // 回退仍会产出可用的录音，但内容不再由我们保证，必须在控制台留痕而不是静默
+      if (source.reason === 'mix-failed' || source.reason === 'empty-destination') {
+        console.warn('通话录音混音回退:', source.reason)
+      }
       const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm'
-      recorder = new MediaRecorder(recordStream, { mimeType: mime })
+      recorder = new MediaRecorder(source.stream, { mimeType: mime })
       recordingChunks = []
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) recordingChunks.push(event.data)
@@ -203,6 +211,11 @@ export function useWebRTC() {
 
     try {
       audioContext = new AudioContext()
+      // 自动播放策略下新建的上下文可能是 suspended，而录音分流只认 running；
+      // 这里唤醒失败不必另报——startRecording 会按 state 复核并显式回退
+      if (audioContext.state !== 'running') {
+        audioContext.resume().catch(() => {})
+      }
       const source = audioContext.createMediaStreamSource(localStream.value)
       analyser = audioContext.createAnalyser()
       analyser.fftSize = 256

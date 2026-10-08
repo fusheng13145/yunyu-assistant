@@ -7,10 +7,17 @@
  * 这条"挂断后台上传"是它的镜像漏点：不在任何请求链的 await 路径上，所以从未被 noticing）。
  * 现在两处共用 frontend/src/utils/recordingUpload.ts 的 finishRecordingUpload。
  * 口径与 check-chat-frame.mjs 一致：无测试框架，用 Node 的 TS 类型剥离直接 import 生产模块。
+ *
+ * 【v2.87 · C-165 追加】第 [5]/[6] 组锁的是**混音分流**：双轨录音此前直接交给 MediaRecorder，
+ * 浏览器编进去几条轨不由我们决定（手册 6.6 的 C-82 边界）。现在决策收在
+ * frontend/src/utils/recordingMix.ts，本脚本锁住它的每一条回退分支与接线形态；
+ * "混出来的文件里两段声音确实都在"由 frontend/e2e/recording-mix.spec.ts 在浏览器级取证（跑法见 DEVELOPMENT §9）。
  * 运行：node scripts/check-recording-upload.mjs
  */
 
 const MOD = new URL('../frontend/src/utils/recordingUpload.ts', import.meta.url).href
+const MIX_MOD = new URL('../frontend/src/utils/recordingMix.ts', import.meta.url).href
+const COMPOSABLE = new URL('../frontend/src/composables/useWebRTC.ts', import.meta.url)
 const VIEW = new URL('../frontend/src/views/SmartRobot.vue', import.meta.url)
 const VIEW2 = new URL('../frontend/src/views/ChatRobot.vue', import.meta.url)
 const API = new URL('../frontend/src/api/callRecord.ts', import.meta.url)
@@ -126,8 +133,130 @@ console.log('\n[4] 视图接入收口（防第三次复制粘贴，C-89/C-91 同
   }
   check('上传 API 仍以函数导出（util 不直连 fetch，保持可注入可桩测）',
     /export async function uploadRecording/.test(api))
-  check('util 不 import 任何相对模块（Node 类型擦除门禁的前提）',
-    !/^import .*from ['"]\.\.?\//m.test(readFileSync(new URL(MOD), 'utf8')))
+  for (const [label, url] of [['recordingUpload', MOD], ['recordingMix', MIX_MOD]]) {
+    check(`${label} 不 import 任何相对模块（Node 类型擦除门禁的前提）`,
+      !/^import .*from ['"]\.\.?\//m.test(readFileSync(new URL(url), 'utf8')))
+  }
+}
+
+console.log('\n[5] 混音分流：能混就合成单轨，不能混就显式回退')
+{
+  const { buildRecordingStream } = await import(MIX_MOD)
+
+  const track = (id) => ({ id, kind: 'audio' })
+  const streamOf = (tracks) => ({ getAudioTracks: () => tracks })
+  const factory = { pack: (tracks) => streamOf(tracks), wrap: (t) => streamOf([t]) }
+
+  /**
+   * @param {{state?: string, failSource?: boolean, failDest?: boolean, destTracks?: unknown[]}} opts
+   */
+  function ctx(opts = {}) {
+    const seen = { destinations: 0, sources: [], connected: [], destStream: null }
+    const destStream = streamOf(opts.destTracks ?? [track('mixed')])
+    seen.destStream = destStream
+    return {
+      seen,
+      state: opts.state ?? 'running',
+      createMediaStreamDestination: () => {
+        seen.destinations += 1
+        if (opts.failDest) throw new Error('不支持 createMediaStreamDestination')
+        return { stream: destStream }
+      },
+      createMediaStreamSource: (s) => {
+        seen.sources.push(s.getAudioTracks()[0].id)
+        if (opts.failSource) throw new Error('不支持 createMediaStreamSource')
+        return { connect: () => seen.connected.push(true) }
+      },
+    }
+  }
+
+  const mic = track('mic')
+  const ai = track('ai')
+
+  // 1) 双轨 + running ⇒ 合成单轨，且两条轨都真的连进了 destination
+  const ok = ctx()
+  const mixedOut = buildRecordingStream([mic, ai], ok, factory)
+  check('双轨且上下文 running ⇒ mixed=true', mixedOut.mixed === true && mixedOut.reason === 'mixed')
+  check('交回的是合成流，不是原始多轨流（MediaRecorder 只看到一条轨）',
+    mixedOut.stream === ok.seen.destStream && mixedOut.stream.getAudioTracks().length === 1)
+  check('麦克风轨与远端 AI 轨都送进了混音（只连一条就是"录得到自己听不到 AI"）',
+    ok.seen.sources.length === 2 && ok.seen.sources.includes('mic') && ok.seen.sources.includes('ai'),
+    `实际 ${JSON.stringify(ok.seen.sources)}`)
+  check('两条源都 connect 到 destination', ok.seen.connected.length === 2)
+
+  // 2) 回退分支：每一条都必须给出原因，且回退流内容保真（就是改动前的行为）
+  const single = buildRecordingStream([mic], ctx(), factory)
+  check('单轨 ⇒ 不混音（没有"编进哪条"的歧义），原因显式',
+    single.mixed === false && single.reason === 'single-track')
+  check('单轨 ⇒ 交回的是原轨打包流', single.stream.getAudioTracks()[0] === mic)
+
+  const emptyList = buildRecordingStream([], ctx(), factory)
+  check('空轨列表不抛（调用方已挡，这里只锁"模块自己也不崩"）',
+    emptyList.mixed === false && emptyList.stream.getAudioTracks().length === 0)
+
+  const noCtx = ctx()
+  const noCtxOut = buildRecordingStream([mic, ai], null, factory)
+  check('无 AudioContext ⇒ 回退多轨并给出原因',
+    noCtxOut.mixed === false && noCtxOut.reason === 'no-context')
+  check('无 AudioContext ⇒ 不去创建 destination（回退路径零副作用）',
+    noCtx.seen.destinations === 0)
+
+  const suspended = ctx({ state: 'suspended' })
+  const suspendedOut = buildRecordingStream([mic, ai], suspended, factory)
+  check('上下文非 running ⇒ 回退（混出来会是静音文件，比不混更糟）',
+    suspendedOut.mixed === false && suspendedOut.reason === 'context-not-running')
+  check('非 running ⇒ 不建 destination', suspended.seen.destinations === 0)
+  check('非 running ⇒ 回退流仍是两条原轨（不丢 AI 音轨）',
+    suspendedOut.stream.getAudioTracks().length === 2)
+
+  const failDest = ctx({ failDest: true })
+  const failDestOut = buildRecordingStream([mic, ai], failDest, factory)
+  check('WebAudio 建目的端抛错 ⇒ 回退而不是录音失败（通话录音仍可用）',
+    failDestOut.mixed === false && failDestOut.reason === 'mix-failed'
+      && failDestOut.stream.getAudioTracks().length === 2)
+
+  const failSource = ctx({ failSource: true })
+  const failSourceOut = buildRecordingStream([mic, ai], failSource, factory)
+  check('WebAudio 建源抛错 ⇒ 同样回退，异常不外冒',
+    failSourceOut.reason === 'mix-failed' && failSourceOut.stream.getAudioTracks().length === 2)
+
+  const emptyDest = ctx({ destTracks: [] })
+  const emptyDestOut = buildRecordingStream([mic, ai], emptyDest, factory)
+  check('合成流里没有音轨 ⇒ 判定为回退（不能把空流交给 MediaRecorder 当成混音成功）',
+    emptyDestOut.mixed === false && emptyDestOut.reason === 'empty-destination')
+
+  // 鉴别力：把"只连第一条轨"的退化实现喂给同一套桩，第 4 条断言必须落空
+  const half = ctx()
+  const realSource = half.createMediaStreamSource
+  half.createMediaStreamSource = (s) => {
+    const node = realSource(s)
+    return half.seen.connected.length > 0 ? { connect: () => {} } : node
+  }
+  const halfOut = buildRecordingStream([mic, ai], half, factory)
+  check('反向锚点：漏连第二条轨的退化实现 ⇒ sources 记 2 而 connect 只有 1（证明上面的 connect 判据有鉴别力）',
+    halfOut.mixed === true && half.seen.sources.length === 2 && half.seen.connected.length === 1,
+    `实际 sources=${half.seen.sources.length} connected=${half.seen.connected.length}`)
+}
+
+console.log('\n[6] 混音接线收口（防实现退回 composable 内部）')
+{
+  const src = readFileSync(COMPOSABLE, 'utf8')
+  check('useWebRTC 经统一入口 buildRecordingStream 取流',
+    src.includes("from '../utils/recordingMix'") && src.includes('buildRecordingStream(tracks, audioContext,'))
+  check('MediaRecorder 的入参是分流结果（不再各写一份 new MediaStream(tracks)）',
+    /new MediaRecorder\(source\.stream,/.test(src) && !/new MediaRecorder\(recordStream/.test(src))
+  check('startRecording 仍是同步返回 boolean（改成 Promise 会让 `!webrtc.startRecording()` 恒真放行）',
+    /const startRecording = \(\): boolean =>/.test(src))
+  check('混音回退留痕（mix-failed / empty-destination 要能在控制台看见）',
+    /console\.warn\('通话录音混音回退:'/.test(src)
+      && src.includes("source.reason === 'mix-failed'")
+      && src.includes("source.reason === 'empty-destination'"))
+  check('音频监控在非 running 时唤醒上下文（录音分流只认 running）',
+    /if \(audioContext\.state !== 'running'\) \{\s*\n\s*audioContext\.resume\(\)/.test(src))
+  for (const [name, file] of [['SmartRobot', VIEW], ['ChatRobot', VIEW2]]) {
+    check(`${name} 仍按同步 boolean 处理录音启动失败`,
+      readFileSync(file, 'utf8').includes('else if (!webrtc.startRecording()) {'))
+  }
 }
 
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)

@@ -48,9 +48,21 @@ export default defineConfig({
     },
     {
       name: 'core',
-      testIgnore: /auth\.setup\.ts/,
+      testIgnore: [/auth\.setup\.ts/, /recording-mix\.spec\.ts/],
       dependencies: ['setup'],
       use: { storageState: stateFile },
+    },
+    {
+      // 录音混音取证（v2.87 · C-165）：不登录、不连后端，只需 vite dev。
+      // headless 下没有真实音频输出设备也要让 AudioContext 跑起来，否则判据会读到自己造出来的静音
+      name: 'media',
+      testMatch: /recording-mix\.spec\.ts/,
+      use: {
+        launchOptions: {
+          args: ['--autoplay-policy=no-user-gesture-required'],
+          ignoreDefaultArgs: ['--mute-audio'],
+        },
+      },
     },
   ],
 })
