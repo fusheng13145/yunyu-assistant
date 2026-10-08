@@ -16,6 +16,7 @@
 
 | 版本 | 日期 | 主题 | 收口编号 |
 |---|---|---|---|
+| v2.88 | 2026-10-08 | TURN 凭据现签（收口 S-11 签发侧与 C-83 过报）：HMAC-SHA1 REST 凭据按用户签发 + 三项环境变量、半配 fail-closed、前端撤 ICE 配置缓存、smoke §6 turn_probe、探针 mktemp 扩展名修复 | C-168 / C-169 |
 | v2.87 | 2026-10-08 | 录音内容可信（收口 C-82 与 ㉝ 播放侧一半）：WebAudio 真混音纯函数 + 四种回退、Playwright media project 双频能量取证、录音 upload→download 字节相同往返、后端计数口径更正 | C-165 / C-166 / C-167 |
 | v2.86 | 2026-10-04 | 语音数据完整性（收口 S-17 与 ㊻）：逐轮 drain 落库（崩溃不丢）、墙钟上限 VOICE_MAX_CALL_SEC | C-163 / C-164 |
 | v2.85 | 2026-10-07 | 长期记忆（收口 ⑫）：迁移 0012 user_memories、save_memory 工具按用户闭包、会话注入、GET/DELETE /api/memories | C-161 / C-162 |

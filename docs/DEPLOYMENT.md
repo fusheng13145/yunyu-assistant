@@ -117,9 +117,7 @@
 
 ## 8. 语音相关（第一阶段可整块跳过）
 
-语音不进第一阶段的决策已拍板；若要开：coturn 物料与指引在 `deploy/turn/` 与手册 5.9，
-`WEBRTC_ICE_SERVERS` 是**静态 JSON 原样下发**给已登录用户（没有 REST 凭据签发/轮换，那是二期项），
-RustPBX 网关侧承担 ASR/TTS 与打断（`RUSTPBX_*` 三个变量）。**语音主链路的 AI 回复侧至今未在真实网关上端到端复测**。
+语音不进第一阶段的决策已拍板；若要开：coturn 物料与指引在 `deploy/turn/` 与手册 5.9。凭据有两条路（**v2.88 起推荐现签**）：配 `TURN_STATIC_AUTH_SECRET` + `TURN_REALM`（+ 可选 `TURN_CREDENTIAL_TTL_SEC`，默认 7200，须 ≥ `VOICE_MAX_CALL_SEC`），`GET /api/webrtc/config` 就按当前登录用户现签 udp/tcp 两条临时候选；不配则只有 `WEBRTC_ICE_SERVERS` 的**静态 JSON 原样下发**给已登录用户。两条路的验收都在浏览器之外可先做：`curl -H "Authorization: Bearer <token>" http://127.0.0.1:8091/api/webrtc/config` 读 `data.turn.signed`——`false` 说明后端没配齐（半配也只会有一个具名 WARN，属预期），`true` 才说明签发侧在工作；**这不代表 coturn 接受该凭据**，`relay` 候选要真部署后看。⚠️ 走静态 JSON 时 `.env` 里的值**必须整体加单引号**，否则 `set -a; . ./.env` 会把内层双引号剥掉，后端按设计静默降级空数组（v2.88 取证实测）。RustPBX 网关侧承担 ASR/TTS 与打断（`RUSTPBX_*` 三个变量）。**语音主链路的 AI 回复侧至今未在真实网关上端到端复测**。
 
 ## 9. 上线前验收（最小集）
 

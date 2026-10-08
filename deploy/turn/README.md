@@ -32,9 +32,11 @@ docker logs -f yunyu-turn
 
 coturn 侧支持 **TURN REST API（`use-auth-secret`）** 方案：凭据形如 `username = 过期时间戳` + HMAC(secret)，到期由 coturn 自动拒绝，无需在 `turnserver.conf` 里配置固定用户名密码。
 
-> ⚠️ **本后端当前不做签发**（v2.38 校正，见项目手册 5.9 / 6.6）：`GET /api/webrtc/config` 只是把环境变量 `WEBRTC_ICE_SERVERS` 的静态 JSON 原样回显给已登录用户，**没有** REST 凭据签发端点、不按用户绑定、不轮换。因此下面的命令是**由运维手工执行**、把结果写进环境变量；由此带来两条必须接受的性质：① 临时凭据一旦放进静态配置就**不再"临时"**——**过期时刻一到 TURN 就静默失效**（前端不报错，只是不再产生 `relay` 候选），需要定期重新生成并重启后端；② 该 JSON 里的 `credential` 会下发给**任何已登录用户**，应按"已公开"来设定 coturn 侧配额与 ACL。要去掉这两条，就得做下方"进阶"里的真签发服务。
+> ✅ **自 v2.88 起本后端就是那个签发方**（见项目手册 5.9 / 7.5 v2.88）：把 `TURN_STATIC_AUTH_SECRET` 与 `TURN_REALM` 配对配齐，`GET /api/webrtc/config` 会在静态条目之外**按当前登录用户现签**两条候选（`turn:<realm>:3478?transport=udp` 与 `?transport=tcp`，共用一份 `username=<到期Unix秒>:<userId>`、`credential=base64(HMAC-SHA1(secret, username))`），并在响应里回 `turn:{signed:true, realm, expiresAt, ttlSec}`。两个键**只配一个**时后端打一条具名 WARN 且**不签发**（宁可不给 TURN 候选，也不给一份 coturn 验不过的假凭据）。
+>
+> 因此下面的 shell 命令**只剩两个用途**：① coturn 装好后先"不起后端"验一把（用 `turnutils_uclient` 或浏览器 `trickle` 页）；② 线上排障时对照"后端签出来的凭据是否与手工算的一致"。若把它生成的值写进 `WEBRTC_ICE_SERVERS` 当静态配置，就要接受 v2.38 登记过的两条性质：**过期时刻一到 TURN 就静默失效**（前端不报错，只是不再产生 `relay` 候选，得人工重算并重启）、且该 JSON 里的 `credential` 会下发给**任何已登录用户**——按"已公开"来设配额与 ACL。
 
-生成单次凭据（可直接用在 `WEBRTC_ICE_SERVERS`，有效期 1 小时）：
+生成单次凭据（手工对照用；有效期 1 小时）：
 
 ```bash
 SECRET='<刚才生成的 static-auth-secret>'
@@ -44,11 +46,23 @@ echo "username=$USERNAME"
 echo "credential=$CREDENTIAL"
 ```
 
-> 进阶（**当前未实现，属语音二期**）：部署真正的 TURN REST API 凭据签发（自建端点，或经支持该能力的网关），把上述计算封装为 `GET /turn?expires=3600` 一类接口，让前端登录后动态获取、凭据与用户绑定并随会话过期 —— 这样 `WEBRTC_ICE_SERVERS` 不再写死静态凭据，上面 ①② 两条性质同时消失。
+> **v2.88 已实现（原"进阶"）**：签发服务就是本后端自己（`service/TurnCredentialService` + `GET /api/webrtc/config`），算法与上面的 shell 一致，差别只有两点——username 用 `<到期秒>:<userId>` 形式（coturn 允许在时间戳后带尾巴，便于中继日志追人），以及每次调用重算到期、按登录用户各签一份。~~部署自建端点或经网关支持该能力~~ 不再需要。
 
 ## 4. 对接云谕助手后端
 
-将生成的 TURN/STUN 候选写入后端环境变量（`application.yaml` 的 `app.webrtc.ice-servers` → `WEBRTC_ICE_SERVERS`），前端经 `GET /api/webrtc/config` 自动拉取：
+**推荐路径（v2.88）**：`WEBRTC_ICE_SERVERS` 只放静态 STUN（或干脆留空，前端会回退默认 Google STUN），TURN 交给下面三个变量：
+
+```bash
+TURN_STATIC_AUTH_SECRET='<与 turnserver.conf 的 static-auth-secret 一字不差>'
+TURN_REALM='<与 turnserver.conf 的 realm 一字不差，同时会用作签发候选的 host>'
+TURN_CREDENTIAL_TTL_SEC=7200
+```
+
+- `realm` **必须与 coturn 端一致**：后端把签发候选拼成 `turn:<realm>:3478?transport=udp|tcp`，所以"中继主机名 ≠ realm"的拓扑不走这条路，得回到下面的静态 JSON 路径手工填两条带凭据的条目。
+- `TURN_CREDENTIAL_TTL_SEC` 要 **≥ `VOICE_MAX_CALL_SEC`**（单通墙钟上限），否则通话中途凭据过期；过期不报错，只是不再产生 `relay` 候选。
+- 前端自 v2.88 起**每次建链重新拉取**该端点（旧版在页面内缓存整页生命周期，会让上面的过期风险复发）。
+
+**静态路径**（固定账密或"不起后端先验一把"时才用）：把候选写入 `application.yaml` 的 `app.webrtc.ice-servers` → `WEBRTC_ICE_SERVERS`：
 
 ```json
 [
@@ -58,13 +72,13 @@ echo "credential=$CREDENTIAL"
 ]
 ```
 
-`.env` 中注入：
+`.env` 中注入 —— ⚠️ **JSON 值必须整体用单引号包住**：本仓与 `docs/DEPLOYMENT.md` 的加载方式是 `set -a; . ./.env; set +a`，未加引号时 bash 会剥掉内层双引号，后端拿到的是非法 JSON，而 `parseIceServers()` 按设计**静默降级空数组**（v2.88 取证第一轮就因此丢掉一条静态条目）：
 
 ```bash
-WEBRTC_ICE_SERVERS=[{"urls":"turn:turn.example.com:3478?transport=udp","username":"...","credential":"..."},{"urls":"stun:stun.l.google.com:19302"}]
+WEBRTC_ICE_SERVERS='[{"urls":"turn:turn.example.com:3478?transport=udp","username":"...","credential":"..."},{"urls":"stun:stun.l.google.com:19302"}]'
 ```
 
-> 若前端已登录且凭据由 REST 接口动态下发，可仅放 STUN 静态候选，TURN 凭据由业务接口补充。
+> 配了签发后 `GET /api/webrtc/config` 会同时带 `turn` 段；`curl -H "Authorization: Bearer <token>" .../api/webrtc/config` 看到 `data.turn.signed == true` 且 `iceServers` 里多出两条带 `credential` 的条目，就说明后端这一侧已经在工作——**这不代表 coturn 接受了它**，第 5 节的验证才是。
 
 ## 5. 验证
 

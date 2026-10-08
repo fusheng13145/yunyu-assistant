@@ -37,16 +37,10 @@ export function useWebRTC() {
   let recorder: MediaRecorder | null = null
   let recordingChunks: Blob[] = []
 
-  /** 缓存拉取到的 ICE 配置（避免每次建链重复请求） */
-  let cachedIceServers: RTCIceServer[] | null = null
-
   const createOffer = async (): Promise<string> => {
-    // 从后端下发配置，失败/为空时回退默认 STUN
-    if (cachedIceServers === null) {
-      const servers = await fetchIceServers()
-      cachedIceServers = servers.length > 0 ? servers : DEFAULT_ICE_SERVERS
-    }
-    peerConnection.value = new RTCPeerConnection({ iceServers: cachedIceServers })
+    // 每次建链都重新拉取：配置里的 TURN 凭据是现签的临时凭据，跨通话复用会把"过期即静默失效"从运维侧搬进浏览器侧
+    const servers = await fetchIceServers()
+    peerConnection.value = new RTCPeerConnection({ iceServers: servers.length > 0 ? servers : DEFAULT_ICE_SERVERS })
     isConnecting.value = true
 
     // 收集远端音轨（对端 AI 声音），与麦克风轨一并送入通话录音

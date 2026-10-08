@@ -44,6 +44,21 @@
       "description": "WebRTC ICE 服务器配置（JSON 数组字符串），默认 []。为空时前端回退默认 Google STUN；生产建议配置 TURN 以穿透对称 NAT。"
     },
     {
+      "name": "app.webrtc.turn.secret",
+      "type": "java.lang.String",
+      "description": "TURN REST API 共享密钥（与 coturn 的 static-auth-secret 同一个值），默认空＝不签发。与 app.webrtc.turn.realm 齐备时 GET /api/webrtc/config 现签临时凭据；只配其一不签发并记 WARN。"
+    },
+    {
+      "name": "app.webrtc.turn.realm",
+      "type": "java.lang.String",
+      "description": "TURN realm，须与 coturn 配置的 realm 一致（浏览器按域名校验收据），默认空＝不签发。"
+    },
+    {
+      "name": "app.webrtc.turn.ttl-sec",
+      "type": "java.lang.Long",
+      "description": "签发的 TURN 凭据有效期（秒），默认 7200，钳制在 300~86400。取值应 ≥ VOICE_MAX_CALL_SEC，否则通话中途凭据过期。"
+    },
+    {
       "name": "app.recording.dir",
       "type": "java.lang.String",
       "description": "通话录音存储目录，默认 ./data/recordings。前端 MediaRecorder 录制后上传，文件名为 {callId}.webm。"

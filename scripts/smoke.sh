@@ -53,7 +53,7 @@ KEEP="${KEEP:-0}"
 BODY_FILE="$(mktemp)"
 HDR_FILE="$(mktemp)"
 DATA_FILE="$(mktemp)"
-WS_FRAME_FILE="$(mktemp)"
+WS_FRAME_FILE="$(mktemp --suffix=.mjs)"   # 必须带扩展名：node 对无扩展名的临时文件按 ESM 探测后抛 ERR_UNKNOWN_FILE_EXTENSION，探针零输出会让 §7.2 整节判成"探针没跑成"（v2.88 本机 node v24.15.0 实测；2026-10-01 的旧 node 下同一行是绿的）
 trap 'rm -f "$BODY_FILE" "$HDR_FILE" "$DATA_FILE" "$WS_FRAME_FILE"' EXIT
 
 PASS=0
@@ -611,6 +611,29 @@ cfg_probe() {  # cfg_probe <路径> <配置字段> <未配置时的说明>
 }
 cfg_probe /api/ragflow/config data.endpoint '知识库检索未接入（配 RAGFLOW_ENDPOINT / RAGFLOW_API_KEY）'
 cfg_probe /api/webrtc/config data.iceServers.0.urls '语音通话回退公共 STUN，TURN 转发未配（配 WEBRTC_ICE_SERVERS）；语音不进 MVP，属预期'
+
+# v2.88 TURN 凭据签发：三态分开——接口不可达 / 未配置 = 具名 SKIP，已签发 = 真断言。
+# 断言的是"形状 + 到期时刻在未来 + 两条 transport 共用一份凭据"，**不证明 coturn 接受它**（那要真部署，属运维）。
+# 不按下标取签发条目（静态条目排在前面、下标随配置漂移），改为整数组取回后数 credential 出现次数。
+turn_probe() {
+    req GET /api/webrtc/config "$TOKEN"
+    if [ "$STATUS" != "200" ] || [ "$(jget code)" != "200" ]; then
+        skip 'TURN 凭据签发探测' "HTTP $STATUS $(jget message)"; return
+    fi
+    if [ "$(jget data.turn.signed)" != "true" ]; then
+        skip 'TURN 凭据签发状态' 'data.turn.signed 非 true ⇒ TURN_STATIC_AUTH_SECRET / TURN_REALM 未配（属预期）'; return
+    fi
+    local now expires creds
+    now=$(date +%s)
+    expires="$(jget data.turn.expiresAt)"
+    creds="$(jget data.iceServers | tr -d '\n' | grep -o '"credential"' | wc -l)"
+    if [ -n "$expires" ] && [ "$expires" -gt "$now" ] && [ "$creds" -ge 2 ] && [ -n "$(jget data.turn.realm)" ]; then
+        ok "TURN 凭据已现签（realm=$(jget data.turn.realm)，到期 $expires > now $now，带凭据条目 $creds 条）"
+    else
+        bad 'TURN 签发形状' "expiresAt=$expires(需 > $now) / credential 条目=$creds(需 ≥2) / realm=$(jget data.turn.realm)"
+    fi
+}
+turn_probe
 
 # ---------- 7. WebSocket 握手 ----------
 # v2.36 实况：旧写法用 curl 发 Upgrade 头，真机上永远拿不到响应（curl 不做 WS 握手，

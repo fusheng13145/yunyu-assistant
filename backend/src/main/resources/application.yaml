@@ -123,10 +123,16 @@ app:
   # 未认证 WebSocket 连接的存活上限（v2.32）
   # /ws/* 与 /ws-voice/* 允许免令牌握手（认证推迟到首条 auth 消息），而 Tomcat 服务端会话没有空闲回收
   # （setMaxIdleTimeout 于服务端是空操作，实测免令牌连接可存活 400 秒以上），故由应用层定时关闭超期未认证的连接。
-  # WebRTC ICE 服务器配置（JSON 数组，如 [{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]）
-  # 未配置时前端回退默认 Google STUN；生产建议配置 TURN 穿透对称 NAT（见手册 6.6）
+  # WebRTC ICE 静态条目（JSON 数组，如 [{"urls":"stun:stun.example.com:3478"}]；固定账密形态仍支持）
+  # 未配置时前端回退默认 Google STUN；TURN 穿透对称 NAT 自 v2.88 起走下方 turn 现签，见手册 5.9
   webrtc:
     ice-servers: ${WEBRTC_ICE_SERVERS:[]}
+    # TURN REST API 凭据签发（coturn `use-auth-secret` 的共享密钥侧）。secret 与 realm 齐备时
+    # GET /api/webrtc/config 现签一条 <到期秒>:<userId> 的临时凭据；缺任一即不签发（不发假凭据）
+    turn:
+      secret: ${TURN_STATIC_AUTH_SECRET:}
+      realm: ${TURN_REALM:}
+      ttl-sec: ${TURN_CREDENTIAL_TTL_SEC:7200}
   # 通话录音存储目录（前端 MediaRecorder 录制上传，文件名 {callId}.webm）
   recording:
     dir: ${RECORDING_DIR:./data/recordings}
