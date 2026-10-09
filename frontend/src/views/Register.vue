@@ -25,6 +25,32 @@
               type="text"
               placeholder="请输入用户名"
               class="geek-input"
+              autocomplete="username"
+              @keyup.enter="handleRegister"
+            />
+          </div>
+
+          <!-- 两个选填标识：填了就能用它登录，所以它们不是资料项而是凭据项 -->
+          <div class="form-group">
+            <label class="form-label">邮箱（选填）</label>
+            <input
+              v-model="form.email"
+              type="text"
+              placeholder="填了即可用此邮箱登录"
+              class="geek-input"
+              autocomplete="email"
+              @keyup.enter="handleRegister"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">手机号（选填）</label>
+            <input
+              v-model="form.phone"
+              type="text"
+              placeholder="填了即可用此手机号登录"
+              class="geek-input"
+              autocomplete="tel"
               @keyup.enter="handleRegister"
             />
           </div>
@@ -92,7 +118,8 @@
               <circle cx="12" cy="12" r="10"></circle>
             </svg>
             <span>
-              用户名唯一，密码至少6位。注册成功后将自动登录。
+              用户名唯一，密码至少6位；邮箱与手机号都是登录标识，同一个活邮箱或手机号只能注册一个账号，
+              用户名不能填成邮箱或手机号形状。注销过的账号会释放它的邮箱与手机号。注册成功后将自动登录。
               <template v-if="inviteRequired">邀请码用后即废，一个码只能注册一个账号。</template>
             </span>
           </div>
@@ -175,6 +202,8 @@ const form = ref({
   username: '',
   password: '',
   confirmPassword: '',
+  email: '',
+  phone: '',
   inviteCode: '',
 })
 
@@ -222,6 +251,10 @@ const handleRegister = async () => {
     const res = await register({
       username: form.value.username.trim(),
       password: form.value.password,
+      // 选填标识按原样上线、不做本地格式判定（判据单点在服务端 IdentifierPolicy）；
+      // 空白送 undefined 而不是空串——空串在写侧是"填了但格式不对"
+      email: form.value.email.trim() || undefined,
+      phone: form.value.phone.trim() || undefined,
       // 大小写不敏感在服务端归一，这里只去首尾空白
       inviteCode: form.value.inviteCode.trim() || undefined,
     })

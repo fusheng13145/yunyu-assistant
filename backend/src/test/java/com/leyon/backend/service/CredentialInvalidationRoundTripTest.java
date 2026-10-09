@@ -45,7 +45,7 @@ class CredentialInvalidationRoundTripTest {
         jwtUtil.validateSecret();
 
         userService = new UserService(userMapper, jwtUtil, new LoginAttemptService(),
-                Mockito.mock(InviteCodeService.class));
+                Mockito.mock(InviteCodeService.class), new IdentifierPolicy());
     }
 
     /** 登录尾部真正执行的两次签发 */

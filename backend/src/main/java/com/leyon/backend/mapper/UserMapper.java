@@ -7,6 +7,8 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.List;
+
 /**
  * 用户信息 Mapper
  * 数据操作接口，对应数据表 users
@@ -15,6 +17,34 @@ import org.apache.ibatis.annotations.Update;
  */
 @Mapper
 public interface UserMapper extends BaseMapper<User> {
+
+    /**
+     * 按用户名查活跃账号（v2.89）
+     * <p>
+     * 三条标识查询都返回 {@code List} 而不是 {@code selectOne}：库里同值出现两行（迁移 0013 未跑到的
+     * 实例上完全可能）时，{@code selectOne} 会抛 TooManyResults 或由 {@code LIMIT 1} 随机挑一行，
+     * 后者等于"两行都算登录成功"。挑不挑由调用方显式判定，不在 SQL 里默认。
+     * <p>
+     * 只按普通列查、不按 0013 的生成列查：代价是缺迁移时失去硬唯一保证，收益是缺迁移时不失去服务。
+     * {@code is_deleted = 0} 必须写在这里——手写 SQL 不走 MyBatis-Plus 的逻辑删除自动拼接。
+     *
+     * @param username 用户名（不归一，与存量行的存法一致）
+     * @return 命中行，无命中为空列表
+     */
+    @Select("SELECT * FROM users WHERE username = #{username} AND is_deleted = 0")
+    List<User> selectActiveByUsername(@Param("username") String username);
+
+    /**
+     * 按邮箱查活跃账号（v2.89），入参必须是 {@code IdentifierPolicy.normalizeEmail} 的产物
+     */
+    @Select("SELECT * FROM users WHERE email = #{email} AND is_deleted = 0")
+    List<User> selectActiveByEmail(@Param("email") String email);
+
+    /**
+     * 按手机号查活跃账号（v2.89），入参必须是 {@code IdentifierPolicy.normalizePhone} 的产物
+     */
+    @Select("SELECT * FROM users WHERE phone = #{phone} AND is_deleted = 0")
+    List<User> selectActiveByPhone(@Param("phone") String phone);
 
     /**
      * 只取凭据版本列（v2.42）

@@ -14,7 +14,7 @@
 - 自 v2.29 起的批次主线是**上线就绪**：把"能不能公网给真实小范围用户用"逐项变成显式清单 + 可跑的验收手段
   （门禁、CI、冒烟脚本、备份与恢复演练、部署清单），而不是继续扩功能面。
 - 已拍板的三项上线决策（不再重开讨论，详见手册 6.7 决策块）：**国内云 + ICP 备案** /
-  **注册先走邀请码两阶段** / **语音通话不进第一阶段**。
+  **注册两阶段（v2.89 起默认档已是第二阶段的 `open`，要收回闸门设 `REGISTRATION_MODE=invite` 即可，不必发版）** / **语音通话不进第一阶段**。
 - 验证口径的分层与残余，以 [手册 6.6 已知限制与演进方向](docs/云谕助手项目手册.md#66-已知限制与演进方向) 为准。**"没有浏览器级验证"这句话自 v2.61 起不再成立、自 v2.75 起换了形态**：候选 ⑧ 的首轮真实点击是**一批一次的人工实测**，而 v2.75 的 `frontend/e2e`（Playwright，`core` 项目）与 v2.87 的 `media` 项目是**可重跑的守卫**——两者都刻意不进 CI，且需要真实后端 / 登录账号 / 打桩模型才跑得动，所以"观感类改动要靠当批实测"这条纪律没有撤销，只是现在多了能在改坏时当场变红的东西。
 - **本地验收资产已定保留**：`.scratch/smoke-admin.env`（gitignored、内容是 `index.sql` 的种子管理员）。它不是"用完即删"的一次性
   凭据，而是 `scripts/smoke.sh` 管理侧读数的开关：缺 `SMOKE_ADMIN_*` 时 §8 的 12 条塌成 1 条 skip、§7.10 的 8 条跨账号与审计
@@ -83,12 +83,14 @@
 ~~**S-17 语音链路仍不逐轮落库**~~ → **已于 v2.86 收口（C-163）**：逐轮 drain 落库 + 会话级计数器。原登记（v2.66 随 C-133，刻意不修）：文本 WS 已改每轮收尾落库，语音要等通话结束才批量落 ⇒ 通话中途进程重启或网关不再回调时，**这一整通的转写与回答全留在内存里丢失**（通话记录本身在，但内容无从补）。收口位置是现成的 ASR 回合边界，代价是每回合一次 DB 写入；逐条论证在手册 7.4。
 - **S-18 归档保留期与统计的长期一致性**（v2.67 随 C-134 登记，**刻意不修**）：用量统计已并读活表与归档表，但**保留期外已物理删除的行不计**，且 `call_records.org_id` 无写入路径 ⇒ 组织作用域只能按成员集合聚合（成员关系变了，历史数字跟着变）。逐条论证在手册 7.4。
 - **S-19 工具轨迹不落库，历史里永远没有工具卡片**——**已于 v2.72 收口（C-142，随 S-24 收口落地）**：写侧落库 + 外发恢复 + 前端 role 2/3 读侧一并完成，历史里能看到工具卡片。原登记（v2.68 随 C-135，刻意不修）：`records.tool_*` 三列与 `ROLE_TOOL_CALL/ROLE_TOOL_RESULT` 两个常量保留，但全仓零写入点 ⇒ 工具调用只以 WS 帧存在于实时链路，刷新后就无从回看"这条回答中间查过什么"。要先定的是口径：工具调用算不算会话内容、语音是否同落、算不算用量轮次（与 S-18、C-92 前置同族）。逐条论证在手册 7.4。
-- **S-20 `users` 的四列资料没有写入入口**（v2.68 随 C-135 登记，**刻意不修**）：`nickname/avatar/gender/phone` 自建表起存在、种子数据里有值，但产品没有任何接口往里写（`UserService.login()` 的 `StringUtils.hasText` 守卫因此永不命中）⇒ 本批只把恒 null 的键停止外发、界面不再渲染。加接口＝新功能；删列＝不可逆迁移。逐条论证在手册 7.4。
+- **S-20 `users` 的四列资料没有写入入口**（v2.68 随 C-135 登记，**刻意不修**）：`nickname/avatar/email/phone` 自建表起存在、种子数据里有值，但产品没有任何接口往里写（`UserService.login()` 的 `StringUtils.hasText` 守卫因此永不命中）⇒ 本批只把恒 null 的键停止外发、界面不再渲染。加接口＝新功能；删列＝不可逆迁移。逐条论证在手册 7.4。**v2.89 部分收口（C-170）**：`email` / `phone` 已拿到写入路径（注册选填字段 → 归一化落库 → 成为登录标识，唯一性由迁移 0013 承担），剩下的只有 `nickname` / `avatar` 两列，上面"加接口＝新功能 / 删列＝不可逆"的两半取舍原文继续成立。
 - **S-21 零写入且零读取的死列**（v2.68 随 C-135 登记，**刻意不修**）：`outbound_calls.completed_at`、`knowledgebases.content` 既没人写也没人读。删除属不可逆迁移且当前无任何用户可见代价，故保留并在手册标注；真要清理应合并成一个"库端瘦身"批次。逐条论证在手册 7.4。
 - **S-23 元判据只咬 Node 侧行文，"数得真"没有总判决**（v2.70 随 C-138 登记，**刻意不修**）：第 13 组锁的是形状不是算术——不保证受检门禁自己把 `failures` 数得真（各组"解析有效"锚点是自律），两道 python 门禁的 `sys.exit` 语义也不归它管（本批实测在位，未来删行无判据会红）。收口方向（py 门禁同样逐字锁 / 锚点计数互查）属门禁强化而非产品缺陷，只登记不排期。逐条论证在手册 7.4。
 - **S-24 工具调用回路运行时不可达，"工具调用可视化"与语音挂断指令是空承诺**——**已于 v2.72 收口（C-141）**：工具执行收归应用侧（internalToolExecutionEnabled=false），帧流动、hangup 可达、真机打桩取证；残余登记 6.6 v2.72 块。原登记（v2.71 随 C-140，刻意不修）：Spring AI 1.0.0 默认在框架内部执行工具并吞掉 tool-call 响应 ⇒ `ChatService.handleToolCalls`、`tool_call` 帧、语音 `hangup` 监听三处代码在、路径不可达（打桩实测：桩返回 `tool_calls` 那一轮前端收不到任何工具帧）。收口要么显式关内部执行（改所有带工具助手的运行时行为，需独立批次 + 真供应商验证），要么改 README/手册口径——**先要用户拍板"工具能力到底要不要"**。
 - **S-25 落库与取消回调跑在 JDK HttpClient 的共享 worker 上**（v2.71 随 C-140 登记，**刻意不修**）：`ChatService` 的 onNext/onComplete/saveConversation 由出站流的发射线程驱动，实测超时回调落在 Reactor `parallel-2`、正常路径落在 JDK HttpClient worker ⇒ 一条连接上的数据库写占住共享 worker，慢库会拖垮其他在途模型调用。修法 `publishOn(boundedElastic)` 会同时改变取消回调与 `sink.onCancel` 的执行线程（本批的 CAS 守卫正是为那种竞态立的），属并发行为变更；本批也因此**故意没加**"禁止 `Schedulers`"的门禁判据。
 - **S-26 取消与超时只到订阅层，在途 HTTP 交换不中止 ⇒ 用户已走，开销照旧**（v2.71 真机坐实，**刻意不修**）：只发表头那轮在 6 秒判失败后打桩侧连接 8 分钟后仍 `ESTABLISHED`；每 2 秒一拍那轮在客户端第 7 秒断开后桩按自己节奏跑完 30 秒。根因是传输选型（无 reactor-netty／httpclient5，WebClient 落 `JdkClientHttpConnector`，JDK HttpClient 的交换不因 body subscription 取消而拆断）。两条收口路径都要动每一次模型调用的出站行为（加 reactor-netty 依赖 / 自写 OkHttp connector，Spring 6.0 已删内置那个），且本机只有打桩能验证 ⇒ **先定"用哪条传输、真供应商上怎么验证"再动**。
+
+- **S-28 管理端与组织的检索没有接入三态登录标识**（v2.89 随 C-171 登记，**刻意不修**）：登录侧一个输入框已接受用户名/邮箱/手机号，而 `GET /api/admin/users?keyword=` 与 `OrgService` 的成员搜索仍只按 `username` ⇒ 运维拿用户报来的邮箱去后台搜人会搜不到，且与"查无此人"逐字同形。三条不顺手改的理由（LIKE 语义要不要跟着归一、号段前缀匹配是扩面不是收口、本批主题边界）写在手册 7.4 该行。
 
 **运维/外部依赖类（不是代码任务）：**
 
@@ -110,7 +112,9 @@
 ## 五、下一批是什么
 
 
-**最新一批（v2.88）已收口**：TURN 凭据现签（C-168 / C-169；TODO.md 批次 W；收口 S-11 的**签发侧**与 v2.38 C-83 那条"不存在动态下发"的过报）——`TurnCredentialService` 按 TURN REST API 现签 `<到期秒>:<清洗后 userId>` + Base64(HMAC-SHA1(secret, username))，`GET /api/webrtc/config` 在静态条目之外**追加** udp/tcp 两条候选并回 `turn.{signed,realm,expiresAt,ttlSec}`；三项新环境变量（`TURN_STATIC_AUTH_SECRET` / `TURN_REALM` / `TURN_CREDENTIAL_TTL_SEC`，TTL 钳制 300~一天且应 ≥ `VOICE_MAX_CALL_SEC`）；**半配 fail-closed**（只记具名 WARN、不签发假凭据），两者都不配时响应体与 v2.87 逐字节相同；前端 `useWebRTC` **撤掉 ICE 配置缓存**、每次 `createOffer()` 重取。判据三层：单测 6 + 控制器 8 例（含**外部独立算好的三条已知答案向量**与"未启用不得追加"反向锚点）、真机独立复算（探针另起 HMAC-SHA1 重算服务端下发的凭据逐字节相符 + 跨用户不复用同一份）、`smoke.sh` §6 `turn_probe` 三态（未配⇒具名 SKIP 点名环境变量；已签⇒断言 `expiresAt` 在未来且凭据条目 ≥2）。**C-169**（探针侧）：`mktemp` 无扩展名的临时 `.mjs` 在 Node v24 触发 `ERR_UNKNOWN_FILE_EXTENSION`，而 §7.2 把 stderr 丢掉 ⇒ 13 条断言集体报"探针没有回报"（已改 `--suffix=.mjs`；信息缺口本身登记为 **S-27** 只登记不修）。后端 **84 类 / 699 例 / 0 失败**（按 `TEST-*.xml` 计数，常量重写前后各一轮），真机冒烟 **194/0/6（带签发）** 与 **193/0/7（未配）**，前端 lint / type:check / build / 九道 Node 门禁全 exit 0。**边界**：coturn 是否真的接受这份凭据、真实对称 NAT 下的穿透**未取证**（本机无 Docker 守护进程），见手册 6.6 v2.88 块。**推送与 CI 见本节末尾登记。**
+**最新一批（v2.89）已收口**：多标识登录与常规账密注册（C-170 / C-171 / C-172 / C-173；TODO.md 批次 X；部分收口 S-20 的 email/phone 半与 S-16 的形状半，新登记候选 S-28）——`users.email` / `users.phone` 第一次拿到写入路径（注册的两个选填字段 → `IdentifierPolicy` 归一化 → 落库），登录从"只按 username 查"变成一个输入框接受**用户名 / 邮箱 / 手机号**（判据单点、读侧宽松写侧严格、多命中 fail-closed、锁定键归一），库端唯一性由迁移 **0013** 的生成列唯一索引承担（软删即释放槽位，缺迁移只失去硬保证不失去功能——开发库故意未跑该迁移跑通全链路）；`REGISTRATION_MODE` 默认 `invite`→`open`、`register-config` 补 `mode`。**下一批若继续动身份面**，S-28（管理端与组织检索仍只按 `username`）与"所有权验证 / 密码找回"是两个必须分开表态的方向——后者要先有发信或发短信的外部通道。
+
+**上一批（v2.88）已收口**：TURN 凭据现签（C-168 / C-169；TODO.md 批次 W；收口 S-11 的**签发侧**与 v2.38 C-83 那条"不存在动态下发"的过报）——`TurnCredentialService` 按 TURN REST API 现签 `<到期秒>:<清洗后 userId>` + Base64(HMAC-SHA1(secret, username))，`GET /api/webrtc/config` 在静态条目之外**追加** udp/tcp 两条候选并回 `turn.{signed,realm,expiresAt,ttlSec}`；三项新环境变量（`TURN_STATIC_AUTH_SECRET` / `TURN_REALM` / `TURN_CREDENTIAL_TTL_SEC`，TTL 钳制 300~一天且应 ≥ `VOICE_MAX_CALL_SEC`）；**半配 fail-closed**（只记具名 WARN、不签发假凭据），两者都不配时响应体与 v2.87 逐字节相同；前端 `useWebRTC` **撤掉 ICE 配置缓存**、每次 `createOffer()` 重取。判据三层：单测 6 + 控制器 8 例（含**外部独立算好的三条已知答案向量**与"未启用不得追加"反向锚点）、真机独立复算（探针另起 HMAC-SHA1 重算服务端下发的凭据逐字节相符 + 跨用户不复用同一份）、`smoke.sh` §6 `turn_probe` 三态（未配⇒具名 SKIP 点名环境变量；已签⇒断言 `expiresAt` 在未来且凭据条目 ≥2）。**C-169**（探针侧）：`mktemp` 无扩展名的临时 `.mjs` 在 Node v24 触发 `ERR_UNKNOWN_FILE_EXTENSION`，而 §7.2 把 stderr 丢掉 ⇒ 13 条断言集体报"探针没有回报"（已改 `--suffix=.mjs`；信息缺口本身登记为 **S-27** 只登记不修）。后端 **84 类 / 699 例 / 0 失败**（按 `TEST-*.xml` 计数，常量重写前后各一轮），真机冒烟 **194/0/6（带签发）** 与 **193/0/7（未配）**，前端 lint / type:check / build / 九道 Node 门禁全 exit 0。**边界**：coturn 是否真的接受这份凭据、真实对称 NAT 下的穿透**未取证**（本机无 Docker 守护进程），见手册 6.6 v2.88 块。**推送与 CI 见本节末尾登记。**
 
 **上一批（v2.87）已收口**：录音内容可信（C-165 / C-166 / C-167；TODO.md 批次 V；收口 C-82 与 ㉝ 的播放侧一半）——混音收成 `utils/recordingMix.ts` 纯函数（≥2 轨且上下文 running 才混，四种回退点名 reason）、Playwright 新增 `media` project 用双频能量给出**第一次浏览器级正证**、`CallRecordControllerTest` 补 upload→download 字节相同往返、`check-recording-upload.mjs` 四组扩六组（不新增第十道门禁）；C-167 把后端计数口径钉回 `TEST-*.xml`。后端 83 类 / 689 例 0 失败，前端全门禁 exit 0、E2E core 六条 + media 一条全绿。**推送与 CI 见本节末尾登记。**
 

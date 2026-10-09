@@ -96,6 +96,7 @@
 | `0010_assistants_version.sql` | `assistants` 加 `version BIGINT NOT NULL DEFAULT 0`（@Version 乐观锁，v2.79 收口 ㊿ 多标签页丢更新）；存量行从 0 起步 | 可（加列） |
 | `0011_drop_knowledgebases_content.sql` | `knowledgebases` **删除 `content` 死列**（零读取确认，v2.81 收口 ㊴ 库端瘦身；种子 4 行值随删列丢弃） | **不可回退**：列数据随删列丢弃 |
 | `0012_user_memories.sql` | 新建 `user_memories` 用户长期记忆表（v2.85 收口 ⑫，save_memory 工具写入、会话注入、用户可见可删） | 可（删表） |
+| `0013_identifier_login.sql` | `users` 加 `email_active` / `phone_active` VIRTUAL 生成列 + 各自唯一索引，并给 `email` / `phone` 普通列补索引（v2.89 三态登录：邮箱/手机号第一次成为登录凭据，需要"活账号才唯一"+ 等值查询走索引；生成列让软删除行算成 NULL 从而自动释放槽位，空串与 NULL 同视） | 可（删列与索引即回原状，**不改数据**）；但代码留在三态登录时回退＝放弃库端唯一，只剩服务层查重 |
 
 ⇒ 上线顺序固定为**先迁移、再上新代码**；0006 跑之前先整表备份（手册 5.4 / 5.8）。
 

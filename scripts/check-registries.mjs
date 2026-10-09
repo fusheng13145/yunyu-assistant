@@ -871,5 +871,91 @@ console.log('\n[15] 交付面三处口径落定（v2.74 · 批次 I：字体自�
   check('登出仍无条件本地清场（反向锚点：可见化不许被改成 fail-closed 卡住用户）',
     /clearSession\(\)\s*\n\s*router\.push\('\/login'\)/.test(SHELL))
 }
+
+console.log('\n[16] 多标识登录：唯一性落在库里，兜底查询不依赖它（v2.89 · C-170/C-171）')
+{
+  const MIG_DIR = 'backend/src/main/resources/db/migrations'
+  const MIG_NAME = '0013_identifier_login.sql'
+  const POLICY = read('backend/src/main/java/com/leyon/backend/service/IdentifierPolicy.java')
+  const MAPPER = read('backend/src/main/java/com/leyon/backend/mapper/UserMapper.java')
+  const SERVICE = read('backend/src/main/java/com/leyon/backend/service/UserService.java')
+  const INVITE = read('backend/src/main/java/com/leyon/backend/service/InviteCodeService.java')
+  const INDEX = read('backend/src/main/resources/index.sql')
+  const YAML = read('backend/src/main/resources/application.yaml')
+  // 同 0007 的处理：迁移文件被删要报成一条具名 FAIL，不能让本组在读取处抛 ENOENT 堆栈
+  const MIGRATION = readdirSync(join(ROOT, MIG_DIR)).includes(MIG_NAME) ? read(`${MIG_DIR}/${MIG_NAME}`) : ''
+  // 元判据：本组全靠字符串匹配，读到空文件会让多个条件同时"成立"，所以先自证每个被匹配文件都有内容
+  check('本组六个被匹配文件都读到内容（正则或路径写错时本组会静默全绿）',
+    POLICY.length > 800 && MAPPER.length > 400 && SERVICE.length > 4000 && INVITE.length > 1500
+      && INDEX.length > 4000 && YAML.length > 500,
+    `${POLICY.length}/${MAPPER.length}/${SERVICE.length}/${INVITE.length}/${INDEX.length}/${YAML.length}`)
+
+  check('0013 两步齐全：先 yunyu_assert 拦住共用邮箱/手机号的活账号，再加生成列唯一索引',
+    MIGRATION.includes('yunyu_assert') && MIGRATION.includes('uk_users_email_active')
+      && MIGRATION.includes('uk_users_phone_active'))
+  // 表达式少一半就各有一种事故：没有 IFNULL(is_deleted,0) ⇒ 注销过的邮箱永久占槽（S-16 的老形状）；
+  // 没有"空串视同 NULL" ⇒ 第二个不填邮箱的人注册时被 1062 撞死，而报错指向邮箱
+  check('生成列表达式两半都在：软删除行释放槽位、空串不占位',
+    /IFNULL\(`is_deleted`,\s*0\)/.test(MIGRATION) && MIGRATION.includes("<> ''''")
+      && INDEX.includes('IFNULL(`is_deleted`,0)') && INDEX.includes("<> ''"))
+  check('index.sql（新环境建表）与迁移同一口径，否则新库天生没有这两条唯一约束与两个索引',
+    ['uk_users_email_active', 'uk_users_phone_active', 'idx_users_email', 'idx_users_phone']
+      .every((k) => INDEX.includes(k)))
+
+  const SELECTS = MAPPER.match(/@Select\("[^"]*"/g) ?? []
+  // 登录查询写进 email_active/phone_active 的话，没跑 0013 的库会直接 1054 报错而不是优雅退化，
+  // 手册 5.4 承诺的"缺迁移只失去硬保证"就不成立了
+  check('认证查询只命中 email/phone 普通列（缺 0013 ＝失去库端唯一与索引，不是 500）',
+    SELECTS.length >= 3 && !SELECTS.some((s) => s.includes('_active')), SELECTS.length)
+  check('三态各有具名查询方法（共用一个方法名＝Mockito 分不出登录走了哪一列）',
+    ['selectActiveByUsername', 'selectActiveByEmail', 'selectActiveByPhone'].every((m) => MAPPER.includes(m)))
+  check('多命中 fail-closed 且登录路径不用 LIMIT 1 挑行（挑一行＝同标识的每行都能凭自己的口令进门）',
+    SERVICE.includes('rows.size() > 1') && SERVICE.includes('该标识对应多个账号')
+      && !SERVICE.includes('last("LIMIT 1') && !SELECTS.some((s) => s.includes('LIMIT 1')))
+  check('账号维度锁定键用归一化标识（原始大小写当键＝换一种大小写就绕开 15 次/5 分钟）',
+    SERVICE.includes('lockKeyFor') && POLICY.includes('toLowerCase(Locale.ROOT)'))
+
+  // 默认值分两处写（yaml 占位符默认 + @Value 默认）＝改一处忘一处，公网首阶段口径会漂
+  check('注册闸门默认 open 两侧同值（邀请码降为可选运营手段，见手册 6.7 决策 2 的更正）',
+    YAML.includes('${REGISTRATION_MODE:open}') && INVITE.includes('${app.registration.mode:open}'))
+}
+
+console.log('\n[17] 多标识登录的前端侧：一个输入框自称"账号"，可选标识不在浏览器各写一份正则（v2.89 · C-172）')
+{
+  const LOGIN = read('frontend/src/views/Login.vue')
+  const REGIST = read('frontend/src/views/Register.vue')
+  const TYPES = read('frontend/src/types/index.ts')
+  check('本组三个被匹配文件都读到内容（路径写错时本组会静默全绿）',
+    LOGIN.length > 2000 && REGIST.length > 3000 && TYPES.length > 2000,
+    `${LOGIN.length}/${REGIST.length}/${TYPES.length}`)
+
+  // 线路字段仍是 username（后端兼容 username/name 两写法），改字段名会让登录整站断在 400"账号不能为空"
+  check('登录框仍按 username 上线，但界面文案改口为"账号"（改字段名＝凭据发不出去，改文案才是要做的）',
+    LOGIN.includes('v-model="form.username"') && LOGIN.includes('username: form.value.username.trim()')
+      && LOGIN.includes('<label class="form-label">账号</label>')
+      && !LOGIN.includes('<label class="form-label">用户名</label>'))
+  check('登录框与提示卡都说清三态可用（只改 label 不解释＝用户仍按老习惯只填用户名）',
+    LOGIN.includes('用户名 / 邮箱 / 手机号'))
+  check('登录密码框保持 password 语义与回车提交（合并输入框不许顺手把 autocomplete 丢掉）',
+    LOGIN.includes(':type="showPassword ? \'text\' : \'password\'"')
+      && LOGIN.includes('autocomplete="username"') && LOGIN.includes('@keyup.enter="handleLogin"'))
+
+  check('注册页有邮箱与手机号两个选填项（缺一项＝该标识只能靠管理端补，注册时说不清）',
+    REGIST.includes('v-model="form.email"') && REGIST.includes('v-model="form.phone"')
+      && REGIST.includes('邮箱') && REGIST.includes('手机号'))
+  // 反向锚点：选填的判据是"不参与必填校验"，写进 canSubmit 就成了必填
+  check('选填真是选填：canSubmit 不含 email/phone（含进去＝把可选字段变成第二道门槛）',
+    !/canSubmit[\s\S]{0,400}form\.value\.(email|phone)/.test(REGIST))
+  check('空串按未填写上线（trim() || undefined，送空串会被写侧当成"填了但格式不对"）',
+    REGIST.includes('email: form.value.email.trim() || undefined')
+      && REGIST.includes('phone: form.value.phone.trim() || undefined'))
+  // 匹配式只拦"正则字面量里出现 @"，不能用 `@\w+\.` —— 后者会命中 Vue 的 @keyup.enter 事件修饰符
+  check('浏览器不复制标识格式正则（两处各写一份＝客户端放过、服务端拒绝的漂移，判据单点在 IdentifierPolicy）',
+    !/\/[^/\n]*@[^/\n]*\//.test(REGIST) && !REGIST.includes('test(form.value.email')
+      && !REGIST.includes('test(form.value.phone'),
+    REGIST.match(/\/[^/\n]*@[^/\n]*\//)?.[0] ?? 'none')
+  check('RegisterData 声明两个选填字段（types 里没有＝调用点传了也不被类型层看见，改回去无人知晓）',
+    TYPES.includes('email?: string') && TYPES.includes('phone?: string'))
+}
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)
 process.exit(failures === 0 ? 0 : 1)

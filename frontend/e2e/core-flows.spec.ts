@@ -32,11 +32,12 @@ test.describe('错误口令（无会话状态）', () => {
   test('失败可见且不建立会话', async ({ page }) => {
     test.skip(!USER || !PASS, '缺 E2E_USER/E2E_PASS：登录链路无人核对（具名 SKIP，不算绿）')
     await page.goto('/login')
-    await page.getByPlaceholder('请输入用户名').fill(USER)
+    await page.getByPlaceholder('用户名 / 邮箱 / 手机号').fill(USER)
     await page.getByPlaceholder('请输入密码').fill('definitely-wrong-password')
     await page.getByRole('button', { name: '登录' }).click()
     // 失败必须说出来：错误提示出现，且仍停留在登录页
-    await expect(page.locator('body')).toContainText(/用户名或密码|失败|错误/, { timeout: 10_000 })
+    // 文案按 v2.89 的三态口径具名锁定（原"用户名或密码错误"里的"用户名"已不成立，改成"账号"）
+    await expect(page.locator('body')).toContainText('账号或密码错误', { timeout: 10_000 })
     await expect(page).toHaveURL(/\/login/)
     await expect(page.evaluate(() => localStorage.getItem('token'))).resolves.toBeNull()
   })

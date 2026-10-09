@@ -19,12 +19,13 @@
 
         <form @submit.prevent="handleLogin" class="login-form">
           <div class="form-group">
-            <label class="form-label">用户名</label>
+            <label class="form-label">账号</label>
             <input
               v-model="form.username"
               type="text"
-              placeholder="请输入用户名"
+              placeholder="用户名 / 邮箱 / 手机号"
               class="geek-input"
+              autocomplete="username"
               @keyup.enter="handleLogin"
             />
           </div>
@@ -89,7 +90,10 @@
           </svg>
           <div class="tip-content">
             <p class="tip-title">体验账号</p>
-            <p class="tip-desc">联系管理员获取体验账号，也可通过注册功能自主创建新账号。</p>
+            <p class="tip-desc">
+              用户名、邮箱、手机号任一皆可登录（后两者在注册时填写即成为登录账号）。
+              也可通过注册功能自主创建新账号。
+            </p>
           </div>
         </div>
       </aside>

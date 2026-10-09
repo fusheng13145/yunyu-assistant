@@ -9,6 +9,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -20,7 +22,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 注册的邀请码闸门测试（v2.37）
+ * 注册的邀请码闸门测试（v2.37，签名随 v2.89 扩到五个参数）
  * 覆盖：invite 模式缺码即拒、领取失败绝不建号、领取与建号用同一 userId（审计链闭合）、
  * 用户名重复不得烧掉一个可用码、open 模式忽略邀请码
  *
@@ -43,15 +45,16 @@ class UserServiceInviteCodeTest {
 
     private UserService userService(boolean inviteRequired) {
         lenient().when(inviteCodeService.inviteRequired()).thenReturn(inviteRequired);
-        return new UserService(userMapper, jwtUtil, loginAttemptService, inviteCodeService);
+        lenient().when(userMapper.selectActiveByUsername(anyString())).thenReturn(List.of());
+        return new UserService(userMapper, jwtUtil, loginAttemptService, inviteCodeService,
+                new IdentifierPolicy());
     }
 
     @Test
     void register_withoutCodeInInviteMode_rejectedAndNothingWritten() {
         UserService service = userService(true);
-        when(userMapper.selectCount(any())).thenReturn(0L);
 
-        assertThatThrownBy(() -> service.register("alice", "abc12345", "  "))
+        assertThatThrownBy(() -> service.register("alice", "abc12345", null, null, "  "))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("邀请码");
 
@@ -62,10 +65,9 @@ class UserServiceInviteCodeTest {
     @Test
     void register_whenClaimFails_doesNotCreateUser() {
         UserService service = userService(true);
-        when(userMapper.selectCount(any())).thenReturn(0L);
         when(inviteCodeService.claim(eq("BADCODE123"), anyString())).thenReturn(false);
 
-        assertThatThrownBy(() -> service.register("alice", "abc12345", "BADCODE123"))
+        assertThatThrownBy(() -> service.register("alice", "abc12345", null, null, "BADCODE123"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("邀请码");
 
@@ -76,9 +78,8 @@ class UserServiceInviteCodeTest {
     void register_claimsCodeForTheSameUserItInserts() {
         UserService service = userService(true);
         when(inviteCodeService.claim(eq("GOOD123456"), anyString())).thenReturn(true);
-        when(userMapper.selectCount(any())).thenReturn(0L);
 
-        User created = service.register("alice", "abc12345", "GOOD123456");
+        User created = service.register("alice", "abc12345", null, null, "GOOD123456");
 
         ArgumentCaptor<String> claimedFor = ArgumentCaptor.forClass(String.class);
         verify(inviteCodeService).claim(eq("GOOD123456"), claimedFor.capture());
@@ -95,9 +96,9 @@ class UserServiceInviteCodeTest {
     @Test
     void register_duplicateUsername_doesNotBurnCode() {
         UserService service = userService(true);
-        when(userMapper.selectCount(any())).thenReturn(1L);
+        when(userMapper.selectActiveByUsername("alice")).thenReturn(List.of(new User()));
 
-        assertThatThrownBy(() -> service.register("alice", "abc12345", "GOOD123456"))
+        assertThatThrownBy(() -> service.register("alice", "abc12345", null, null, "GOOD123456"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("用户名已存在");
 
@@ -107,9 +108,8 @@ class UserServiceInviteCodeTest {
     @Test
     void register_inOpenMode_ignoresInviteCode() {
         UserService service = userService(false);
-        when(userMapper.selectCount(any())).thenReturn(0L);
 
-        User created = service.register("alice", "abc12345", null);
+        User created = service.register("alice", "abc12345", null, null, null);
 
         assertThat(created.getUsername()).isEqualTo("alice");
         verify(inviteCodeService, never()).claim(anyString(), anyString());

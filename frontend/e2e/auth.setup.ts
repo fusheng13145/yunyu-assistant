@@ -19,7 +19,7 @@ setup('authenticate', async ({ page, request }) => {
   const pass = process.env.E2E_PASS || ''
   setup.skip(!user || !pass, '缺 E2E_USER/E2E_PASS：会话夹具不建立，后续用例全部具名 SKIP（不算绿）')
   await page.goto('/login')
-  await page.getByPlaceholder('请输入用户名').fill(user)
+  await page.getByPlaceholder('用户名 / 邮箱 / 手机号').fill(user)
   await page.getByPlaceholder('请输入密码').fill(pass)
   await page.getByRole('button', { name: '登录' }).click()
   await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 15_000 })

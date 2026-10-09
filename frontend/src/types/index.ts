@@ -175,6 +175,10 @@ export interface ToolInfo {
 }
 
 export interface LoginData {
+  /**
+   * 线路字段名仍是 username（后端兼容 username / name 两种写法），但取值可以是
+   * 用户名、邮箱或手机号三态之一——判态与查哪一列由服务端 IdentifierPolicy 负责。
+   */
   username: string
   password: string
 }
@@ -182,6 +186,10 @@ export interface LoginData {
 export interface RegisterData {
   username: string
   password: string
+  /** 选填：填了就能用该邮箱登录；同一活邮箱只能注册一个账号（唯一性落在迁移 0013） */
+  email?: string
+  /** 选填：填了就能用该手机号登录；不做国家码归一，带 +86 与不带是两个不同标识 */
+  phone?: string
   /** 邀请码制注册模式下的必填项（v2.37）；大小写不敏感，服务端统一归一 */
   inviteCode?: string
 }

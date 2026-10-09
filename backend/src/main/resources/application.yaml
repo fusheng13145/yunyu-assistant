@@ -93,11 +93,12 @@ app:
   # 站点换成公网域名后若不加进这里，聊天/语音链路会在握手阶段直接 403（冒烟脚本第 7 节会抓到）
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000}
-  # 注册开放度（v2.37 邀请码制注册）：invite=注册必须带管理端生成的一次性码（默认，公网首阶段），
-  # open=忽略邀请码直接开放注册（第二阶段，解锁条件见手册 6.7 决策 2：限流扩面 + 消费熔断 + 新号低配额）。
-  # 默认取严格侧：除显式 open 外的任何取值都按 invite 处理，配置写错不会变成裸奔注册。
+  # 注册开放度（v2.37 邀请码制注册；v2.89 起默认放开）：invite=注册必须带管理端生成的一次性码，
+  # open（默认）=忽略邀请码直接开放注册。常规账密注册成为主路径后，邀请码降为可选运营手段。
+  # 判定方向仍是 fail-strict：除显式 open 外的任何取值都按 invite 处理，配置写错不会变成裸奔注册。
+  # 收紧只需改这一项 + 重启（解锁/回退条件见手册 6.7 决策 2 与其 v2.89 更正）
   registration:
-    mode: ${REGISTRATION_MODE:invite}
+    mode: ${REGISTRATION_MODE:open}
   # 客户端来源判定与登录锁定（v2.44）
   # 限流桶键、登录锁定维度、审计落库 IP 三处共用同一份判定，口径由 ClientIpResolver 唯一持有
   security:

@@ -76,7 +76,8 @@
 | 启动即失败，点名 `DB_USER` / `DB_PASSWORD` / `OPENAI_API_KEY` | 凭据未注入/为空/仍是模板占位值（`CredentialPlaceholderGuard` 在最早期拦） | 填真值；本地想快速起跑用 `scripts/gen-dev-env.sh` |
 | 启动即失败：缺 `JWT_SECRET` | 无默认值，且要求 ≥32 字节强随机 | 生成一个真随机值，别复用示例 |
 | 启动即失败：`ManagementAddressGuard` 拒绝 | 只设了独立管理端口没设监听地址 | 两项成对配 |
-| 注册页要求填邀请码，但没码 | `REGISTRATION_MODE` 默认 `invite`，且第一个管理员有"注册要码、发码要管理员"引导死锁 | 按手册 5.10④ 用 SQL 放第一个码 |
+| 注册页要求填邀请码，但没码 | v2.89 起默认档是 `open`，出现这一现象说明环境里**显式**设了 `REGISTRATION_MODE=invite`（或取值拼错——判定只认显式 `open`，其余一律按 `invite`），而第一个管理员有"注册要码、发码要管理员"引导死锁 | 按手册 5.10④ 用 SQL 放第一个码；或确认这台实例本就该放开注册后删掉该环境变量 |
+| 升级 v2.89 后注册闸门自己打开了 | **换 jar 就是换默认值**：v2.88 及以前不设该变量 ⇒ `invite`，v2.89 起不设 ⇒ `open`。已有的公网实例若没在 `.env` 里显式写过 `REGISTRATION_MODE`，升级后任何人都能注册 | 想保持闸门请在 `.env` 里**显式**补 `REGISTRATION_MODE=invite` 再重启；先确认 6.7 决策 2 的两个未做条件（消费熔断告警 / 新号默认低配额）能否接受 |
 | 起来了但 `/actuator/health` 显示 DB DOWN | 库凭据/地址不对 | 先修连通性再对外 |
 
 ## 5. 部署必须核对的四个易漏项

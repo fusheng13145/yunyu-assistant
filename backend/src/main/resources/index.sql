@@ -30,13 +30,25 @@ CREATE TABLE `users` (
     `password` VARCHAR(255) NOT NULL COMMENT '加盐哈希密码',
     `avatar` VARCHAR(255) DEFAULT NULL COMMENT '头像URL',
     `email` VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
+    -- 下面两组生成列/唯一键/普通索引与迁移 0013 写入的是同一终态（全新安装与已部署库结构一致）。
+    -- 生成列把"活账号才唯一"编进索引：软删除行算成 NULL 不占槽，注销后同一邮箱可重新注册；
+    -- 空串按"未填写"处理（≡ NULL），否则第二个不填邮箱的用户会被 1062 挡在门外。
+    -- 认证查询只命中 email/phone 普通列，所以这两列缺失只会退化成"没有硬唯一约束"，不会变成 500。
+    `email_active` VARCHAR(100) GENERATED ALWAYS AS
+        (IF(IFNULL(`is_deleted`,0) = 0 AND `email` IS NOT NULL AND `email` <> '', LOWER(`email`), NULL)) VIRTUAL COMMENT '活邮箱小写归一：软删除后自动释放唯一槽',
     `phone` VARCHAR(20) DEFAULT NULL COMMENT '手机号',
+    `phone_active` VARCHAR(20) GENERATED ALWAYS AS
+        (IF(IFNULL(`is_deleted`,0) = 0 AND `phone` IS NOT NULL AND `phone` <> '', `phone`, NULL)) VIRTUAL COMMENT '活手机号：不做国家码归一，带与不带是两个标识',
     `role` VARCHAR(20) NOT NULL DEFAULT 'user' COMMENT '角色 user:普通用户 admin:管理员',
     `token_version` INT NOT NULL DEFAULT 0 COMMENT '凭据版本：改密即+1，令牌 tv claim 与之不符立刻失效（v2.42）',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `is_deleted` TINYINT(1) DEFAULT 0 COMMENT '是否删除 0:未删除, 1:已删除',
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_users_email_active` (`email_active`),
+    UNIQUE KEY `uk_users_phone_active` (`phone_active`),
+    KEY `idx_users_email` (`email`),
+    KEY `idx_users_phone` (`phone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 -- ----------------------------

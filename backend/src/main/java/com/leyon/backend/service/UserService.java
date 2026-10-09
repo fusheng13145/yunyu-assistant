@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -26,46 +27,72 @@ public class UserService {
     private final JwtUtil jwtUtil;
     private final LoginAttemptService loginAttemptService;
     private final InviteCodeService inviteCodeService;
+    private final IdentifierPolicy identifierPolicy;
     private final BCryptPasswordEncoder passwordEncoder;
 
     public UserService(UserMapper userMapper, JwtUtil jwtUtil, LoginAttemptService loginAttemptService,
-                       InviteCodeService inviteCodeService) {
+                       InviteCodeService inviteCodeService, IdentifierPolicy identifierPolicy) {
         this.userMapper = userMapper;
         this.jwtUtil = jwtUtil;
         this.loginAttemptService = loginAttemptService;
         this.inviteCodeService = inviteCodeService;
+        this.identifierPolicy = identifierPolicy;
         this.passwordEncoder = new BCryptPasswordEncoder();
     }
 
     /**
-     * 用户注册（v2.37 起受邀请码闸门约束）
+     * 用户注册（v2.89 起可带邮箱/手机号；v2.37 起受邀请码闸门约束）
      * <p>
      * 领取与建号在同一事务内：账号插入失败（如唯一索引竞态）时事务回滚，被领取的码随之释放，
-     * 不会出现"码烧掉、号没建出来"。用户名重复在领取之前判定，同理不烧码。
+     * 不会出现"码烧掉、号没建出来"。<b>形状校验、格式校验与三项查重全部排在领取之前</b>，
+     * 顺序错一次的代价正是那一个已经用掉的码。
+     * <p>
+     * 邮箱/手机号按归一化值查重并落库；用户名按原样落库（存量行的存法如此，读侧也不归一，
+     * 见 {@link IdentifierPolicy}）。空串归成 NULL——迁移 0013 的唯一索引只让活行参与，
+     * NULL 不冲突而空串冲突，写成空串会让第二个"没填邮箱"的人注册失败。
      *
-     * @param username   用户名
+     * @param username   用户名，不得是邮箱/手机号形状
      * @param password   明文密码
+     * @param email      邮箱，可选
+     * @param phone      手机号，可选
      * @param inviteCode 邀请码；{@code app.registration.mode=invite} 时必填且一次性
      * @return 注册成功的用户信息（即落库的那一行，含口令哈希；外发抑制由 {@link User} 实体负责）
-     * @throws RuntimeException 用户名已存在 / 缺码 / 邀请码无效或已被使用
+     * @throws RuntimeException       用户名已存在 / 邮箱或手机号已被注册 / 缺码 / 邀请码无效或已被使用
+     * @throws IllegalArgumentException 用户名形状、邮箱格式或手机号格式不合法
      */
     @Transactional
-    public User register(String username, String password, String inviteCode) {
+    public User register(String username, String password, String email, String phone, String inviteCode) {
         // 基础入参校验
         if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
             throw new RuntimeException("用户名和密码不能为空");
         }
+        // 写侧不变量：用户名不得占用邮箱/手机号形状，否则登录时同一串标识符可能命中两列
+        identifierPolicy.validateUsernameShape(username);
+
+        String normalizedEmail = identifierPolicy.normalizeEmail(email);
+        if (normalizedEmail != null) {
+            identifierPolicy.validateEmail(normalizedEmail);
+            if (!userMapper.selectActiveByEmail(normalizedEmail).isEmpty()) {
+                throw new RuntimeException("该邮箱已被注册");
+            }
+        }
+        String normalizedPhone = identifierPolicy.normalizePhone(phone);
+        if (normalizedPhone != null) {
+            identifierPolicy.validatePhone(normalizedPhone);
+            if (!userMapper.selectActiveByPhone(normalizedPhone).isEmpty()) {
+                throw new RuntimeException("该手机号已被注册");
+            }
+        }
 
         // 校验用户名是否重复
-        LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<User>()
-                .eq(User::getUsername, username);
-        Long count = userMapper.selectCount(queryWrapper);
-        if (count > 0) {
+        if (!userMapper.selectActiveByUsername(username).isEmpty()) {
             throw new RuntimeException("用户名已存在");
         }
 
         User user = new User();
         user.setUsername(username);
+        user.setEmail(normalizedEmail);
+        user.setPhone(normalizedPhone);
         // 密码加密存储
         user.setPassword(passwordEncoder.encode(password));
         // 新注册用户默认为普通用户
@@ -88,23 +115,27 @@ public class UserService {
     }
 
     /**
-     * 用户登录
+     * 用户登录（v2.89 起标识可为用户名 / 邮箱 / 手机号）
      * <p>
      * v2.44 起锁定按「来源 + 账号」两个维度判定，故必须拿到可信客户端地址
      * （由 {@code ClientIpResolver} 产出，见 {@code AuthController}）。
+     * v2.89 起账号维度的键是<b>归一化后的标识</b>而不是原始输入：按原始串记键时，
+     * 交替 "Alice@X.com" / "alice@x.com" 就能把 15 次阈值摊薄到一半以下。
      *
-     * @param username 用户名
-     * @param password 明文密码
-     * @param clientIp 可信客户端地址；为空时只按账号维度判定（不把"取不到地址"当成"来自某个共享桶"）
+     * @param identifier 用户名、邮箱或手机号（形状判据见 {@link IdentifierPolicy#classify}）
+     * @param password   明文密码
+     * @param clientIp   可信客户端地址；为空时只按账号维度判定（不把"取不到地址"当成"来自某个共享桶"）
      * @return 登录结果：token、refreshToken、用户ID、用户名、昵称、头像
-     * @throws RuntimeException 用户名或密码错误 / 登录被临时锁定
+     * @throws RuntimeException 账号或密码错误 / 标识对应多个账号 / 登录被临时锁定
      */
-    public Map<String, String> login(String username, String password, String clientIp) {
-        if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
-            throw new RuntimeException("用户名和密码不能为空");
+    public Map<String, String> login(String identifier, String password, String clientIp) {
+        if (!StringUtils.hasText(identifier) || !StringUtils.hasText(password)) {
+            throw new RuntimeException("账号和密码不能为空");
         }
 
-        LoginAttemptService.LoginLockTarget usernameTarget = LoginAttemptService.LoginLockTarget.username(username);
+        IdentifierPolicy.Kind kind = identifierPolicy.classify(identifier);
+        LoginAttemptService.LoginLockTarget usernameTarget =
+                LoginAttemptService.LoginLockTarget.username(lockKeyFor(kind, identifier));
         LoginAttemptService.LoginLockTarget ipTarget = StringUtils.hasText(clientIp)
                 ? LoginAttemptService.LoginLockTarget.ip(clientIp)
                 : null;
@@ -119,18 +150,26 @@ public class UserService {
                     + (remainingLockMs / 1000 / 60 + 1) + " 分钟后再试");
         }
 
-        LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<User>()
-                .eq(User::getUsername, username);
-        User user = userMapper.selectOne(queryWrapper);
+        List<User> rows = lookupByKind(kind, identifier);
+        if (rows.isEmpty() && kind != IdentifierPolicy.Kind.USERNAME) {
+            // 形状判据只是读侧启发式，不是存量约束：库里叫 13800000000 的用户名不能因为"像手机号"就登不进来
+            rows = userMapper.selectActiveByUsername(identifier);
+        }
+        if (rows.size() > 1) {
+            // 多命中一律拒绝：LIMIT 1 挑一行等于让同标识的每行都能凭自己的口令登录，而日志里一切正常。
+            // 只在迁移 0013 未跑到（无硬唯一）的实例上可达，故此文案刻意点名的不是口令而是数据状态。
+            throw new RuntimeException("该标识对应多个账号，请改用用户名登录或联系管理员");
+        }
+        User user = rows.isEmpty() ? null : rows.get(0);
 
-        // 密码比对（用户不存在与密码错误返回同一文案，避免用户名枚举）
+        // 密码比对（标识不存在与密码错误返回同一文案，避免账号枚举）
         boolean passwordOk = user != null && passwordEncoder.matches(password, user.getPassword());
         if (!passwordOk) {
             loginAttemptService.recordFailure(usernameTarget);
             if (ipTarget != null) {
                 loginAttemptService.recordFailure(ipTarget);
             }
-            throw new RuntimeException("用户名或密码错误");
+            throw new RuntimeException("账号或密码错误");
         }
 
         // 登录成功：两个维度的失败计数一起清除
@@ -157,6 +196,31 @@ public class UserService {
             result.put("avatar", user.getAvatar());
         }
         return result;
+    }
+
+    /**
+     * 按形状选出查询列（邮箱/手机号入参先归一化，用户名按原样查——不对称的来由见 {@link IdentifierPolicy}）
+     */
+    private List<User> lookupByKind(IdentifierPolicy.Kind kind, String identifier) {
+        return switch (kind) {
+            case EMAIL -> userMapper.selectActiveByEmail(identifierPolicy.normalizeEmail(identifier));
+            case PHONE -> userMapper.selectActiveByPhone(identifierPolicy.normalizePhone(identifier));
+            case USERNAME -> userMapper.selectActiveByUsername(identifier);
+        };
+    }
+
+    /**
+     * 账号维度锁定用的键：邮箱/手机号取归一化形式，用户名取原样。
+     * <p>
+     * 兜底路径（形状判据落到用户名）也用它，判定"同一个人在重试"看的是他打的这串凭据，
+     * 不是这串凭据最终命中了哪一列。
+     */
+    private String lockKeyFor(IdentifierPolicy.Kind kind, String identifier) {
+        return switch (kind) {
+            case EMAIL -> identifierPolicy.normalizeEmail(identifier);
+            case PHONE -> identifierPolicy.normalizePhone(identifier);
+            case USERNAME -> identifier;
+        };
     }
 
     /**

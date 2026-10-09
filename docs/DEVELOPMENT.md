@@ -123,9 +123,11 @@ python scripts/check-docs.py && python scripts/check-config.py && bash -n script
 
 ```bash
 # 起实例（本机固定回环 + 8091/9091），再打冒烟
-scripts/smoke.sh              # 分节冒烟；登录失败即 exit 2
+BASE=http://127.0.0.1:8091 MGMT_BASE=http://127.0.0.1:9091 \
+  scripts/smoke.sh            # 分节冒烟；登录失败即 exit 2
 ```
 
+- **`BASE` / `MGMT_BASE` 必须显式给**（v2.89 又踩了一次）：脚本默认打 `http://127.0.0.1:8080`，本机 8080 是他人项目——传错的那一轮在 §1 就打出一行"服务不可达"后 `exit 2`，**没有任何 FAIL 行**，只看"有没有红"会把它当成"跑了但没跑好"。变量名也不是 `TARGET`/`MGMT`，写错等于没写（`exit 2` 同时是"登录失败"的出口码，所以别用退出码区分这两种情况，读第一行目标地址）。
 - 边界：不调真实外部额度、不触发归档执行；一次性冒烟账号**无法自助删除**（无注销接口），跑完要按精确主键清理。
 - **主键集合必须由外键反查得出，复核必须是反向的**（v2.69 实测教训）：按夹具名 `LIKE 'smoke%'` 枚举会漏掉中文夹具行（`冒烟助手-只改名`、`冒烟能力应用 *`），而"再数一遍我删过的那些主键"对自己的遗漏免疫——打印绿、库里留孤儿。正确做法是先按 `username LIKE 'smoke-%'` 反查各表外键取主键，删除后用 `LEFT JOIN users ON ... WHERE users.id IS NULL` 逐表复核为 0；反向判据也要先排除"合法的 NULL"（`records.session_id` 在演示种子里就是 NULL，否则反向复核自己先误报）。
 - 清理一次性账号后**审计行保留不删**，因此开发库必然留下悬空 `audit_logs.user_id` 引用——这是流程产物、不是脏数据，不必逐轮表态；判据与现状读数见手册 6.4（v2.56 口径），可读性缺口登记为候选 ㊹。
@@ -143,8 +145,9 @@ E2E_USER="$SMOKE_ADMIN_USER" E2E_PASS="$SMOKE_ADMIN_PASS"   E2E_LIVE=1 npx playw
 - 不带 `E2E_LIVE=1` 时两条真实模型流用例（工具回合 / 失败回合）**具名 SKIP**，其余照跑；SKIP 不算绿，别把它读成"全过"。
 - 会话与"专属助手/会话"夹具由 `e2e/auth.setup.ts` 自建自删（按精确 id）；**登录在限流 AUTH 档（容量 5/窗口）**，运行全程只登录两次（setup 一次 + 错误口令用例一次），逐用例各自登录会把额度打光，表现为"同一条用例时绿时不绿"。
 - **不要用 playwright 的 `E2E_START_WEB=1` 拉起 vite**（应急通道）：Windows 下该方式拉起的 dev server 跑过一轮带 WS 代理的用例后会失稳，表现为连接拒绝/列表加载失败这类**伪缺陷**；首选上面第 2 步的手动后台拉起。
-- **`VITE_PROXY_TARGET` 漏设同样是伪缺陷，而且形状更骗人**（v2.87 实测）：`vite.config.ts` 的代理默认指向 `http://localhost:8080`，本机 8080 是别人的项目 ⇒ `core` 的登录用例把凭据发给那台应用，收回 `用户名或密码错误` 的 400，读起来像"口令错了 / 限流打光了"，实际后端根本没被碰到。跑 `core` 前先用 `curl` 打一次 vite 端口的 `/api/auth/login`，确认回执里是自己的 `userId`/`token` 形状；`media` 项目不连后端，不受这条影响。
+- **`VITE_PROXY_TARGET` 漏设同样是伪缺陷，而且形状更骗人**（v2.87 实测）：`vite.config.ts` 的代理默认指向 `http://localhost:8080`，本机 8080 是别人的项目 ⇒ `core` 的登录用例把凭据发给那台应用，收回 `用户名或密码错误` 的 400（**这条文案还是一枚有用的指纹**：本服务自 v2.89 起改口「账号或密码错误」，读到旧文案就说明回执不是自己这台后端发的），读起来像"口令错了 / 限流打光了"，实际后端根本没被碰到。跑 `core` 前先用 `curl` 打一次 vite 端口的 `/api/auth/login`，确认回执里是自己的 `userId`/`token` 形状；`media` 项目不连后端，不受这条影响。
 - **`core` 一轮的后端日志不会 0 ERROR**：本机 `.env` 的 RAGFlow 是演示密钥，工作台每次拉数据集列表都刷一条 `RagflowProxyController` 401；"失败回合"用例本身就在制造模型侧 500 的 ERROR 行。引用"日志干净"这句之前先按 logger 分类，两类预期噪声不算回归。
+- **vite 起在非默认端口时，origin 必须落进 CORS 白名单**（v2.89 实测的伪缺陷）：5173 被占而 vite 退到 **5174** 时，`app.cors.allowed-origins` 只覆盖写进去的那几个 origin，浏览器带着 `Origin: http://localhost:5174` 打 `/api/**` 会在**预检阶段拿到 403**，页面表现为"请求失败"而**后端业务日志一字不写**——像登录逻辑坏了，实际请求没进应用。跑法二选一：起 vite 时钉 `--port 5173`，或给后端补 `CORS_ALLOWED_ORIGINS`（改这项要重启）。判据（真机读数：5173 回 200、5174 回 403）：`curl -s -i -X OPTIONS -H 'Origin: http://localhost:5174' -H 'Access-Control-Request-Method: POST' http://127.0.0.1:8091/api/auth/login | head -1`，不是 200 就不要去读前端。
 - 不带 `--project` 时三个 project 全跑（`setup` + `core` + `media`），其中 `core` 需要后端与打桩模型、`media` 两样都不需要——把它们混在同一次运行里，失败时先确认缺的是哪一侧的前置。
 - **`media` project（v2.87 · C-165，录音混音取证）不登录、不连后端，只要一个 vite**：
   `npm run dev -- --port 5178 --strictPort --host 127.0.0.1`（5173 在本机常被别的项目占）后

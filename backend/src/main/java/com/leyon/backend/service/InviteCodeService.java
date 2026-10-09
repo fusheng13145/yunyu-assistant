@@ -17,10 +17,11 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 注册邀请码服务（v2.37 邀请码制注册）
+ * 注册邀请码服务（v2.37 邀请码制注册；v2.89 起默认放开）
  * <p>
- * 注册开放度的第一阶段的闸门：{@code app.registration.mode=invite}（默认）时注册必须带一个
- * 未被使用的一次性码；{@code open} 时忽略邀请码（第二阶段放开注册的开关，见手册 6.7 决策 2）。
+ * 注册开放度的闸门：{@code app.registration.mode=invite} 时注册必须带一个未被使用的一次性码；
+ * 默认（{@code open}）忽略邀请码——v2.37 把它设成默认，是因为公网首阶段"谁来都能建号"不可接受；
+ * v2.89 的常规账密注册把默认改回放开，闸门降为可选运营手段（见手册 6.7 决策 2 的更正）。
  * 模式判定集中在这里，注册链路与 {@code GET /api/auth/register-config} 共用同一份，避免前后端两处判断漂移。
  *
  * @author leyon
@@ -28,9 +29,9 @@ import java.util.Set;
 @Service
 public class InviteCodeService {
 
-    /** 邀请码制注册（默认）：公网首阶段，注册成本 = 一个一次性码 */
+    /** 邀请码制注册：注册成本 = 一个一次性码（部署侧显式设 `REGISTRATION_MODE=invite` 时启用） */
     public static final String MODE_INVITE = "invite";
-    /** 开放注册：第二阶段，条件成熟后改此值并重启 */
+    /** 开放注册（v2.89 起的默认）：忽略邀请码字段 */
     public static final String MODE_OPEN = "open";
 
     /** 单次批量生成上限：防止管理员一次生成上千个码到处发 */
@@ -49,7 +50,7 @@ public class InviteCodeService {
     private final SecureRandom random = new SecureRandom();
 
     public InviteCodeService(InviteCodeMapper inviteCodeMapper,
-                             @Value("${app.registration.mode:invite}") String registrationMode) {
+                             @Value("${app.registration.mode:open}") String registrationMode) {
         this.inviteCodeMapper = inviteCodeMapper;
         this.registrationMode = registrationMode;
     }
@@ -59,6 +60,16 @@ public class InviteCodeService {
      */
     public boolean inviteRequired() {
         return !MODE_OPEN.equalsIgnoreCase(registrationMode);
+    }
+
+    /**
+     * 生效档位（v2.89 给 {@code register-config} 的文案用）
+     * <p>
+     * 由 {@link #inviteRequired()} 反推而不是回显 {@code registrationMode} 原值：写成"配置是啥就报啥"，
+     * 一个手误的 {@code REGISTRATION_MODE=Opend} 会让前端显示档位 open、后端按 invite 拦，正是本方法要防的漂移。
+     */
+    public String mode() {
+        return inviteRequired() ? MODE_INVITE : MODE_OPEN;
     }
 
     /**

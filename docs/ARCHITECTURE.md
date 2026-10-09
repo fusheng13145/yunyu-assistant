@@ -83,7 +83,7 @@ aspect/  task/  tool/ ─┘                           （切面 / 定时回收 
 
 | 组 | 表 | 组织口径 |
 |---|---|---|
-| 身份与准入 | `users` `invite_code` | 密码只存 BCrypt；邀请码是一次性凭据，**不做软删** |
+| 身份与准入 | `users` `invite_code` | 密码只存 BCrypt；邀请码是一次性凭据，**不做软删**；`users.email` / `users.phone` 自 v2.89 起是**登录凭据**，其"仅活账号参与唯一"由 VIRTUAL 生成列（`email_active` / `phone_active`）+ 唯一索引表达，不在服务层用布尔标志模拟 |
 | 配置 | `assistants` `knowledgebases` | JSON 字符串列承载列表（`knowledge_ids` / `tools`），实体内折算成对象 |
 | 会话内容 | `sessions` `records` | `records.role` 是数值枚举；检索状态折成 `knowledgebase` 对象对外 |
 | 语音 | `call_records` `outbound_calls` | 通话状态数值枚举 / 外呼状态字符串枚举；录音只存文件名，落在本地文件系统 |
@@ -104,6 +104,7 @@ aspect/  task/  tool/ ─┘                           （切面 / 定时回收 
 | 判据 | 单点 |
 |---|---|
 | 客户端地址 | `util/ClientIpResolver`（限流桶键 / 登录锁定 / 审计 IP 同源） |
+| 登录标识的形状与归一化 | `service/IdentifierPolicy`（v2.89：用户名/邮箱/手机号的判态、邮箱转小写、手机号剥分隔符、写侧格式拒绝四处都只在这一处判；**读侧宽松、写侧严格是同一单点的两条口径**，前端与控制器都不再各写一份，否则同一串标识在登录与注册会得到两个答案） |
 | 令牌是否可用 | `JwtUtil.validateAccessToken()` + `AccountCredentialService`（版本戳判定在这两处内部，不在 7 个调用点） |
 | 限流计数 | `service/RateLimitService` |
 | 开放侧拒绝计数 | `service/OpenApiDenialMeter` |

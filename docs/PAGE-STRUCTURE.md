@@ -142,12 +142,12 @@
 
 ## 9. Login.vue / Register.vue / NotFound.vue
 
-- **Login**：用户名 + 密码（可见性切换）→ `saveSession` → `router.push('/smartrobot')`；
+- **Login**：**一个"账号"输入框接受用户名 / 邮箱 / 手机号三态**（v2.89；界面文案改口，请求体字段名仍是 `username`，判态由服务端 `IdentifierPolicy` 单点做，浏览器不复制任何格式正则）+ 密码（可见性切换）→ `saveSession` → `router.push('/smartrobot')`；
   读 `route.query.reason === 'expired'` 预填"登录状态已过期"（这是 `api/auth` 不可续期时跳回来的对端）；
   错误只走行内，**不用通知**；`@keyup.enter` 与 `@submit.prevent` 双保险。
-- **Register**：是否需要邀请码由公开端点 `GET /api/auth/register-config` 探测，
-  **`inviteRequired` 默认为 `true`**（探测失败宁可多一个字段），三处文案随该开关切换；
-  校验分两步（先必填，再按顺序查两次密码一致与长度），空邀请码发 `undefined`，大小写归一在服务端。
+- **Register**：用户名 + 密码 + **邮箱 / 手机号两个选填项**（v2.89，`trim() || undefined` 上线，空串＝未填写；`canSubmit` 不含这两项，写进门禁 [17] 组）；是否需要邀请码由公开端点 `GET /api/auth/register-config` 探测，
+  **`inviteRequired` 默认为 `true`**（探测失败宁可多一个字段），三处文案随该开关切换（响应里的 `mode` 目前**无人消费**，见手册 6.6）；
+  校验分两步（先必填，再按顺序查两次密码一致与长度），空邀请码发 `undefined`，大小写与分隔符归一、格式合法性都在服务端。
   注册成功即自动登录。
 - **NotFound**：纯展示，无逻辑、无 API、甚至不渲染主题开关。
 
@@ -169,7 +169,7 @@
 | `query_end` 帧 | `{message, costTime, knowledgebase, tokenUsage}` | `utils/chatFrame.ts` |
 | `webrtc_connected` 帧 | 必须带 `callId`，否则录音无处挂靠 | 两工作台视图的通话收尾 |
 | `denials` | `{windowHours, rows[]}`，行内 `app: string \| null` | `utils/denialLedger.ts` |
-| `register-config` | `{inviteRequired}` | `Register.vue` |
+| `register-config` | `{inviteRequired, mode}`（v2.89 补 `mode`；`Register.vue` 只读 `inviteRequired`） | `Register.vue` |
 
 ## 12. 相关文档
 

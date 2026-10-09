@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
  * 认证接口单元测试
  * 覆盖：/api/auth/** 为拦截器放行路径时需自行从 Authorization 头解析用户、无令牌时拒绝、
  * 请求头凭据只认 access 令牌（C-63）、注册密码长度规则、刷新令牌的字段契约与账号存在性校验、
- * 登录交给锁定层的来源地址（v2.44）
+ * 登录交给锁定层的来源地址（v2.44）、登录标识的长度上限按三态最宽列而非用户名上限（v2.89）
  *
  * @author leyon
  */
@@ -153,35 +153,68 @@ class AuthControllerTest {
 
         assertThat(result.getCode()).isEqualTo(400);
         assertThat(result.getMessage()).contains("6");
-        verify(userService, never()).register(anyString(), anyString(), any());
+        verify(userService, never()).register(anyString(), anyString(), any(), any(), any());
     }
 
     @Test
-    void register_passesInviteCodeThroughToService() {
+    void register_passesEmailPhoneAndInviteCodeThroughToService() {
         User user = new User();
         user.setId("u-9");
         user.setUsername("alice");
         user.setRole(User.ROLE_USER);
-        when(userService.register("alice", "abc12345", "CODE123")).thenReturn(user);
+        when(userService.register("alice", "abc12345", "alice@example.com", "13800000000", "CODE123"))
+                .thenReturn(user);
         when(jwtUtil.generateToken("u-9", "alice")).thenReturn("access-token");
         when(jwtUtil.generateRefreshToken("u-9", "alice")).thenReturn("refresh-token");
 
-        ApiResponse<Map<String, String>> result = authController.register(
-                Map.of("username", "alice", "password", "abc12345", "inviteCode", "CODE123"));
+        ApiResponse<Map<String, String>> result = authController.register(Map.of(
+                "username", "alice", "password", "abc12345",
+                "email", "alice@example.com", "phone", "13800000000", "inviteCode", "CODE123"));
 
         assertThat(result.getCode()).isEqualTo(200);
         assertThat(result.getData()).containsEntry("userId", "u-9");
-        verify(userService).register("alice", "abc12345", "CODE123");
+        // 归一化与查重都在服务层，控制器只做透传：在这里顺手 trim/toLowerCase 会造出第二套判据
+        verify(userService).register("alice", "abc12345", "alice@example.com", "13800000000", "CODE123");
+    }
+
+    @Test
+    void register_withoutEmailAndPhone_passesNulls() {
+        User user = new User();
+        user.setId("u-10");
+        user.setUsername("alice");
+        user.setRole(User.ROLE_USER);
+        when(userService.register("alice", "abc12345", null, null, null)).thenReturn(user);
+
+        ApiResponse<Map<String, String>> result = authController.register(
+                Map.of("username", "alice", "password", "abc12345"));
+
+        assertThat(result.getCode()).isEqualTo(200);
+        verify(userService).register("alice", "abc12345", null, null, null);
     }
 
     @Test
     void registerConfig_reportsWhetherInviteCodeRequired() {
         when(inviteCodeService.inviteRequired()).thenReturn(true);
+        when(inviteCodeService.mode()).thenReturn(InviteCodeService.MODE_INVITE);
 
         ApiResponse<Map<String, Object>> result = authController.registerConfig();
 
         assertThat(result.getCode()).isEqualTo(200);
-        assertThat(result.getData()).containsEntry("inviteRequired", true);
+        assertThat(result.getData()).containsEntry("inviteRequired", true)
+                .containsEntry("mode", InviteCodeService.MODE_INVITE);
+    }
+
+    @Test
+    void registerConfig_modeAndInviteRequiredNeverDisagree() {
+        // 前端按 inviteRequired 决定要不要显示码框，按 mode 决定文案：两者来自同一次判定，
+        // 分成两次读取就可能出现"文案说放开、表单要码"
+        when(inviteCodeService.inviteRequired()).thenReturn(false);
+        when(inviteCodeService.mode()).thenReturn(InviteCodeService.MODE_OPEN);
+
+        ApiResponse<Map<String, Object>> result = authController.registerConfig();
+
+        assertThat(result.getData()).containsEntry("inviteRequired", false)
+                .containsEntry("mode", InviteCodeService.MODE_OPEN);
     }
 
     @Test
@@ -239,5 +272,51 @@ class AuthControllerTest {
 
         assertThat(result.getCode()).isEqualTo(200);
         verify(userService).login("alice", "abc12345", "203.0.113.7");
+    }
+
+    /**
+     * v2.89：登录输入框接受三态标识后，历史写死的"用户名 ≤32"上限会把长邮箱挡在控制器里，
+     * 而报错指向用户名——用户填的是邮箱，却被告知用户名太短/太长。上限必须容纳最宽的那一列。
+     */
+    @Test
+    void login_acceptsEmailIdentifierLongerThanUsernameBound() {
+        String longEmail = "very.long.local.part.for.identifier.login.test@example.com";
+        MockHttpServletRequest loginRequest = new MockHttpServletRequest("POST", "/api/auth/login");
+        loginRequest.setRemoteAddr("203.0.113.7");
+        when(userService.login(longEmail, "abc12345", "203.0.113.7"))
+                .thenReturn(Map.of("token", "access-token", "refreshToken", "refresh-token"));
+
+        ApiResponse<Map<String, String>> result = authController.login(
+                Map.of("username", longEmail, "password", "abc12345"), loginRequest);
+
+        assertThat(result.getCode()).isEqualTo(200);
+        verify(userService).login(longEmail, "abc12345", "203.0.113.7");
+    }
+
+    /** 超过最宽列（users.email VARCHAR(100)）的标识不可能命中任何行，按"账号"而非"用户名"报错 */
+    @Test
+    void login_rejectsIdentifierLongerThanWidestColumn() {
+        MockHttpServletRequest loginRequest = new MockHttpServletRequest("POST", "/api/auth/login");
+        loginRequest.setRemoteAddr("203.0.113.7");
+
+        ApiResponse<Map<String, String>> result = authController.login(
+                Map.of("username", "a".repeat(101), "password", "abc12345"), loginRequest);
+
+        assertThat(result.getCode()).isEqualTo(400);
+        assertThat(result.getMessage()).contains("账号").doesNotContain("用户名");
+        verify(userService, never()).login(anyString(), anyString(), anyString());
+    }
+
+    /** 同一个输入框现在接受三态标识，提示文案不能再自称"用户名"（与 UserService 的"账号和密码不能为空"同口径） */
+    @Test
+    void login_withoutIdentifier_saysAccountNotUsername() {
+        MockHttpServletRequest loginRequest = new MockHttpServletRequest("POST", "/api/auth/login");
+        loginRequest.setRemoteAddr("203.0.113.7");
+
+        ApiResponse<Map<String, String>> result = authController.login(
+                Map.of("password", "abc12345"), loginRequest);
+
+        assertThat(result.getCode()).isEqualTo(400);
+        assertThat(result.getMessage()).isEqualTo("账号不能为空");
     }
 }

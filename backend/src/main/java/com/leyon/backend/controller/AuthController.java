@@ -44,6 +44,12 @@ public class AuthController {
             "^(?=.*[a-zA-Z])(?=.*\\d).{6,}$"
     );
 
+    /**
+     * 登录标识的长度上限取三态里最宽的那一列（{@code users.email VARCHAR(100)}），而不是用户名的 32：
+     * 上限比列窄会把合法邮箱拦在控制器里并报"用户名太长"，比列宽则只多一次注定落空的查询。
+     */
+    private static final int MAX_LOGIN_IDENTIFIER_LENGTH = 100;
+
     public AuthController(UserService userService, JwtUtil jwtUtil, TokenBlacklistService tokenBlacklistService,
                           InviteCodeService inviteCodeService, ClientIpResolver clientIpResolver) {
         this.userService = userService;
@@ -54,18 +60,20 @@ public class AuthController {
     }
 
     /**
-     * 注册前置配置：前端注册页据此决定是否显示邀请码输入框
-     * 与注册链路共用 {@link InviteCodeService#inviteRequired()}，避免"表单要填但后端不校验"的漂移
+     * 注册前置配置：前端注册页据此决定邀请码输入框与文案
+     * 两个字段来自同一次 {@link InviteCodeService} 判定，避免"文案说放开、表单要码"的漂移；
+     * 邮箱/手机号是常规注册的可选项、不是档位（没有找回通道，强制填邮箱换不到任何运维收益）
      */
     @GetMapping("/register-config")
     public ApiResponse<Map<String, Object>> registerConfig() {
         Map<String, Object> data = new java.util.HashMap<>();
         data.put("inviteRequired", inviteCodeService.inviteRequired());
+        data.put("mode", inviteCodeService.mode());
         return ApiResponse.success(data);
     }
 
     /**
-     * 用户注册
+     * 用户注册（v2.89 起可带邮箱/手机号，二者皆可选）
      */
     @PostMapping("/register")
     public ApiResponse<Map<String, String>> register(@RequestBody Map<String, String> body) {
@@ -94,7 +102,8 @@ public class AuthController {
             return ApiResponse.paramError("密码必须至少包含一个字母和一个数字，长度不少于6位");
         }
 
-        User user = userService.register(username, password, body.get("inviteCode"));
+        User user = userService.register(username, password, body.get("email"), body.get("phone"),
+                body.get("inviteCode"));
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
         String refreshToken = jwtUtil.generateRefreshToken(user.getId(), user.getUsername());
         Map<String, String> result = new java.util.HashMap<>();
@@ -108,6 +117,7 @@ public class AuthController {
 
     /**
      * 用户登录
+     * 请求体字段名仍是 username（v2.89 起其值可为用户名、邮箱或手机号，路由由服务端按形状判定）
      */
     @Audit(action = "LOGIN", targetType = "user")
     @PostMapping("/login")
@@ -119,15 +129,15 @@ public class AuthController {
         }
         String password = body.get("password");
 
-        // 参数校验
+        // 参数校验（"账号"＝用户名/邮箱/手机号三者之一，判态由 UserService 负责）
         if (!StringUtils.hasText(username)) {
-            return ApiResponse.paramError("用户名不能为空");
+            return ApiResponse.paramError("账号不能为空");
         }
         if (!StringUtils.hasText(password)) {
             return ApiResponse.paramError("密码不能为空");
         }
-        if (username.length() > 32) {
-            return ApiResponse.paramError("用户名长度不能超过32个字符");
+        if (username.length() > MAX_LOGIN_IDENTIFIER_LENGTH) {
+            return ApiResponse.paramError("账号长度不能超过" + MAX_LOGIN_IDENTIFIER_LENGTH + "个字符");
         }
         if (password.length() > 128) {
             return ApiResponse.paramError("密码长度不能超过128个字符");

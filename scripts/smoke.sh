@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# 云谕助手 —— 接口冒烟（v2.69）
+# 云谕助手 —— 接口冒烟（v2.89）
 #
 # 用途：对"已经跑起来"的实例打一遍关键 HTTP 链路。单测只能证明方法行为，
 #       拦截器顺序、序列化、路由、限流与握手这些只有真进程才暴露的问题靠这里。
@@ -24,8 +24,9 @@
 #   SMOKE_USER      已存在的用户名；留空则注册一次性账号
 #   SMOKE_PASS      配合 SMOKE_USER；留空则用随机口令
 #   SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS   提供时才跑第 8 节管理端只读检查与 §7.10 的跨账号/审计断言
-#   SMOKE_INVITE_CODE  邀请码注册模式（REGISTRATION_MODE=invite，默认）下自建一次性账号所需的码；
-#                      未提供但有管理员凭据时，脚本会自己调 /api/admin/invite-codes 发一个并用掉
+#   SMOKE_INVITE_CODE  邀请码注册模式（REGISTRATION_MODE=invite）下自建一次性账号所需的码；
+#                      v2.89 起默认档位是 open（不需要码），脚本按 §2 读到的 register-config 实况分支、不猜模式；
+#                      未提供码但给了 SMOKE_ADMIN_USER/PASS 时，脚本自己调 /api/admin/invite-codes 发一个并用掉
 #   SMOKE_ORIGIN    正式部署的站点来源（如 https://yunyu.example.com）；用于校验 WS 跨域白名单
 #   SMOKE_MODEL     创建助手使用的模型 id，默认 qwen-turbo
 #   SMOKE_WS_CHAT=1 放行 §7.2 的真实回合（发一条真消息、占一条消息配额、可能真烧外部额度）；
@@ -226,6 +227,21 @@ want_param() {
     esac
 }
 
+# want_reject <描述> <原因子串>：服务层拒绝的真实形状＝HTTP 400 + 业务码 400 + message 点名原因。
+# 与 want_param 的差别只在 HTTP 码：want_param 打的是控制器 return ApiResponse.paramError(...)
+# （200 + code 400），want_reject 打的是 service 抛出的异常经全局兜底（400 + code 400，见手册 4.4）。
+# 两者混用会让"谁拒的"这一层信息丢失——v2.89 的多标识断言必须能区分控制器长度闸门与库端查重。
+want_reject() {
+    if [ "$STATUS" = "429" ]; then skip "$1" '触发限流（AUTH 桶）⇒ 本轮不判该拒绝'; return 1; fi
+    if [ "$STATUS" != "400" ]; then bad "$1" "期望 HTTP 400，实际 $(detail)"; return 1; fi
+    if [ "$(jget code)" != "400" ]; then bad "$1" "期望业务码 400，实际 $(detail)"; return 1; fi
+    local msg; msg="$(jget message)"
+    case "$msg" in
+        *"$2"*) ok "$1 — 原因：$msg" ;;
+        *) bad "$1" "原因里没有「$2」— $msg" ;;
+    esac
+}
+
 mgmt_req '/actuator/health'
 if [ "$STATUS" = "000" ]; then
     echo "服务不可达：$MGMT_BASE/actuator/health —— 后端没启动，还是端口/地址不对？"
@@ -237,6 +253,9 @@ REFRESH_TOKEN=""
 USER_NAME=""
 ASSISTANT_ID=""
 SESSION_ID=""
+# §2.6 的多标识夹具：只有"本轮注册一次性账号"那条分支会赋值；复用已有账号（SMOKE_USER）时为空
+ID_EMAIL=""
+ID_PHONE=""
 
 # ---------- 1. 运维探针与对外暴露面 ----------
 section '1. 运维探针与暴露面（actuator）'
@@ -301,6 +320,11 @@ if [ -n "${SMOKE_USER:-}" ]; then
 else
     USER_NAME="smoke-$(date +%m%d%H%M%S)-$$"
     USER_PASS="Sm$RANDOM$RANDOM-x1"
+    # 一次性账号自带邮箱与手机号（v2.89）：§2.6 要用它们登录，且值必须每轮唯一——
+    # 唯一性由库端唯一索引（迁移 0013）与服务层查重共同保证，复用上一轮的值会让本轮直接 400。
+    # 手机号取 13 + mmddHHMMSS（12 位，落在 7~15 位形状窗内），不取真实号段：这里只验形状与查重。
+    ID_EMAIL="smoke-id-$USER_NAME@example.com"
+    ID_PHONE="13$(date +%m%d%H%M%S)"
     if [ "$INVITE_MODE" = "1" ]; then
         INVITE_CODE="${SMOKE_INVITE_CODE:-}"
         # 没预置码就自己发一个：发码走管理端（不计 AUTH 桶），且这个码会被下面的正常注册用掉，
@@ -323,9 +347,11 @@ else
         # 闸门实况：缺码必须被拒；且拒绝发生在领取之前 —— 下一步同码注册成功即为"码没被烧掉"的证据
         req_auth POST /api/auth/register '' "$(json username "smoke-nocode-$$" password "$USER_PASS")"
         want_status '邀请码模式：缺码注册 → 400（同码随后仍可用 ⇒ 判定未被提前消费）' 400 400
-        req_auth POST /api/auth/register '' "$(json username "$USER_NAME" password "$USER_PASS" inviteCode "$INVITE_CODE")"
+        req_auth POST /api/auth/register '' "$(json username "$USER_NAME" password "$USER_PASS" \
+            email "$ID_EMAIL" phone "$ID_PHONE" inviteCode "$INVITE_CODE")"
     else
-        req_auth POST /api/auth/register '' "$(json username "$USER_NAME" password "$USER_PASS")"
+        req_auth POST /api/auth/register '' "$(json username "$USER_NAME" password "$USER_PASS" \
+            email "$ID_EMAIL" phone "$ID_PHONE")"
     fi
     if api_ok "POST /api/auth/register（一次性账号 $USER_NAME）"; then
         TOKEN="$(jget data.token)"; REFRESH_TOKEN="$(jget data.refreshToken)"
@@ -392,6 +418,46 @@ b64url() { printf '%s' "$1" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '='; }
 FORGED="$(b64url '{"alg":"none","typ":"JWT"}').$(b64url "{\"sub\":\"00000000-0000-0000-0000-000000000000\",\"exp\":$(( $(date +%s) + 3600 ))}")."
 req GET /api/assistants "$FORGED"
 want_status 'alg=none 自造令牌 → 401' 401 401
+
+# ---------- 2.6 多标识登录与注册形状（v2.89 · C-170/C-171） ----------
+# 三态标识的形状判据在 service 层（IdentifierPolicy），本节要证明的是另一件事：
+# 打真接口、走真库时，"邮箱/手机号也能当账号用"这条链路端到端成立——读侧归一（大小写、分隔符）
+# 发生在查列之前，写侧的形状与重复拒绝发生在邀请码领取之前（顺序错了就会白烧一个码）。
+# 缺迁移 0013 时本节仍应全绿：服务层查重本来就存在，0013 补的是并发下的库端硬保证（手册 5.4）。
+# 放在 §2 末尾而不是新起编号段：它依赖 §2 注册分支造出的夹具，且 §10 之前认证桶还剩名额可等。
+section '2.6 多标识登录与注册形状'
+if [ -z "$ID_EMAIL" ] || [ -z "$ID_PHONE" ]; then
+    skip '2.6 多标识登录与注册形状（整节）' 'SMOKE_USER 复用已有账号：本轮没注册带邮箱/手机号的一次性账号，三态夹具无从构造（要跑本节请留空 SMOKE_USER）'
+else
+    # 邮箱按大写提交：库里存的是注册时归一化后的小写值，"大小写不敏感"只有从登录这条路才看得见
+    req_auth POST /api/auth/login '' "$(json username "${ID_EMAIL^^}" password "$USER_PASS")"
+    if api_ok 'POST /api/auth/login（邮箱标识登录，输入与库内大小写不同）'; then
+        # 必须真发出会话令牌：路由到 email 列后若漏了发牌出口，前端会拿到 200 空令牌并在下一跳 401
+        [ -n "$(jget data.token)" ] && ok '邮箱登录发出会话令牌（三态共用同一个发牌出口）' \
+            || bad '邮箱登录 200 但没有 token' "$(detail)"
+    fi
+    # 手机号按"1310 0922-3344"这种带空格与连字符的写法提交：读侧要先剥离分隔符才查得到列
+    ID_PHONE_SEP="${ID_PHONE:0:4} ${ID_PHONE:4:4}-${ID_PHONE:8}"
+    req_auth POST /api/auth/login '' "$(json username "$ID_PHONE_SEP" password "$USER_PASS")"
+    api_ok "POST /api/auth/login（手机号标识登录，输入带空格与连字符：$ID_PHONE_SEP）"
+    # 负向：走邮箱路径但口令错，文案必须仍是"账号或密码错误"。这条的价值是反枚举在**新路由**上同样成立——
+    # 若邮箱分支单独写一句"邮箱不存在"，就等价于把"哪些邮箱注册过"变成了公开信息
+    req_auth POST /api/auth/login '' "$(json username "$ID_EMAIL" password 'WrongPass-9999-not-mine')"
+    want_reject '错误口令走邮箱标识 → 与用户名标识同一句反枚举文案' '账号或密码错误'
+    # 写侧不变量①：用户名不得占用邮箱形状。库里同一串标识符若同时命中用户名与邮箱两列，
+    # 登录只能选一行，另一行的账号永远登不进来——拒绝必须发生在注册时，而不是等读侧去猜
+    req_auth POST /api/auth/register '' "$(json username "smoke-shape-$$@example.com" password "$USER_PASS")"
+    want_reject '邮箱形状的用户名 → 注册被拒（读写判据互斥）' '用户名不能是邮箱形状'
+    # 写侧不变量②：格式拒绝先于查重、也先于邀请码领取（§2 的同码重放断言在另一侧证明码没被提前消费）
+    req_auth POST /api/auth/register '' "$(json username "smoke-badmail-$$" password "$USER_PASS" email 'not-an-email')"
+    want_reject '非法邮箱 → 注册被拒且点名邮箱' '邮箱格式不正确'
+    # 写侧不变量③：查重按归一化值而不是原始字符串。用大写提交同一个已注册邮箱，
+    # 若代码比的是 raw 串，这里会注册成功并留下两行"看起来相同"的账号
+    req_auth POST /api/auth/register '' "$(json username "smoke-dupmail-$$" password "$USER_PASS" email "${ID_EMAIL^^}")"
+    want_reject '同一邮箱换大小写重注册 → 拒绝（查重发生在归一化之后）' '该邮箱已被注册'
+    req_auth POST /api/auth/register '' "$(json username "smoke-dupphone-$$" password "$USER_PASS" phone "$ID_PHONE_SEP")"
+    want_reject '同一手机号换分隔符写法重注册 → 拒绝' '该手机号已被注册'
+fi
 
 # ---------- 3. 助手 CRUD（写后读一致） ----------
 section '3. 助手 CRUD'
@@ -1449,8 +1515,8 @@ while [ "$i" -lt 8 ] && [ "$AUTH_429" = "0" ]; do
         400) AUTH_ALLOWS=$((AUTH_ALLOWS + 1))
              if [ "$AUTH_SHAPE_CHECKED" = "0" ]; then
                  AUTH_SHAPE_CHECKED=1
-                 [ "$(jget message)" = '用户名或密码错误' ] \
-                     && ok '错误口令 → HTTP 400 + 反枚举文案（不区分用户名/密码，避免用户名枚举）' \
+                 [ "$(jget message)" = '账号或密码错误' ] \
+                     && ok '错误口令 → HTTP 400 + 反枚举文案（不区分账号是否存在，避免用户名枚举）' \
                      || bad '错误口令响应文案漂移' "$(detail)"
              fi ;;
         *) bad '错误口令登录应 HTTP 400（项目兜底）' "$(detail)" ;;

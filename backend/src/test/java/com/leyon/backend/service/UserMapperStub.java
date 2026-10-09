@@ -102,6 +102,21 @@ abstract class UserMapperStub implements UserMapper {
     }
 
     @Override
+    public List<User> selectActiveByUsername(String username) {
+        throw unused("selectActiveByUsername");
+    }
+
+    @Override
+    public List<User> selectActiveByEmail(String email) {
+        throw unused("selectActiveByEmail");
+    }
+
+    @Override
+    public List<User> selectActiveByPhone(String phone) {
+        throw unused("selectActiveByPhone");
+    }
+
+    @Override
     public List<User> selectList(Wrapper<User> queryWrapper) {
         throw unused("selectList");
     }

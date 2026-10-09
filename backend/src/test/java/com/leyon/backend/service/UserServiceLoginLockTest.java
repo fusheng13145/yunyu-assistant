@@ -15,11 +15,12 @@ import org.mockito.quality.Strictness;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.lang.reflect.Field;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 /**
@@ -61,8 +62,9 @@ class UserServiceLoginLockTest {
         user.setUsername("alice");
         user.setPassword(new BCryptPasswordEncoder().encode(PASSWORD));
 
-        userService = new UserService(userMapper, jwtUtil, attemptService, inviteCodeService);
-        when(userMapper.selectOne(any())).thenReturn(user);
+        userService = new UserService(userMapper, jwtUtil, attemptService, inviteCodeService,
+                new IdentifierPolicy());
+        when(userMapper.selectActiveByUsername(anyString())).thenReturn(List.of(user));
     }
 
     private Map<String, String> login(String username, String password, String clientIp) {
@@ -75,7 +77,7 @@ class UserServiceLoginLockTest {
             String username = "victim" + i;
             assertThatThrownBy(() -> login(username, "wrongpass", clientIp))
                     .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("用户名或密码错误");
+                    .hasMessageContaining("账号或密码错误");
         }
     }
 
@@ -85,7 +87,7 @@ class UserServiceLoginLockTest {
             String clientIp = "203.0.113." + (firstOctetTail + i);
             assertThatThrownBy(() -> login(username, "wrongpass", clientIp))
                     .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("用户名或密码错误");
+                    .hasMessageContaining("账号或密码错误");
         }
     }
 
