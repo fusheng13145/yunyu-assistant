@@ -23,7 +23,9 @@
 #   MGMT_BASE       管理端口地址，默认同 BASE（MANAGEMENT_SERVER_PORT 独立时改为 http://127.0.0.1:9080）
 #   SMOKE_USER      已存在的用户名；留空则注册一次性账号
 #   SMOKE_PASS      配合 SMOKE_USER；留空则用随机口令
-#   SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS   提供时才跑第 8 节管理端只读检查与 §7.10 的跨账号/审计断言
+#   SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS   提供时才跑第 8 节管理端只读检查与 §7.10 的跨账号/审计断言；
+#                      v2.90 起 §2.7 也依赖它——邀请码模式下并发两发各需一个**不同**的码（自造 2 个），
+#                      而"库里只有一行活账号"那条要管理令牌；两者都缺时对应条目转具名 SKIP 而不是判绿
 #   SMOKE_INVITE_CODE  邀请码注册模式（REGISTRATION_MODE=invite）下自建一次性账号所需的码；
 #                      v2.89 起默认档位是 open（不需要码），脚本按 §2 读到的 register-config 实况分支、不猜模式；
 #                      未提供码但给了 SMOKE_ADMIN_USER/PASS 时，脚本自己调 /api/admin/invite-codes 发一个并用掉
@@ -55,7 +57,9 @@ BODY_FILE="$(mktemp)"
 HDR_FILE="$(mktemp)"
 DATA_FILE="$(mktemp)"
 WS_FRAME_FILE="$(mktemp --suffix=.mjs)"   # 必须带扩展名：node 对无扩展名的临时文件按 ESM 探测后抛 ERR_UNKNOWN_FILE_EXTENSION，探针零输出会让 §7.2 整节判成"探针没跑成"（v2.88 本机 node v24.15.0 实测；2026-10-01 的旧 node 下同一行是绿的）
-trap 'rm -f "$BODY_FILE" "$HDR_FILE" "$DATA_FILE" "$WS_FRAME_FILE"' EXIT
+# §2.7 并发两发的产物目录：两条请求同时跑，STATUS/BODY 这类全局变量会被互相覆盖，只能各落一份文件
+RACE_DIR=""
+trap 'rm -f "$BODY_FILE" "$HDR_FILE" "$DATA_FILE" "$WS_FRAME_FILE"; [ -n "$RACE_DIR" ] && rm -rf "$RACE_DIR"' EXIT
 
 PASS=0
 FAIL=0
@@ -139,6 +143,29 @@ req_auth() {
     done
 }
 
+# fire <tag> <METHOD> <PATH> <JSON_BODY>：§2.7 的并发一发，产物落 $RACE_DIR/<tag>.{status,body,hdr}
+# 与 req 的唯一差别是"不写全局变量"：STATUS/BODY 是全局的，两条请求同时跑会被后完成的那条覆盖，
+# "恰好一个成功"就会读到两个相同值——真实缺陷被读成绿，比不测更糟。
+fire() {
+    local tag="$1" method="$2" path="$3" data="$4"
+    printf '%s' "${data%$'\r'}" > "$RACE_DIR/$tag.req"
+    curl -sS --max-time "$TIMEOUT" -X "$method" -o "$RACE_DIR/$tag.body" \
+        -D "$RACE_DIR/$tag.hdr" -w '%{http_code}' \
+        -H 'Accept: application/json' -H 'Content-Type: application/json' \
+        --data-binary "@$RACE_DIR/$tag.req" "$BASE$path" > "$RACE_DIR/$tag.status" 2>/dev/null \
+        || printf '000' > "$RACE_DIR/$tag.status"
+    rm -f "$RACE_DIR/$tag.req"
+}
+
+# pair_read <tag> <dotted.path>：读并发某一发的字段
+pair_read() { jget_file "$RACE_DIR/$1.body" "$2"; }
+
+# pair_detail <tag>：并发某一发的失败说明（HTTP / code / message）
+pair_detail() {
+    printf 'HTTP %s / code=%s / %s' "$(cat "$RACE_DIR/$1.status" 2>/dev/null)" \
+        "$(pair_read "$1" code)" "$(pair_read "$1" message)"
+}
+
 mgmt_req() {
     STATUS="$(curl -sS --max-time "$TIMEOUT" -o "$BODY_FILE" -w '%{http_code}' "$MGMT_BASE$1" 2>/dev/null)" || STATUS="000"
     BODY="$(tr -d '\0' <"$BODY_FILE" 2>/dev/null)" || BODY=""
@@ -162,9 +189,10 @@ req_ct() {
 # 响应头取值（大小写不敏感）：hdr <名称>
 hdr() { grep -i "^$1:" "$HDR_FILE" 2>/dev/null | head -1 | tr -d '\r' | sed 's/^[^:]*: *//'; }
 
-# jget <dotted.path>：读最后一次响应里的字段（数组用数字下标）；缺失/null/False 一律输出空串
+# jget_file <响应体文件> <dotted.path>：读**指定**响应里的字段（数组用数字下标）；缺失/null/False 一律输出空串
+# §2.7 的并发两发各有一份响应体，不能用只认 $BODY_FILE 的 jget
 if [ "$FLAVOR" = python ]; then
-    jget() { "$INTERP" -c 'import json,sys
+    jget_file() { "$INTERP" -c 'import json,sys
 try: sys.stdout.reconfigure(encoding="utf-8")
 except Exception: pass
 try:
@@ -180,16 +208,18 @@ for key in sys.argv[1].split("."):
 if node is None or node is False or node == "":
     print("")
 else:
-    print(node if isinstance(node, str) else json.dumps(node, ensure_ascii=False))' "$1" "$BODY_FILE"; }
+    print(node if isinstance(node, str) else json.dumps(node, ensure_ascii=False))' "$2" "$1"; }
 else
-    jget() { "$INTERP" -e 'const fs=require("fs");let d;
+    jget_file() { "$INTERP" -e 'const fs=require("fs");let d;
 try{d=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));}catch(e){d=null;}
 for(const k of process.argv[1].split(".")){
   try{d=Array.isArray(d)?d[Number(k)]:(d&&typeof d==="object"?d[k]:undefined);}catch(e){d=undefined;break;}
 }
 if(d===undefined||d===null||d===false||d===""){console.log("");}
-else{console.log(typeof d==="string"?d:JSON.stringify(d));}' "$1" "$BODY_FILE"; }
+else{console.log(typeof d==="string"?d:JSON.stringify(d));}' "$2" "$1"; }
 fi
+
+jget() { jget_file "$BODY_FILE" "$1"; }
 
 detail() {
     local msg
@@ -457,6 +487,123 @@ else
     want_reject '同一邮箱换大小写重注册 → 拒绝（查重发生在归一化之后）' '该邮箱已被注册'
     req_auth POST /api/auth/register '' "$(json username "smoke-dupphone-$$" password "$USER_PASS" phone "$ID_PHONE_SEP")"
     want_reject '同一手机号换分隔符写法重注册 → 拒绝' '该手机号已被注册'
+fi
+
+# ---------- 2.7 并发双注册：库端兜底的对外形状（v2.90 · C-174/C-175） ----------
+# §2.6 的查重是"先查后插"。两个人同时注册同一个邮箱时，两边都能通过查重，最终由迁移 0013 的
+# uk_users_email_active 撞死。本节断言的不是"索引有没有兜住"（那是 UserServiceRegisterIdentifierTest
+# 与 check-registries [18] 的判据），而是兜住之后**用户看到什么**：
+#   ① 恰好一个成功；② 失败方是 HTTP 400 + code 400 + 「该邮箱已被注册」——既不能是脱敏兜底的
+#   「请求处理失败」（那说明 1062 没人翻译），也不能带出索引名/SQL 原文（那是 GlobalExceptionHandler
+#   的脱敏护栏在被绕过）。前置查重与库端兜底对用户必须不可区分，这正是翻译的全部意义。
+# 本节的鉴别力分工：两个都成功 ⇒ 索引没生效（缺 0013 的实例会在这里红）；失败方文案是通用兜底 ⇒
+# 翻译失效。但**竞态是否真的走到索引**由时序决定（本机实测两条路都出现过，注册里 BCrypt 在查重之后，
+# 约 100ms 的重叠窗口），所以"文案友好"这一半在多数轮里由前置查重满足——真正的翻译判据在单测与门禁。
+# AUTH 桶 5 次/分钟：本节要 3 个名额（两发 + 不烧码那发），所以先睡满 61 秒清窗，与 §10 同一手法。
+section '2.7 并发双注册的拒绝形状（库端兜底不外泄）'
+if [ -z "$ID_EMAIL" ] || [ -z "$ID_PHONE" ]; then
+    skip '2.7 并发双注册（整节）' 'SMOKE_USER 复用已有账号：本轮没有可自由支配的一次性夹具，同邮箱双发无从构造'
+else
+    RACE_TAG="${USER_NAME#smoke-}"        # 与 §2 的账号同源（月日时分秒-PID），保证本轮唯一
+    RACE_EMAIL="smoke-race-$RACE_TAG@example.com"
+    RACE_UN_A="smoke-r-$RACE_TAG-a"
+    RACE_UN_B="smoke-r-$RACE_TAG-b"
+    RACE_DIR="$(mktemp -d)"
+    RACE_CODE_A=""; RACE_CODE_B=""
+    # 管理令牌在本节有两个用途：邀请码模式下自造 2 个码、以及"库端真值"那条断言（两种模式都该跑，
+    # 后者是响应形状之外的第二证据，没有理由只在 invite 档可得）。静默懒取：它排在 61 秒清窗之前，
+    # 不占本节两发的 AUTH 名额；取不到就让那条断言具名 SKIP，而不是把整节读成红。
+    if [ -z "$ADMIN_TOKEN" ] && [ -n "${SMOKE_ADMIN_USER:-}" ]; then
+        req_auth POST /api/auth/login '' "$(json username "$SMOKE_ADMIN_USER" password "${SMOKE_ADMIN_PASS:-}")"
+        [ "$STATUS" = "200" ] && ADMIN_TOKEN="$(jget data.token)"
+    fi
+    if [ "$INVITE_MODE" = "1" ]; then
+        # 两个不同主体的并发注册在邀请码模式下要两个码；发码走管理端（不占 AUTH 桶），
+        # 拿不到码就整节 SKIP——用同一个码并发只会先撞上"码已被使用"，测不到邮箱那条路
+        if [ -n "$ADMIN_TOKEN" ]; then
+            req POST /api/admin/invite-codes "$ADMIN_TOKEN" "$(json count 2)"
+            if api_ok 'POST /api/admin/invite-codes（本次竞态自造 2 个码）'; then
+                RACE_CODE_A="$(jget data.codes.0)"
+                RACE_CODE_B="$(jget data.codes.1)"
+            fi
+        fi
+    fi
+    if [ "$INVITE_MODE" = "1" ] && { [ -z "$RACE_CODE_A" ] || [ -z "$RACE_CODE_B" ]; }; then
+        skip '2.7 并发双注册（整节）' '邀请码模式下拿不到两个可用码（未提供 SMOKE_ADMIN_USER/SMOKE_ADMIN_PASS）：同码双发只会撞码，测不到邮箱那条路'
+    else
+        printf '        …等待 61 秒让 AUTH 滑动窗口清空（本节的并发两发必须同时被放行，否则测的是限流不是竞态）\n'
+        sleep 61
+        RACE_ARGS=(username "$RACE_UN_A" password "$USER_PASS" email "$RACE_EMAIL")
+        RACE_ARGS_B=(username "$RACE_UN_B" password "$USER_PASS" email "$RACE_EMAIL")
+        if [ "$INVITE_MODE" = "1" ]; then
+            # 开放模式不带 inviteCode：空串虽被服务端忽略，但"请求体里有一个空凭据字段"会让本节的
+            # 读数与真实前端形状不一致（前端在 open 下根本不渲染这个输入框）
+            RACE_ARGS+=(inviteCode "$RACE_CODE_A")
+            RACE_ARGS_B+=(inviteCode "$RACE_CODE_B")
+        fi
+        fire a POST /api/auth/register "$(json "${RACE_ARGS[@]}")" &
+        fire b POST /api/auth/register "$(json "${RACE_ARGS_B[@]}")" &
+        wait
+        SA="$(tr -d '\r' <"$RACE_DIR/a.status" 2>/dev/null)"
+        SB="$(tr -d '\r' <"$RACE_DIR/b.status" 2>/dev/null)"
+        if [ "$SA" = "429" ] || [ "$SB" = "429" ] || [ "$SA" = "000" ] || [ "$SB" = "000" ]; then
+            skip '2.7 并发双注册（整节）' "清窗后仍被限流或不可达（A=$SA B=$SB）⇒ 同来源有别的流量在占 AUTH 桶，本轮两发没能同时放行"
+        else
+            ONES=0
+            [ "$SA" = "200" ] && ONES=$((ONES + 1))
+            [ "$SB" = "200" ] && ONES=$((ONES + 1))
+            if [ "$ONES" != "1" ]; then
+                bad '同一邮箱并发双注册：恰好一个成功' "A=$SA B=$SB（成功 $ONES 个）—— 两个都 200 ⇒ 迁移 0013 的唯一索引没生效，库里会长出两行同邮箱活账号；零个 ⇒ 竞态之外的另一条错"
+            else
+                ok '同一邮箱并发双注册：恰好一个成功（另一发被拒）'
+                if [ "$SA" = "200" ]; then WINNER=a; LOSER=b; else WINNER=b; LOSER=a; fi
+                [ -n "$(pair_read "$WINNER" data.token)" ] \
+                    && ok '胜者拿到会话令牌（并发不影响发牌出口）' \
+                    || bad "胜者（$WINNER）200 但没有 token" "$(pair_detail "$WINNER")"
+                if [ "$(pair_read "$LOSER" code)" = "400" ]; then
+                    ok '失败方业务码为 400（服务层拒绝，与 §2.6 同一形状）'
+                else
+                    bad '失败方业务码应为 400' "$(pair_detail "$LOSER")"
+                fi
+                LOSER_MSG="$(pair_read "$LOSER" message)"
+                LOSER_BODY="$(tr -d '\0' <"$RACE_DIR/$LOSER.body" 2>/dev/null)"
+                case "$LOSER_MSG" in
+                    *"该邮箱已被注册"*) ok "失败方点名撞的是邮箱 — 原因：$LOSER_MSG" ;;
+                    *) bad '失败方文案未点名邮箱' "$(pair_detail "$LOSER")" ;;
+                esac
+                # 反向锚点：这句文案必须是"业务拒绝"而不是全局兜底的通用文案或 DB 原文。
+                # 「请求处理失败」＝ 1062 没被翻译（脱敏护栏把 DB 错误咽了，用户不知道换哪个字段）；
+                # 索引名/SQL 片段 = 护栏被绕过（把库内结构泄露给未认证调用方，属另一种缺陷）
+                case "$LOSER_BODY" in
+                    *"请求处理失败"*) bad '失败方落进脱敏兜底' '文案是「请求处理失败」⇒ DuplicateKeyException 没有被翻译回业务拒绝' ;;
+                    *uk_users_email_active*|*"Duplicate entry"*|*"DuplicateKey"*|*INSERT*) bad '失败方响应体带出 DB 文本' "$(printf '%s' "$LOSER_BODY" | head -c 160)" ;;
+                    *) ok '失败方响应体不含 DB 文本，也不是脱敏兜底的通用文案' ;;
+                esac
+                if [ -n "$ADMIN_TOKEN" ]; then
+                    # 库端真值：两条用户名都能被 keyword 扫到，只应出现一行。
+                    # 这是"响应形状"之外的第二证据——失败方没留下半行残渣（@Transactional 回滚生效）
+                    req GET "/api/admin/users?page=1&pageSize=50&keyword=$(urlenc "smoke-r-$RACE_TAG")" "$ADMIN_TOKEN"
+                    if api_ok 'GET /api/admin/users（按竞态用户名前缀查库端真值）'; then
+                        RACE_ROWS="$(jget data.total)"
+                        [ "$RACE_ROWS" = "1" ] \
+                            && ok '库里该邮箱只有 1 行活账号（失败方整轮回滚，无残渣）' \
+                            || bad '并发双注册的库端行数应为 1' "实际 $RACE_ROWS 行"
+                    fi
+                else
+                    skip '库里该邮箱只有 1 行活账号' '没有管理令牌（未提供 SMOKE_ADMIN_USER/SMOKE_ADMIN_PASS，或那次登录没返回 200）：读不到 /api/admin/users，本节只能断言响应形状'
+                fi
+                if [ "$INVITE_MODE" = "1" ]; then
+                    # 不烧码在竞态下的延伸：失败方那个码应仍可用（claim 与 insert 同事务，回滚必须撤销领取）。
+                    # 用行为而不是台账证明——换一个全新用户名拿它注册，成功即证明码没有被消费
+                    LOSE_CODE="$RACE_CODE_A"; [ "$LOSER" = "b" ] && LOSE_CODE="$RACE_CODE_B"
+                    req_auth POST /api/auth/register '' "$(json username "smoke-carry-$RACE_TAG" password "$USER_PASS" inviteCode "$LOSE_CODE")"
+                    want_status '失败方的邀请码随回滚退还可再用（竞态下不烧码）' 200 200
+                else
+                    skip '失败方的邀请码随回滚退还可再用' '开放注册模式（REGISTRATION_MODE=open）：本轮没有码可退，不烧码无从取证'
+                fi
+            fi
+        fi
+    fi
 fi
 
 # ---------- 3. 助手 CRUD（写后读一致） ----------

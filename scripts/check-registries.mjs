@@ -957,5 +957,44 @@ console.log('\n[17] 多标识登录的前端侧：一个输入框自称"账号"�
   check('RegisterData 声明两个选填字段（types 里没有＝调用点传了也不被类型层看见，改回去无人知晓）',
     TYPES.includes('email?: string') && TYPES.includes('phone?: string'))
 }
+console.log('\n[18] 注册撞唯一索引的翻译：按索引名判定、与前置查重同文案、不许回查（v2.90 · C-174）')
+{
+  const SVC = read('backend/src/main/java/com/leyon/backend/service/UserService.java')
+  const MIG = read('backend/src/main/resources/db/migrations/0013_identifier_login.sql')
+  const IDX = read('backend/src/main/resources/index.sql')
+  const TST = read('backend/src/test/java/com/leyon/backend/service/UserServiceRegisterIdentifierTest.java')
+  check('本组四个被检文件都读到内容（路径写错时本组会静默全绿）',
+    SVC.length > 3000 && MIG.length > 500 && IDX.length > 2000 && TST.length > 3000,
+    `${SVC.length}/${MIG.length}/${IDX.length}/${TST.length}`)
+
+  // 兜底必须挂在插入那一句外面：挂在别处（例如整方法包一层）等于把"先查后插"的竞态窗口留在原地
+  check('翻译挂在 insert 外面，且用异常原文判定（catch 在别处＝竞态窗口没被覆盖）',
+    /catch \(DuplicateKeyException e\) \{[\s\S]{0,200}duplicateKeyReason\(e\.getMessage\(\)\)/.test(SVC)
+      && SVC.includes('userMapper.insert(user);'))
+
+  // 索引名与库分叉时分类会静默退到安全文案：功能不报错，只是用户再也看不出撞的是哪个标识
+  check('分类用的索引名与 0013 / index.sql 逐一对应（改名没同步＝静默退化，无人报警）',
+    ['uk_users_email_active', 'uk_users_phone_active']
+      .every((k) => SVC.includes(k) && MIG.includes(k) && IDX.includes(k))
+      && SVC.includes('users.username') && /`username`\s+VARCHAR\(100\)\s+UNIQUE/.test(IDX))
+
+  // 两处各写一份措辞＝同一原因两种说法，界面文案与冒烟断言迟早分叉
+  check('竞态文案与前置查重文案逐字相同（每份措辞在同一个文件里出现两次）',
+    ['该邮箱已被注册', '该手机号已被注册', '用户名已存在']
+      .every((m) => SVC.split(m).length - 1 >= 2),
+    ['该邮箱已被注册', '该手机号已被注册', '用户名已存在']
+      .map((m) => `${m}:${SVC.split(m).length - 1}`).join(' '))
+
+  check('认不出索引名时的回落文案不含 DB 文本（回落到原文＝只剩全局脱敏兜底，形状退回"请求处理失败"）',
+    !/return "[^"]*(?:SQL|Duplicate|users\.)/.test(SVC))
+
+  // 反向锚点：判据不许改成"撞索引后再查一次库"——真库两会话实验证明 REPEATABLE-READ 下失败方的快照
+  // 看不见胜者刚提交的行，回查写法会"单测绿、真机随机退回通用文案"（手册 7.4 v2.90）
+  check('翻译路径不回查数据库（回查在默认隔离级别下看不见胜者行，是这条判据的存在理由）',
+    !/duplicateKeyReason[\s\S]{0,900}selectActive/.test(SVC))
+  check('三条竞态用例点名真机抓到的索引名（用例自造消息＝判据可以跟着代码一起错）',
+    ['uk_users_email_active', 'uk_users_phone_active', 'users.username']
+      .every((k) => TST.includes(k)))
+}
 console.log(failures === 0 ? '\n全部通过（0 失败）' : `\n失败 ${failures} 项`)
 process.exit(failures === 0 ? 0 : 1)

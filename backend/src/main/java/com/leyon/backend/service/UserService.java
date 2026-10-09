@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.leyon.backend.entity.User;
 import com.leyon.backend.mapper.UserMapper;
 import com.leyon.backend.util.JwtUtil;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -109,9 +110,38 @@ public class UserService {
             }
             user.setId(newUserId);
         }
-        userMapper.insert(user);
+        try {
+            userMapper.insert(user);
+        } catch (DuplicateKeyException e) {
+            // 上面的三项查重是"先查后插"，并发下两个人能同时通过查重，最终由迁移 0013 的唯一索引撞死。
+            // 不翻译的话它会落到全局兜底并被脱敏成"请求处理失败"——数据是对的，但用户不知道撞的是哪个标识。
+            throw new RuntimeException(duplicateKeyReason(e.getMessage()));
+        }
 
         return user;
+    }
+
+    /**
+     * 把唯一索引的 1062 翻译回与前置查重同文案的业务拒绝。
+     * <p>
+     * 只按<b>索引名</b>判定，不回查数据库：连接池没设隔离级别 ⇒ MySQL 默认 REPEATABLE-READ，
+     * 失败方在自己的快照里看不见胜者刚提交的那一行（真库两会话实验：撞索引后回查仍为 0 行，
+     * 见手册 7.4 v2.90），回查写法会"单测绿、真机随机退回通用文案"。
+     * 认不出索引名时返回不含任何 DB 文本的安全文案；由 {@code scripts/check-registries.mjs}
+     * 的索引名一致性判据保证这两个名字不会与 0013 悄悄分叉。
+     */
+    private static String duplicateKeyReason(String dbMessage) {
+        String raw = dbMessage == null ? "" : dbMessage;
+        if (raw.contains("uk_users_email_active")) {
+            return "该邮箱已被注册";
+        }
+        if (raw.contains("uk_users_phone_active")) {
+            return "该手机号已被注册";
+        }
+        if (raw.contains("users.username")) {
+            return "用户名已存在";
+        }
+        return "注册失败：用户名、邮箱或手机号已被使用，请更换后重试";
     }
 
     /**

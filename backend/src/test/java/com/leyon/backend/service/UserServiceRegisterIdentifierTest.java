@@ -8,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.util.List;
 
@@ -185,5 +186,93 @@ class UserServiceRegisterIdentifierTest {
         verify(inviteCodeService).claim(eq("GOOD123456"), claimedFor.capture());
         assertThat(claimedFor.getValue()).isEqualTo(created.getId());
         assertThat(captureInserted().getId()).isEqualTo(created.getId());
+    }
+
+    /**
+     * v2.90：查重与插入之间的竞态由迁移 0013 的唯一索引兜底，但兜底后必须把 1062 翻译回业务拒绝。
+     * <p>
+     * 下面三条消息是<b>真机抓下来的原文</b>（{@code .scratch/v290-race-probe.sh} 两轮读数），
+     * 不是按猜测拼的格式——MyBatis 的异常翻译会把 "### Error updating database" 整块带进来，
+     * 于是它落到全局兜底并被脱敏成"请求处理失败"，用户看不到自己撞的是哪一个标识。
+     */
+    private void insertThrows(String dbMessage) {
+        when(userMapper.insert(any(User.class))).thenThrow(new DuplicateKeyException(dbMessage));
+    }
+
+    @Test
+    void register_emailRaceOnIndex_rejectsAsEmailTaken() {
+        UserService service = userService(false);
+        noIdentifierTaken();
+        insertThrows("### Error updating database.  Cause: java.sql.SQLIntegrityConstraintViolationException: "
+                + "Duplicate entry 'race084135@example.test' for key 'users.uk_users_email_active'");
+
+        assertThatThrownBy(() -> service.register("alice", "abc12345", "alice@example.com", null, null))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("该邮箱已被注册");
+    }
+
+    @Test
+    void register_phoneRaceOnIndex_rejectsAsPhoneTaken() {
+        UserService service = userService(false);
+        noIdentifierTaken();
+        insertThrows("### Error updating database.  Cause: java.sql.SQLIntegrityConstraintViolationException: "
+                + "Duplicate entry '13800002891' for key 'users.uk_users_phone_active'");
+
+        assertThatThrownBy(() -> service.register("alice", "abc12345", null, "138 0000 2891", null))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("该手机号已被注册");
+    }
+
+    @Test
+    void register_usernameRaceOnIndex_rejectsAsUsernameTaken() {
+        UserService service = userService(false);
+        noIdentifierTaken();
+        insertThrows("### Error updating database.  Cause: java.sql.SQLIntegrityConstraintViolationException: "
+                + "Duplicate entry 'race_u_084318' for key 'users.username'");
+
+        assertThatThrownBy(() -> service.register("alice", "abc12345", null, null, null))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("用户名已存在");
+    }
+
+    /**
+     * 认不出索引名时也不能把 DB 原文交出去：这一条锁的是"回落安全文案"，
+     * 而不是依赖全局脱敏兜底——后者会把原因抹成"请求处理失败"，正是本批要消掉的形状。
+     */
+    @Test
+    void register_unrecognizedIndex_rejectsWithoutLeakingDbText() {
+        UserService service = userService(false);
+        noIdentifierTaken();
+        insertThrows("### Error updating database.  Cause: java.sql.SQLException: "
+                + "Duplicate entry 'x' for key 'users.some_future_index'");
+
+        assertThatThrownBy(() -> service.register("alice", "abc12345", null, null, null))
+                .isInstanceOf(RuntimeException.class)
+                .satisfies(e -> {
+                    String msg = e.getMessage();
+                    assertThat(msg).isNotBlank();
+                    assertThat(msg).doesNotContainIgnoringCase("sql")
+                            .doesNotContain("Duplicate")
+                            .doesNotContain("users.");
+                });
+    }
+
+    /**
+     * 竞态分支不得改变既有不变量：邀请码模式下的领取仍然发生在插入之前，
+     * 插入被索引撞死时由 {@code @Transactional} 回滚撤销领取（这条性质单测桩证不了，见手册 7.4 v2.90 的真机取证）。
+     */
+    @Test
+    void register_inviteModeRaceStillClaimsBeforeInsert() {
+        UserService service = userService(true);
+        noIdentifierTaken();
+        when(inviteCodeService.claim(eq("GOOD123456"), anyString())).thenReturn(true);
+        insertThrows("### Error updating database.  Cause: java.sql.SQLIntegrityConstraintViolationException: "
+                + "Duplicate entry 'alice@example.com' for key 'users.uk_users_email_active'");
+
+        assertThatThrownBy(() -> service.register("alice", "abc12345", "alice@example.com", null, "GOOD123456"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("该邮箱已被注册");
+
+        verify(inviteCodeService).claim(eq("GOOD123456"), anyString());
     }
 }
