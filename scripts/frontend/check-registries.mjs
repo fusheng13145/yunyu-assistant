@@ -1,21 +1,16 @@
 /**
- * 登记表与代码实况的一致性验证（v2.52 · C-117 · 候选 ㊱ 的门禁侧）。
- *
- * 这里锁的不是"文档写得好不好"，而是**文档里的每一条清单能不能被代码指向**：
- * 十四组判据全部是"集合相等"、"逐项对应"或"唯一入口"，所以任何一侧单独漂移都会红——
- * 加了新 Kind 而没登记 ⇒ 红；登记了一个代码里没有的端点 ⇒ 红；
- * 新增 `check-*.mjs` 而没进 CI ⇒ 红；新增的门禁缺规范退出码行 ⇒ 红；配额上界出现第二份字面量 ⇒ 红。
- * 这正是 ㊱ 描述的失效形态：导读层与登记表此前**只靠人读**来保持一致，而人读这件事在批次节奏里必然漏。
- *
- * 与同目录其他脚本的口径一致：零依赖、不碰网络与库、只读源码文本与 markdown。
- * 运行：node scripts/check-registries.mjs
+ * 登记表与代码实况的一致性验证：文档里的每一条清单必须能被代码指向。
+ * 集合相等判据——加了新 Kind 没登记会红、登记了代码里没有的端点会红、
+ * 新增 check 脚本没进 CI 会红、配额上界出现第二份字面量会红。
+ * 零依赖、不碰网络与库、只读源码文本与 markdown。
+ * 运行：node scripts/frontend/check-registries.mjs
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, basename } from 'node:path'
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 const read = rel => readFileSync(join(ROOT, rel), 'utf8')
 
 /**
@@ -29,7 +24,7 @@ const WS_INTERCEPTOR = read('backend/src/main/java/com/leyon/backend/interceptor
 const METER = read('backend/src/main/java/com/leyon/backend/service/OpenApiDenialMeter.java')
 const TOOL_REGISTRY = read('backend/src/main/java/com/leyon/backend/tool/ToolRegistry.java')
 const LEDGER_UTIL = read('frontend/src/utils/denialLedger.ts')
-const MIGRATE = read('scripts/db-migrate.sh')
+const MIGRATE = read('scripts/db/db-migrate.sh')
 const PKG = JSON.parse(read('frontend/package.json'))
 const CI = read('.github/workflows/ci.yml')
 const AGENTS = read('AGENTS.md')
@@ -155,7 +150,7 @@ console.log('\n[4] AI 工具表：REGISTRY 第 1 节 ↔ 各工具类的注册�
 console.log('\n[5] 门禁台账：scripts/ ↔ REGISTRY 第 6 节 ↔ package.json ↔ ci.yml ↔ AGENTS 命令块')
 {
   const s6 = section(6)
-  const scripts = readdirSync(join(ROOT, 'scripts')).filter(f => /^check-.*\.(py|mjs)$/.test(f)).sort()
+  const scripts = [...readdirSync(join(ROOT, 'scripts/frontend')).filter(f => /^check-.*\.mjs$/.test(f)),...readdirSync(join(ROOT, 'scripts/gates')).filter(f => /^check-.*\.py$/.test(f))].sort()
   for (const f of scripts) check(`${f} 在门禁台账里有一行`, s6.includes(`\`${f}\``))
   const documentedScripts = [...s6.matchAll(/`(check-[a-z-]+\.(?:py|mjs))`/g)].map(m => m[1])
   check('台账没有登记已删除的脚本', documentedScripts.every(f => scripts.includes(f)),
@@ -220,7 +215,7 @@ console.log('\n[6] 知识库本地授权登记表：写入面只能有一处（v
     MIGRATION.includes('yunyu_assert') && MIGRATION.includes('uk_kb_dataset_id'))
   check('index.sql（新环境建表）与迁移同一口径，否则新库天生没有这条约束',
     read('backend/src/main/resources/index.sql').includes('UNIQUE KEY `uk_kb_dataset_id`'))
-  const SMOKE = read('scripts/smoke.sh')
+  const SMOKE = read('scripts/smoke/smoke.sh')
   check('冒烟保留 /api/knowledges 的两条 404 锚点（悄悄删掉锚点＝下次加回来无人知晓）',
     SMOKE.includes('GET /api/knowledges 已下线') && SMOKE.includes('POST /api/knowledges 已下线'))
 }
@@ -234,7 +229,7 @@ console.log('\n[7] 助手级成本参数：清单与钳制都只能有一处（v
   const CTRL = read(`${SRC}/controller/AssistantController.java`)
   const MODELS_CTRL = read(`${SRC}/controller/ModelController.java`)
   const ROBOT = read('frontend/src/views/SmartRobot.vue')
-  const SMOKE = read('scripts/smoke.sh')
+  const SMOKE = read('scripts/smoke/smoke.sh')
   const ASSEMBLIES = [`${SRC}/handler/ChatWebSocketHandler.java`,
     `${SRC}/handler/VoiceSignalingHandler.java`, `${SRC}/controller/OpenApiChatController.java`]
 
@@ -323,7 +318,7 @@ console.log('\n[8] 配额数值边界：判据入口与关闭语义都只能有�
   const SVC = read(`${SRC}/service/QuotaService.java`)
   const CTRL = read(`${SRC}/controller/AdminController.java`)
   const ADMIN_VUE = read('frontend/src/views/Admin.vue')
-  const SMOKE = read('scripts/smoke.sh')
+  const SMOKE = read('scripts/smoke/smoke.sh')
 
   // 配额四项数值直接决定真实开销，而 `limit <= 0` 在运行时被解释成"直接拒绝"。
   // 此前只有界面半边有判据（Admin.vue 挡负数），服务端全链透传 ⇒ curl 能把一个作用域静默锁死，
@@ -552,7 +547,7 @@ console.log('\n[11] 助手模型的三态：没带＝不改、空串＝清空、
   const POLICY_FILE = `${SRC}/service/AssistantPolicy.java`
   const POLICY = read(POLICY_FILE)
   const ROBOT = read('frontend/src/views/SmartRobot.vue')
-  const SMOKE = read('scripts/smoke.sh')
+  const SMOKE = read('scripts/smoke/smoke.sh')
   const TEST_DIR = 'backend/src/test/java/com/leyon/backend'
 
   // 为什么值得立门禁：MyBatis-Plus 的 updateById 跳过 null 列，所以"清空"必须有第三种值；
@@ -714,16 +709,16 @@ console.log('\n[13] 元判据：门禁的红必须落到退出码与具名读数
   // C-137 的教训不是某个产品缺陷，而是**守卫自己失效**：打印"失败 N 项"却 `exit 0`，CI 收下不判。
   // 第 5 组核对"脚本 ↔ 台账 ↔ package.json ↔ ci.yml ↔ AGENTS"的接线，但不核对每道脚本有没有退出码
   // ⇒ 今后新增第十道 Node 桩测时忘了 `process.exit`，会静默复制同一层免疫。本组把那一行本身锁成判据。
-  const mjsScripts = readdirSync(join(ROOT, 'scripts')).filter(f => /^check-.*\.mjs$/.test(f)).sort()
+  const mjsScripts = readdirSync(join(ROOT, 'scripts/frontend')).filter(f => /^check-.*\.mjs$/.test(f)).sort()
   check('本组解析到 ≥9 道 check-*.mjs（glob 失效时逐条判据全体空转）', mjsScripts.length >= 9, `解析到 ${mjsScripts.length}`)
   for (const f of mjsScripts) {
     // 逐字锁规范行（三元式与变量名一起）：`process.exit(0)`、缺行、或自创写法都算"打印红、不判决"
     check(`${f} 以 process.exit(failures === 0 ? 0 : 1) 收尾`,
-      /process\.exit\(failures === 0 \? 0 : 1\)/.test(read(`scripts/${f}`)))
+      /process\.exit\(failures === 0 \? 0 : 1\)/.test(read(`scripts/frontend/${f}`)))
   }
 
   // smoke.sh 的退出码语义与 §7.2 的两处结构性边界——写成注释的边界不算判据，落成断言才算。
-  const SM = read('scripts/smoke.sh')
+  const SM = read('scripts/smoke/smoke.sh')
   const failGate = SM.indexOf('[ "$FAIL" -eq 0 ] || exit 1')
   check('smoke.sh 汇总区存在"有 FAIL 即 exit 1"的门（SKIP 允许、红不许吞）', failGate >= 0)
   check('FAIL 门排在末尾裸 exit 0 之前（顺序颠倒＝无论结果都绿，v2.69 的 M2 态取证依赖它）',

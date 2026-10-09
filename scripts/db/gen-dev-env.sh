@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# 本地开发凭据脚手架（v2.34）
-# 目的：把"照抄 .env.example 起不来"变成"一条命令补齐可自动生成的项"。
+# 本地开发环境脚手架：照抄 .env.example 起不来的项自动补齐。
 # - .env 不存在时从 .env.example 复制；
 # - JWT_SECRET 为空或仍是模板占位标记时，生成强随机值写入（不回显）；
-# - 其余需真实账号/额度的项只列名字提醒人工填写，脚本不猜测、不打印值。
+# - 其余需真实账号/额度的项只列名提醒人工填写，不猜测、不打印值。
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEMPLATE="$ROOT/.env.example"
 TARGET="$ROOT/.env"
 

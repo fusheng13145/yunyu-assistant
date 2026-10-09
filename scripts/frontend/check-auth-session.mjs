@@ -1,14 +1,13 @@
 /**
  * 前端会话层（静默续期 / 401 重放 / 跨标签页补偿）的可执行验证。
- *
- * 前端没有测试框架（见手册 4.8），此脚本用 Node 自带的 TS 类型剥离直接 import
- * frontend/src/api/auth.ts，以桩替 localStorage / window / fetch，锁定状态机行为。
- * 运行：node scripts/check-auth-session.mjs
+ * 口径：无测试框架，Node TS 类型剥离直接 import 生产模块，
+ * 以桩替 localStorage / fetch，锁定状态机行为。
+ * 运行：node scripts/frontend/check-auth-session.mjs
  */
 
 import { readFileSync } from 'node:fs'
 
-const AUTH = new URL('../frontend/src/api/auth.ts', import.meta.url).href
+const AUTH = new URL('../../frontend/src/api/auth.ts', import.meta.url).href
 
 /** 造一个只用于本地判定的 JWT（签名无意义，只关心 payload.exp；jti 用于区分不同令牌） */
 function jwt(expSeconds, jti = 'jti_seed') {
@@ -237,7 +236,7 @@ console.log('\n[9] FormData 请求体不被塞进 JSON Content-Type（否则后�
 // ---------------------------------------------------------------- 后端默认寿命 × 前端临期窗口
 console.log('\n[10] 后端 access 默认寿命与前端临期窗口配套（v2.42 · C-94）')
 {
-  const yaml = readFileSync(new URL('../backend/src/main/resources/application.yaml', import.meta.url), 'utf8')
+  const yaml = readFileSync(new URL('../../backend/src/main/resources/application.yaml', import.meta.url), 'utf8')
   const matched = yaml.match(/expiration:\s*\$\{JWT_EXPIRATION:(\d+)\}/)
   check('application.yaml 里 access 默认值可解析（改名即断链）', !!matched, matched ? '' : '未找到 ${JWT_EXPIRATION:默认值}')
   const ttlMs = Number(matched[1])

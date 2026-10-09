@@ -1,33 +1,27 @@
 #!/usr/bin/env bash
 # ============================================================
-# 云谕助手 —— 接口冒烟（v2.89）
+# 接口冒烟：对已运行实例打一遍关键 HTTP/WS 链路。
+# 单测证明方法行为；拦截器顺序、序列化、路由、限流、握手这些只有真进程才暴露。
 #
-# 用途：对"已经跑起来"的实例打一遍关键 HTTP 链路。单测只能证明方法行为，
-#       拦截器顺序、序列化、路由、限流与握手这些只有真进程才暴露的问题靠这里。
-#
-# 前提（v2.36 真机收口后写死在这里）：请求体与 WebSocket 握手都**不经过 argv**——
-#   Git Bash 下的 curl.exe 是原生程序，argv 里的非 ASCII 会被 MSYS 按本地代码页重编码，
-#   中文到服务端就成了非法 UTF-8；而 curl 压根做不成 WS 握手（旧版 §7 因此永远 SKIP）。
+# 前提：请求体与 WS 握手不经过 argv——Git Bash 下 curl.exe 的非 ASCII argv 会被
+#   MSYS 按本地代码页重编码，中文到服务端成非法 UTF-8。
 #
 # 边界（刻意为之）：
-#   - 不碰任何消耗外部额度或不可逆的接口。/api/open/** 的鉴权与握手只在 §7.9 打**负向**
-#     （无 Key/错 Key 在拦截器内返回，不进业务、不计费）；§7.10 打外呼端点时故意用空 body，
-#     让它停在业务侧参数校验（400）之前就扣不到配额、拨不出网关，只用来观测 403→400 的闸门跳变。
-#     检索测试与 POST /api/admin/archive/run 不调用。唯一的例外要显式放行：SMOKE_WS_CHAT=1 时
-#     §7.2 会真发一条聊天消息（见环境变量表），默认关。
-#   - 写路径只写本次刚创建的数据，结尾删除（KEEP=1 可保留）。
-#   - 不打印令牌：失败时只输出 HTTP 状态、业务 code 与 message 字段。
+#   - 不碰消耗外部额度或不可逆的接口。/api/open/** 鉴权只打负向（无 Key/错 Key
+#     在拦截器内返回，不进业务、不计费）；外呼端点故意空 body 停在参数校验之前。
+#   - 写路径只写本次刚创建的数据，结尾删除（KEEP=1 保留）。
+#   - 不打印令牌：失败时只输出 HTTP 状态、业务 code 与 message。
 #
 # 环境变量：
 #   BASE            业务地址，默认 http://127.0.0.1:8080
 #   MGMT_BASE       管理端口地址，默认同 BASE（MANAGEMENT_SERVER_PORT 独立时改为 http://127.0.0.1:9080）
 #   SMOKE_USER      已存在的用户名；留空则注册一次性账号
 #   SMOKE_PASS      配合 SMOKE_USER；留空则用随机口令
-#   SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS   提供时才跑第 8 节管理端只读检查与 §7.10 的跨账号/审计断言；
-#                      v2.90 起 §2.7 也依赖它——邀请码模式下并发两发各需一个**不同**的码（自造 2 个），
-#                      而"库里只有一行活账号"那条要管理令牌；两者都缺时对应条目转具名 SKIP 而不是判绿
-#   SMOKE_INVITE_CODE  邀请码注册模式（REGISTRATION_MODE=invite）下自建一次性账号所需的码；
-#                      v2.89 起默认档位是 open（不需要码），脚本按 §2 读到的 register-config 实况分支、不猜模式；
+#   SMOKE_ADMIN_USER / SMOKE_ADMIN_PASS   提供时才跑管理端只读检查与跨账号/审计断言；
+#                      邀请码模式下并发两发各需一个不同的码，且"库里只有一行活账号"那条要管理令牌；
+#                      两者都缺时对应条目转具名 SKIP 而不是判绿
+#   SMOKE_INVITE_CODE  邀请码注册模式（REGISTRATION_MODE=invite）下自建账号所需的码；
+#                      脚本按 §2 读到的 register-config 实况分支、不猜模式；
 #                      未提供码但给了 SMOKE_ADMIN_USER/PASS 时，脚本自己调 /api/admin/invite-codes 发一个并用掉
 #   SMOKE_ORIGIN    正式部署的站点来源（如 https://yunyu.example.com）；用于校验 WS 跨域白名单
 #   SMOKE_MODEL     创建助手使用的模型 id，默认 qwen-turbo
@@ -1415,7 +1409,6 @@ if [ -n "$TOKEN" ]; then
     fi
 fi
 
-MY_APP_ROWS=''
 UNKNOWN_KINDS=''
 if [ -n "$TOKEN" ]; then
     req GET '/api/openapi/denials?hours=24' "$TOKEN"

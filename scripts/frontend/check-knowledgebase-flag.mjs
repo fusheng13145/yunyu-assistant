@@ -1,14 +1,11 @@
 /**
- * 对话里"知识库检索失败"与"没查到内容"的可区分性验证（C-88 的前端侧）。
- *
- * 后端 v2.39 已在 query_end 帧里给出 knowledgebase.failed；此脚本锁定前端把这一帧
- * 翻译成了哪种角标。口径与 check-auth-session.mjs / check-notification.mjs 一致：
- * 无测试框架，用 Node 的 TS 类型剥离直接 import 生产模块（import type 会被剥离，
- * 所以模块可以引用 ../types）。
- * 运行：node scripts/check-knowledgebase-flag.mjs
+ * "知识库检索失败"与"没查到内容"必须可区分：failed=true 优先；
+ * 缺省字段判 none 而不是 failed（否则历史消息被整批标红）。
+ * 口径：无测试框架，Node TS 类型剥离直接 import 生产模块。
+ * 运行：node scripts/frontend/check-knowledgebase-flag.mjs
  */
 
-const MOD = new URL('../frontend/src/utils/knowledgebaseFlag.ts', import.meta.url).href
+const MOD = new URL('../../frontend/src/utils/knowledgebaseFlag.ts', import.meta.url).href
 
 let failures = 0
 function check(name, cond, detail = '') {

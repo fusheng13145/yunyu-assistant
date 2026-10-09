@@ -1,188 +1,80 @@
 # 云谕助手（yunyu-assistant）
 
-> 面向开发与运营人员的「AI 语音助手搭建 + 模型调试」一体化 Web 平台。
-> 配置即用、边聊边调、语音与文本双通道、知识可控、全程可审计。
+> 面向开发与运营人员的「AI 语音助手搭建 + 模型调试」一体化 Web 平台。配置即用、边聊边调、语音与文本双通道、知识可控、全程可审计。
 
-## 功能特性
+## 功能
 
 | 模块 | 能力 |
 |---|---|
-| 账号认证 | 注册 / 登录 / 修改密码 / 个人资料，JWT 无状态鉴权 + 双令牌**静默续期**（临期或 401 时单飞刷新后重放，跨标签页互不踢出，v2.30），登录限流防爆破；**"客户端是谁"自 v2.44 起由 `ClientIpResolver` 单点判定**——默认只信连接层地址，伪造 `X-Forwarded-For` 不再能换限流桶，反向代理部署须显式设 `TRUST_PROXY` + `TRUST_HOPS`（从右往左按代理层数取），限流桶键 / 登录锁定 / 审计落库三处同一口径；**登录失败按来源（20 次/15 分）为主 + 账号（15 次/5 分）粗兜底两维锁定**（v2.44；此前"按用户名 5 次锁 15 分钟"与可伪造头组合即成匿名锁人武器）；**会话凭据只认 access 令牌**——REST、WS 握手与首条 `auth` 帧统一校验 `type == access`，7 天寿命的 refresh 令牌不能当会话凭据使用（v2.32 C-63）；**一个输入框接受用户名 / 邮箱 / 手机号三态**（v2.89）——形状判据由 `service/IdentifierPolicy` 单点持有（含 `@` 判邮箱，剥掉 `[-().\s]` 后命中 `^\+?[0-9]{7,15}$` 判手机号），**读侧只看形状不报错、写侧严格**（注册拒绝"邮箱/手机号形状的用户名"，否则同一串标识符命中两列而登录只能选一行）；命中多行不猜而是 fail-closed 要求改用用户名，邮箱转小写、手机号只剥分隔符（**不做国家码推断**），用户名刻意不归一以放行存量行；库端唯一性由迁移 0013 的生成列唯一索引承担（软删即释放槽位），三种标识共用同一句"账号或密码错误"；**注册默认放开、邀请码退为可选保留**——`REGISTRATION_MODE` 默认 `open`（v2.89 前为 `invite`），显式设回 `invite` 时注册必须带一个未使用过的码，领取由带 `used_by IS NULL` 条件的原子 UPDATE 完成（一个码只对应一个账号，并发下不超发），且标识形状与重复的拒绝**排在领取之前**（五类拒绝都不烧码），管理端可批量发码并查台账（v2.37）；**邮箱/手机号是注册时的自选声明、不是所有权验证**（本服务没有发信与发短信的外部通道，也没有密码找回入口），"一个活邮箱＝一个账号"只在已注册数据内成立；管理端用户检索与组织成员搜索**仍只按 `username`**，拿邮箱去后台搜人会搜不到（手册 6.6 v2.89 边界）；**改密即作废全部已签发令牌**——`users.token_version` 在签发时钉进 `tv` claim、由 `JwtUtil` 的两个校验入口查库比对，故改密后旧 access 与旧 refresh 同时失效，被盗令牌不再能靠轮换无限存活；access 默认寿命随之从 24 小时收到 **15 分钟**（v2.42）；**口令哈希的外发抑制落在实体上、不在出口手写**（v2.48 C-107）——`User.getPassword()` 的 `@JsonIgnore` 与不含 `password` 的 `toString()` 是唯一机制，`GET /api/auth/me`、管理端用户列表与注册返回三处此前的 `setPassword(null)` 已全部删除（"每个出口各自脱敏"意味着少写一处就泄露一处，而且它改写查出来的行、二次更新会把哈希写成 NULL）；该注解按 Jackson 的字段/accessor 合并语义**同时封掉出站与入站**，故请求体一律不要用凭据实体接（用 DTO），响应体自 v2.48 起**没有 `password` 键**而非带 `null` |
-| 助手管理 | 助手增删改查（软删除 + 属主校验）、人设 / 音色 / 模型参数配置（**四项成本参数经唯一判据入口钳制：模型清单即白名单，越界值写不进库**，v2.54；**"改哪一列"由写侧三态区分**——请求体没带该列＝不改、该列是空白＝显式清空并跟随服务端默认、其余＝钳制后的值，故界面上把模型选回"默认模型"真的能清掉旧值（v2.60 前该选项点了没反应：空值被折成不发送，而局部更新跳过 null 列），见手册 4.5 第 18 条）、知识库绑定、人设模板、**可用工具白名单（按助手裁剪能力）** |
-| 语音通话 | WebRTC 建链、ASR 实时转写、LLM 流式回复、TTS 播报、VAD 打断（网关侧执行）、沉默追问、LLM 主动挂断、**通话中单日时长逐轮复核（v2.59：超限播报上限文案并挂断，不烧通话次数）**、通话记录（**建不成账就不开始这通**：`webrtc_connected` 建记录时数据库异常不再被吞，回执并结束连接，v2.66）、**通话录音（v2.87 起为 WebAudio 真混音：麦克风与 AI 两条音轨合进一条流再交 `MediaRecorder`，四条回退各自点名原因且回退路径零副作用；混音产物有浏览器级取证，播放侧有 upload→download 字节相同往返；上传失败与"没录到音频"自 v2.49 起一律对用户可见，不再只有 `console.error`，见手册 6.6 v2.38 与 v2.87）**、弱网自动降级 |
-| 文本对话 | 流式对话、人设热更新、知识库动态切换、对话重置、工具调用可视化（**工具调用过程实时可见且随历史留痕**（v2.72 收口 S-24）：工具执行收归应用侧（internalToolExecutionEnabled=false），`tool_call` / `tool_result` 帧真实流动、语音 `hangup` 监听可达，轨迹随 records 落库、历史回看渲染工具卡片；真实供应商侧的 tool_calls 流式合并形状未核（打桩取证），见手册 4.5 第 29 条与 6.6 v2.72 块）、Markdown 渲染；**配额耗尽 / 消息过长的服务端拒绝以 toast 说明并当场解冻输入框**（v2.43 前该回执无人消费，输入会冻结到刷新）；**对话记录每轮收尾即落库，失败的回合同样留痕**（用户的话、已生成的部分与脱敏失败原因落库，历史回看可辨"回复失败"，v2.73）（不再押在连接怎么结束上：换模型或重置不会吞掉上一轮已生成的回答），落库有失败时补发一条错误回执点名有 N 条未能写入历史，见手册 4.5 第 23 条（v2.66）；**模型流式调用有静默超时（默认 60 秒内没有新分块即判本轮失败，v2.71），且"换一条消息 / 断开连接"会撤掉在途的那次模型订阅，已生成的部分照常落库**（此前 `dispose()` 只撤最外层，这一轮的正文既不落库也无人消费；撤销订阅自 v2.77 起会连到模型服务的在途 HTTP 交换一起拆断（reactor-netty 连接器，S-26 收口，打桩实证见手册 7.4））|
-| 知识库 | RAGFlow 双层后端代理（密钥零下发）、文档上传 / 删除 / 切片解析、多库联合检索、检索效果测试 |
-| 记录与统计 | 通话记录列表 / 详情、近 1/7/30 天**已结算通话**的用量聚合（只计正常结束/中断、消息数按对话轮次、并读归档表、组织作用域按成员聚合且非成员 403；四条口径见手册 2.6，"用量"一词仍宽于该接口见 7.4 S-18） |
-| 组织协作 | 组织 / 团队成员管理（owner/editor/viewer 角色矩阵）、组织内资源共享与数据隔离 |
-| 用量配额 | 助手上限、单日通话次数 / 时长 / 消息量配额拦截 + 用量账单视图（组织优先 / 用户兜底 / 环境变量再兜底）+ **管理端配额配置页**（四项数值的上下界由服务端裁决，`0`＝关闭该维度且**不随次日恢复**，v2.57）；**单日通话时长自 v2.59 起在语音通话的每个 ASR 回合复核**（用量＝当日已结算秒 + 本通已活秒，不烧通话次数；不产生回合的通话与 PSTN 外呼仍只判发起前，见手册候选 ㊻）；单条用户输入长度上限 2000 字（v2.29，防按条计量的配额被超长消息打穿成本） ；**工具调用有工具级日限次（v2.82，⑩ 工具级计量限次）**——按"用户 × 工具名"分格记账，上限 `QUOTA_DAILY_TOOL_CALL_LIMIT`（默认 200，0 = 关闭该维度），超限的拒绝收敛为该工具的失败结果，模型可自行继续对话 |
-| 开放 OpenAPI | 第三方应用 API Key（`X-API-Key`）、文本对话流式 SSE（多轮会话续聊）、WebRTC 语音会话、**PSTN 外呼（可插拔网关）**、**Webhook 回调（通话/外呼/消息事件，异步+重试+签名）**，用量计入属主配额；**能力（scopes）自 v2.45 起真正参与鉴权**——`chat`/`call`/`voice` 由创建时勾选、端点→能力是显式登记表且**未登记路径 fail-closed 拒 403**，401＝凭据不对（去轮换）而 403＝没授权（轮换没用）；**能力建后可改（v2.46）**——`PUT /api/openapi/apps/{id}/scopes` 整串替换、审计记 `from`→`to`，因判定每请求查库故**下一个请求即生效**，调能力不再需要换 Key（语音长连接自 v2.52 起也追溯：每次 `offer` 与每个 ASR 回合入口复核，改小/吊销会回执并结束进行中的通话，残留窗口＝一个在途回合）；**被拒绝的能力变更（含非属主试图改他人应用）自 v2.47 起在审计里记 `result=0`**，拒绝原因并入 `detail.failReason` 且与 `from`→`to` 共存，管理页的"失败"徽标自此真的对应"没改成"；**API Key 只存 SHA-256 摘要、明文列已下线**（密钥只在创建那一次展示，库里躺的不再是可用凭据）；**语音握手有独立限流档 10 次/分钟/来源、排在验 Key 之前**（握手不经 MVC 拦截器，故与 HTTP 侧共用 `RateLimitService` 单点计数）；**`?api_key=` 这条握手凭据通道自 v2.50 起默认关闭**（`OPENAPI_WS_URL_KEY_ALLOWED`，因 query 会进反代 access_log、浏览器历史与 `Referer`，长期 Key 一旦进过 URL 就算已泄露；关闸而非删通道是为了先量出存量——被拒记 `URL_KEY_REJECTED`、开闸后仍用记 `URL_KEY_USED`，归零才删，彻底修法登记为候选 ㉞）；**开放侧的 401/403/429 自此有聚合读数**（v2.50 收口"只剩 WARN 行"）——拦截器直接 `return false` 的请求到不了 `@Audit` 方法，故折进**进程内**拒绝台账（键为 `种类\|应用\|小时桶`、认不出归属的折进 `unknown`，格子数上限＝7 种 ×（应用数 + 1）× 24，**攻击者用随机 Key 撑不爆**；保留 24 小时、`recent()` 按种类 × 应用跨桶求和），经 `GET /api/openapi/denials` 只回属主自己应用的行 + 全局 `unknown` 格，管理页 `Apps.vue` 按 `unavailable`/`quiet`/`denied` 三态渲染（"读不到"绝不渲染成"零次被拒"，与 v2.49 录音上传同源口径）；⚠️ 该台账**不落库**，故多实例各算各的份额、重启即清零，只能当"近 N 小时、当前实例视角"看，不能作取证或计费依据（手册 7.4 候选 ㉟） |
-| AI 工具 | 挂断（hangup）、当前时间、天气（高德）、联网搜索、**深度研究（检索 + 多篇正文一次抓取汇总）**、**文生图 / 文生视频（异步任务）/ 网页正文读取**，支持 Function Calling 递归续答（工具调用过程实时可见并随历史留痕，v2.72）；**一个工具类即一个能力**，依赖密钥/开关未配置的工具不注册（模型不可见），且可按助手勾选可用工具，见手册 2.8 |
-| 工程化 | 操作审计（落库 IP 与限流桶键同口径，客户端不可自填，v2.44；**成败有两条判据（v2.47）**——抛异常 **或** 返回体 `ApiResponse.code ≠ 200`，故管理侧"被拒绝的变更"不再记成成功，拒绝原因并入 `detail.failReason`；⚠️ 该判定不追溯历史行，按 `result` 统计须先划 v2.47 时间界）、全局异常脱敏（**`Accept` 与端点 `produces` 不符自 v2.49 起返回 406，不再被 `Exception` 兜底谎报成 500**；406 的固有形状是内容协商可能留空正文，故不加强制 JSON 垫片，见手册 4.4）、健康检查、**对外拒绝的可观测（v2.50）**——`/api/open/**` 的 401/403/429 有聚合台账与读数接口，不再只有后端 WARN 行（进程内实现、非持久，口径见上表「开放 OpenAPI」行）、环境变量化配置、逻辑删除、统一响应体；**浏览器级 E2E 守卫（v2.75）**——Playwright 六条核心链路（登录失败可见/会话落位/布局壳选中态/工具回合历史留痕/失败回合失败标记），跑法见 docs/DEVELOPMENT.md 7.3，刻意不进 CI |
+| 账号认证 | 注册/登录/改密，JWT 双令牌静默续期，登录限流防爆破，三态登录（用户名/邮箱/手机号），注册邀请码可选 |
+| 助手管理 | 助手 CRUD（软删+属主校验）、人设/音色/模型参数、知识库绑定、工具白名单按助手裁剪 |
+| 语音通话 | WebRTC 建链、ASR 实时转写、LLM 流式回复、TTS 播报、VAD 打断、通话录音与回放、弱网降级 |
+| 文本对话 | 流式对话、人设热更新、知识库动态切换、工具调用可视化、失败回合落库 |
+| 知识库 | RAGFlow 双层代理（密钥零下发）、文档上传/删除、多库联合检索 |
+| 用量配额 | 助手上限、单日通话次数/时长/消息量拦截、用量账单、管理端配额配置页 |
+| 组织协作 | 组织/团队成员管理（owner/editor/viewer）、资源共享与数据隔离 |
+| 开放 OpenAPI | 第三方应用 API Key、文本对话 SSE、WebRTC 语音会话、PSTN 外呼、Webhook 回调 |
+| AI 工具 | 时间、天气、联网搜索、深度研究、文生图/文生视频、网页正文读取、挂断 |
+| 工程化 | 操作审计、全局异常脱敏、健康检查、环境变量化配置、逻辑删除、统一响应体 |
 
 ## 技术栈
 
-**后端**：Spring Boot 3.5 · Java 21 · MyBatis-Plus 3.5 · MySQL 8 · Spring AI 1.0（OpenAI 兼容）· Spring WebSocket · JJWT · OkHttp
-
-**前端**：Vue 3.5 · TypeScript · Vite 6 · vue-router 4 · TailwindCSS 3 · WebRTC · lucide-vue-next
-
-## 目录结构
-
-```
-yunyu-assistant/
-├── backend/                 # Spring Boot 后端（单模块）
-│   └── src/main/
-│       ├── java/com/leyon/backend/   # controller/service/mapper/entity/handler/interceptor/tool
-│       └── resources/                # application.yaml、index.sql（仅新环境建表）、
-│                                     # db/migrations（幂等增量迁移）、db/seed-demo.sql（演示数据，生产禁跑）
-├── frontend/                # Vue3 前端（Vite）
-│   └── src/                 # api/composables/router/utils/views/components
-├── scripts/                 # db-migrate.sh（增量迁移 + --check）/ backup-mysql.sh（备份 + 保留期清理）
-│                            # smoke.sh（对已运行实例的接口与 WS 冒烟，v2.30）
-│                            # check-auth-session.mjs（前端会话逻辑门禁；v2.42 起第 10 组校验后端 access 默认寿命与前端续期窗口配套）
-│                            # check-notification.mjs、check-knowledgebase-flag.mjs（前端通知与 RAG 角标逻辑门禁，v2.40）
-│                            # check-history-record.mjs（会话历史映射把检索状态带到角标的前端门禁，v2.41）
-│                            # check-chat-frame.mjs（聊天/语音 WS 回合帧收口门禁：error 回执必须提示并解冻，v2.43）
-│                            # check-recording-upload.mjs（通话录音收尾结局门禁：失败与"没录到"都要对用户可见，v2.49）
-│                            # check-denial-ledger.mjs（开放平台拒绝台账读数门禁：三态不混、未归属不挂到应用名下，v2.50）
-│                            # check-page-layout.mjs（页面布局壳门禁：整屏根/导航/登出各只有一处、六视图走壳且左右栏归属明确、选中态可读、新组件不写死颜色不引新依赖、弹层遮罩自己就是滚动容器且居中交给卡片外边距，v2.63 建线、v2.65 增第 6 组）
-│                            # check-registries.mjs（docs/REGISTRY.md 六张登记表与代码实况的一致性门禁：端点→能力、Kind 计数、工具名、迁移清单、门禁接线，v2.52；v2.53 起另锁知识库授权表的写入面只有一处；v2.54 起另锁助手级成本参数的清单与钳制都只有一处；v2.57 起另锁配额数值上界与"0＝关闭"文案都只有一处；v2.58 起另锁知识库可见性求交只有一处判据、三条对话通道都经它；v2.59 起另锁单日通话时长的复核判据只有一处、发起侧与语音回合边界共用且通话中不扣次数）
-│                            # check-docs.py、check-config.py（文档与配置门禁，v2.33 入库）
-│                            # 八道前端 Node 检查（notification / kb-flag / history-record / chat-frame / recording-upload / denial-ledger / page-layout / registries）自 v2.43 起逐批全部纳入 CI，v2.63 起第八道同进
-├── .github/workflows/ci.yml # PR 关键路径：后端单测 + 前端 lint/类型/九道 Node 检查（check:auth + 八道桩测与一致性检查）/构建 + 门禁（零凭据、零数据库；v2.33 建线，v2.43 桩测全进）
-├── deploy/turn/             # TURN(coturn) 部署物料
-├── docs/                    # 云谕助手项目手册.md（权威细节层）+ 导读层各页（见「文档」）
-├── AGENTS.md                # 协作与开发硬约束（AI 代理与开发者都读）
-├── DESIGN.md                # 界面视觉规范
-├── CHANGELOG.md             # 版本索引（正文在手册 7.5）
-├── TODO.md                  # 当前进度与待表态事项
-├── start-backend.bat        # 一键启动后端（双击，内置开发默认值，不读 .env）
-├── start-frontend.bat       # 一键启动前端（双击）
-└── .env.example             # 环境变量模板（需显式导出，见「配置说明」）
-```
+- **后端**：Spring Boot 3.5 · Java 21 · MyBatis-Plus 3.5 · MySQL 8 · Spring AI 1.0 · Spring WebSocket · JJWT
+- **前端**：Vue 3.5 · TypeScript · Vite 6 · vue-router 4 · TailwindCSS 3 · WebRTC · lucide-vue-next
 
 ## 快速开始
 
 ### 前置依赖
 
-- JDK 21、Node.js ≥ 20、MySQL 8（需运行中）
-- **必需**：LLM API（OpenAI 兼容 endpoint 与 Key）——v2.29 起 `OPENAI_API_KEY` 未注入则后端**启动即失败**，不再静默降级
-- 可选（未配置时对应功能降级；AI 工具类未配置 Key 时该工具直接不注册）：RAGFlow、RustPBX 语音网关、搜索 / 天气 / 图像 / 视频 API
+JDK 21、Node.js ≥ 20、MySQL 8。必需 LLM API（OpenAI 兼容 endpoint 与 Key）。可选：RAGFlow、RustPBX 语音网关、搜索/天气/图像/视频 API——未配置时对应工具不注册，不影响主流程。
 
-### 1. 初始化数据库（首次）
-
-v2.29 起脚本按用途拆成三份（详见手册 5.4）：
+### 1. 初始化数据库
 
 ```bash
-# ① 全新环境建表（开头含 DROP DATABASE，只在第一次建库时执行）
+# 新环境建表（开头含 DROP DATABASE，只在第一次执行）
 mysql --default-character-set=utf8mb4 -uroot -p < backend/src/main/resources/index.sql
-# ② 登记/应用增量迁移（已部署库每次上线前跑；--check 只看不动）
-DB_USER=... DB_PASSWORD=... scripts/db-migrate.sh
-# ③（仅本地演示）灌入演示账号与示例对话，生产禁跑
-mysql --default-character-set=utf8mb4 -uroot -p yunyu_assistant < backend/src/main/resources/db/seed-demo.sql
+# 已部署库每次上线前跑增量迁移
+DB_USER=... DB_PASSWORD=... bash scripts/db/db-migrate.sh
 ```
 
-> ⚠️ 任何时候都不要把 `index.sql`（或其片段）灌向**有数据**的实例：它的第一动作是删库。
-> 不跑 `db-migrate.sh` 的后果：实体已含新列 ⇒ 助手查询整体报 `Unknown column 'tools'`；v2.37 起还会让注册整链报 `Table '...invite_code' doesn't exist`（闸门默认开着，却无处领取）；v2.42 起缺 `users.token_version` 一列更严重——签发直接抛（登录 500）、校验侧 fail-closed 把每张令牌判为无效（**全站 401**），故**先跑迁移 0005 再部署新代码**；v2.45 起迁移 0006 会把 `api_apps.app_key` **明文列删掉**（改存 SHA-256），漏跑即新代码报 `Unknown column 'app_key_hash'`，而**跑过之后无法回退**到 v2.44 及更早的 jar（旧代码要读的那一列已经不存在，明文也回填不出来）⇒ 上线顺序固定为"先迁移、再上新代码"，删列前先整表备份（手册 5.4 与 5.8）。
+> ⚠️ `index.sql` 不要灌向有数据的实例。上线顺序固定为"先迁移、再上新代码"。
 
 ### 2. 配置环境变量
 
-复制 `.env.example` 为 `.env` 并填写必填项（`.env` 已被 git 忽略，不会入库）：
+复制 `.env.example` 为 `.env`，填 `DB_USER`/`DB_PASSWORD`/`JWT_SECRET`（≥32 字节随机）/`OPENAI_API_KEY`。其余选配项见 `.env.example` 注释。
 
-- 必需：`DB_USER` / `DB_PASSWORD` / `JWT_SECRET`（≥32 字节强随机值）/ `OPENAI_API_KEY`
-- 可选：`OPENAI_BASE_URL` / `RAGFLOW_*` / `RUSTPBX_ENDPOINT` / `SEARCH_*` / `WEATHER_API_KEY` / `HEALTH_SHOW_DETAILS` / `MAPPER_LOG_LEVEL` / `LOG_FILE` / `SERVER_ADDRESS` / `MANAGEMENT_SERVER_PORT` / `MANAGEMENT_SERVER_ADDRESS` / `CORS_ALLOWED_ORIGINS` / `REGISTRATION_MODE`（v2.37，默认 `invite`）/ `TRUST_PROXY` + `TRUST_HOPS` + `LOGIN_LOCK_USERNAME_FAILURES`（v2.44，反向代理部署与前两项必须成对设）/ `OPENAPI_WS_URL_KEY_ALLOWED`（v2.50，默认 `false`）等（公网部署相关项见手册 5.3 与 5.10）
-
-> **`.env` 不会被自动读取**（项目无 dotenv 依赖，Spring / JVM / Maven 都不解析它），需显式导出：
-> `set -a && . ./.env && set +a && java -jar ...`，或 systemd 的 `EnvironmentFile=`。`start-backend.bat` 也不读 `.env`，它只在变量缺失时给一组开发默认值。
-> 未配置可选第三方服务时后端仍可启动，对应功能运行时降级。
+> Spring Boot 不自动读 `.env`（无 dotenv 依赖）。需显式导出：`set -a && . ./.env && set +a && java -jar ...`。`start-backend.bat` 不读 `.env`，它自带开发默认值。
 
 ### 3. 启动
 
-**方式 A：一键脚本（Windows，推荐）**
+- 双击 `start-backend.bat` → http://localhost:8080
+- 双击 `start-frontend.bat` → http://localhost:5173
 
-- 双击 `start-backend.bat` → 后端 http://localhost:8080
-- 双击 `start-frontend.bat` → 前端 http://localhost:5173
-
-**方式 B：命令行**
+或命令行：
 
 ```bash
-# 后端（backend 目录；先导出配置）
-set -a && . ../.env && set +a
-./mvnw -DskipTests spring-boot:run
-
-# 前端（frontend 目录）
-npm install
-npm run dev
-# 后端不在 8080（例如本机自验证跑在 8091/9091）时，代理目标由这一项决定：
-# VITE_PROXY_TARGET=http://localhost:8091 npm run dev
+# 后端
+cd backend && ./mvnw spring-boot:run
+# 前端
+cd frontend && npm install && npm run dev
 ```
 
-### 4. 访问
-
-浏览器打开 http://localhost:5173 → 注册账号 → 创建助手 → 文本对话或语音通话。
-
-## 配置说明
-
-所有敏感配置经环境变量注入（模板见 [.env.example](.env.example)），关键项：
-
-| 变量 | 说明 |
-|---|---|
-| `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | MySQL 连接（`DB_USER` / `DB_PASSWORD` 必需，无默认值） |
-| `JWT_SECRET` / `JWT_EXPIRATION` | JWT 签名与有效期（Secret 必需，≥32 字节；无默认 ⇒ 缺失即启动失败）。access 默认 **15 分钟**（v2.42 由 24 小时收紧，靠前端临期续期承接；调大前先看手册 5.3 与 `check-auth-session.mjs` 第 10 组） |
-| `REGISTRATION_MODE` | **（v2.37，v2.89 改默认）** 注册闸门：`open`（**默认**，忽略邀请码直接注册）/ `invite`（注册必须带一个未使用的一次性邀请码）。判定**只认显式 `open`**，其余取值（含拼写错误）一律按 `invite`——默认放宽与"未识别值不放宽"是两件事；前端注册页由 `GET /api/auth/register-config`（回 `{inviteRequired, mode}`）探测，不随前端发版变化。⚠️ 显式设成 `invite` 时第一个管理员会陷入"注册要码、发码要管理员"，先按手册 5.10④ 用 SQL 放第一个码 |
-| `OPENAI_API_KEY` | LLM Key（**必需，v2.29 起无占位默认**：缺失或空串即启动失败） |
-| `OPENAI_BASE_URL` / `AI_MODEL` / `AI_TEMPERATURE` / `AI_MAX_TOKENS` | LLM endpoint 与默认模型（endpoint 默认 OpenAI 官方地址、模型默认 `deepseek-chat`，**两者不同源**：换服务商时要一起改）。⚠️ `OPENAI_BASE_URL` **只填主机根**（如 `https://platform.deepseek.com`），不要带 `/v1`——出站路径由 Spring AI 默认补齐 `/v1/chat/completions`，带上会合成 `/v1/v1/...` 导致每次对话都失败；启动时 `ModelBaseUrlGuard` 会把合成后的真实地址打进日志并在误配时告警。`AI_MAX_TOKENS`（**v2.68 提为变量**，默认 2048）只在助手未设 `maxTokens` 时兜底；助手给了正整数就用助手自己的值，该值写入时钳制到 `AssistantPolicy.MAX_OUTPUT_TOKENS=8192` |
-| `AI_STREAM_TIMEOUT_MS` | **（v2.71 新增）** 模型流式调用的**静默**超时（毫秒，默认 60000）：每收到一个分块重新计时，故它约束的是"上游不再吐分块"而不是"回答太长"。判据只有一处（`OpenAiModelAdapter.stream()`），文本 WS / 语音 WS / 开放 SSE 三条通道与每一轮工具续答共用；到点以 `TimeoutException` 收场并走各通道**既有**的失败出口（文本 WS 发 `error` 帧并解冻输入框、语音播报"遇到问题"、SSE 结束流）。取值与 `AppConfig` 共享 `RestTemplate` 的读超时（60s）对齐，调大前先看手册 4.5 第 28 条 |
-| `RAGFLOW_API_KEY` / `RAGFLOW_ENDPOINT` | RAGFlow 知识库服务（可选；未配置或密钥失效时**对话不报错**，但本轮检索判为失败：后端记 WARN、`query_end.knowledgebase.failed=true`，v2.39；该状态自 v2.41 起随回复落库，故刷新页面与翻历史同样可辨） |
-| `RUSTPBX_ENDPOINT` / `RUSTPBX_SILENCE_TIMEOUT` / `RUSTPBX_BREAK_ON_VAD` | 语音网关（可选，未配置时语音通话建立失败） |
-| `TURN_STATIC_AUTH_SECRET` / `TURN_REALM` / `TURN_CREDENTIAL_TTL_SEC` | **（v2.88 新增）** TURN REST 凭据**现签**：前两项齐备时 `GET /api/webrtc/config` 在静态条目之外按当前登录用户追加 udp/tcp 两条临时候选（`username=<到期秒>:<userId>`），TTL 默认 7200 且须 ≥ `VOICE_MAX_CALL_SEC`；**只配一个则打具名 WARN 且不签发**（不发假凭据），两者都不配则 `turn.signed=false`、行为与 v2.87 逐字节相同。`WEBRTC_ICE_SERVERS` 退为"静态 STUN／固定账密"通道——⚠️ 用 `set -a; . ./.env` 加载时其 JSON 值必须整体加单引号，否则内层双引号被 bash 剥掉、后端按设计静默降级空数组。"coturn 是否真的接受这些凭据"属外部部署，本仓未取证（手册 5.9 / 7.5 v2.88） |
-| `SEARCH_API_KEY` / `SEARCH_ENDPOINT` | 联网搜索工具（二者缺一则 `web_search` 不注册） |
-| `WEATHER_API_KEY` | 高德天气工具（未配置则 `get_weather` 不注册） |
-| `IMAGE_API_KEY` / `IMAGE_ENDPOINT` / `IMAGE_MODEL` | 文生图工具（OpenAI 兼容 images；未配 Key 则不注册） |
-| `VIDEO_API_KEY` / `VIDEO_ENDPOINT` / `VIDEO_MODEL` | 文生视频工具（OpenAI 兼容 videos 异步任务；未配 Key 则不注册） |
-| `WEBFETCH_ENABLED` / `WEBFETCH_MAX_BYTES` | 网页正文读取工具（免第三方密钥，但会出网访问模型给出的公网地址，**默认 false**；`deep_research` 同样要求它为 true） |
-| `RESEARCH_MAX_SOURCES` | 深度研究默认抓取网页数（默认 3，硬上限 5；模型入参可覆盖） |
-| `HEALTH_SHOW_DETAILS` | **（v2.29）** `/actuator/health` 是否回组件明细，默认 `never`（`/actuator` 免鉴权，公网实例必须保持关闭并由网络层封住，见手册 6.1） |
-| `MAPPER_LOG_LEVEL` | **（v2.29）** SQL 日志级别，默认 `INFO`（不打 SQL）；`DEBUG` 才输出语句与参数，本地脚本已设为 `DEBUG` |
-| `LOG_FILE` | **（v2.29）** 非空则日志同时落该文件（按天 + 10MB 轮转、保留 7 天）；为空仅控制台 |
-| `SERVER_PORT` / `SERVER_ADDRESS` | **（v2.30 新增 `SERVER_ADDRESS`）** 后端端口与监听地址，默认 `8080` / `0.0.0.0`（Boot 原行为）。单机反代部署应设 `127.0.0.1`，让"业务端口不出机器"由内核保证而非只靠云安全组（手册 5.7⑤、5.10②） |
-| `MANAGEMENT_SERVER_PORT` / `MANAGEMENT_SERVER_ADDRESS` | **（v2.30 引入，v2.31 真实首跑修正）** actuator 端口与监听地址，默认"与业务同端口、地址**不设**"。⚠️ Boot 3.5.15 两个方向不对称：同端口时给了 address 会直接抛异常起不来（故 yaml 刻意不给默认值、`.env.example` 默认注释），而端口独立时它又**不继承** `server.address`（不设即 `/actuator` 绑全网卡）。结论＝换端口必须两项成对配，且只换端口不设地址会被 `ManagementAddressGuard` 拒绝启动（手册 5.3、6.1 与 7.4 C-59/C-61） |
-| `CORS_ALLOWED_ORIGINS` | **（v2.30）** 前端来源白名单（逗号分隔），HTTP 跨域与 WebSocket 握手共用，默认为此前硬编码的 4 个本地端口。**公网站点必须把正式域名加进来**：浏览器 WS 握手一定带 `Origin`，漏配的表现是"能登录、点什么都没反应"且后端日志无异常栈（手册 5.7⑥、6.5） |
-| `TRUST_PROXY` / `TRUST_HOPS` | **（v2.44 新增）** 限流桶键 / 登录锁定 / 审计落库三处"客户端是谁"的唯一判据开关。默认 `false` / `1` ⇒ **只信连接层地址，不读 `X-Forwarded-For`**（该头最左段由客户端自填，读它等于让每个请求自选落在哪个桶）。反向代理后部署必须设 `TRUST_PROXY=true` 并把 `TRUST_HOPS` 配成**自己控制的代理层数**（判据从右往左数）；配错的两个方向都是"不同用户并进同一个桶"，**且不会报错**，故按手册 5.8 用审计落库的 `ip` 做人工验收 |
-| `LOGIN_LOCK_USERNAME_FAILURES` | **（v2.44 新增）** 账号维度登录失败锁定阈值，默认 15（锁 5 分钟）。主判定已改为来源维度（20 次/15 分，不可配），账号维度只作"换 IP 慢爆号"的粗兜底；调回 5 会重新打开"匿名把任意账号锁在登录页外"的窗口，调太高则共享出口（校园网 / 公司 NAT）下容易被他人失败次数牵连（手册 2.1、6.6） |
-| `OPENAPI_WS_URL_KEY_ALLOWED` | **（v2.50 新增）** 开放语音握手是否接受 `?api_key=` 这条 URL 查询参数通道，**默认 `false`**。浏览器 `WebSocket` 设不了自定义头，故该通道确有真实用途，但 query 会进反代 access_log / 浏览器历史 / `Referer` ⇒ 长期 Key 一旦进过 URL 就算已泄露。关闸的表现是"只带 URL Key 的握手按未携带凭据回 401"，同时记 `URL_KEY_REJECTED`；显式放开后仍被使用则记 `URL_KEY_USED`——**这两格合起来就是"能不能干脆删掉通道"的依据，不要靠猜**。HTTP 侧 `/api/open/**` 从不读 query，只认 `X-API-Key`（本批把它升为真机断言）。详见手册 2.12 与 7.4 C-110 |
-
+浏览器打开 http://localhost:5173 → 注册 → 创建助手 → 对话或通话。
 
 ## 文档
 
-**权威层只有一份**：[docs/云谕助手项目手册.md](docs/云谕助手项目手册.md)（项目概述 / 功能说明 / 技术架构 / 开发规范 / 部署流程 / 维护指南 / API 与 WS 协议速查 + 问题追踪 7.4 + 变更记录 7.5）。其余各页是**导读层**——按角色把注意力引到手册对应章节，本身不重复计数值，与手册冲突时以手册为准。
+**权威层只有一份**：[docs/云谕助手项目手册.md](docs/云谕助手项目手册.md)。其余各页是导读层——按角色把注意力引到手册对应章节，本身不重复计数值，与手册冲突时以手册为准。
 
 | 页面 | 什么时候看 |
 |---|---|
 | [AGENTS.md](AGENTS.md) | 动手前：交付标准、批次节奏、不可逆资源、安全与验证纪律 |
 | [docs/PROJECT-SPEC.md](docs/PROJECT-SPEC.md) | 判断"该不该做"：定位、范围、明确不做的事 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 动跨模块代码前：分层、拦截器链、WS 通道、三条贯穿全仓的设计决定 |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 日常开发：环境、提交前必跑、判绿的唯一方式、写迁移的规矩 |
-| [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 改页面时：路由 → 视图 → 接口 → WS 的对应关系与逐页真实行为 |
-| [docs/COMPONENT-GUIDELINES.md](docs/COMPONENT-GUIDELINES.md) | 写组件/接口前：命名、错误处理、依赖策略、无障碍现状 |
-| [docs/REGISTRY.md](docs/REGISTRY.md) | 加工具、开放端点、列或依赖时：六张"不登记就等于没生效"的登记表 |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 上线相关：为什么不是边缘托管、拓扑、上线顺序、易漏项 |
-| [DESIGN.md](DESIGN.md) | 改前端样式前：视觉规范（纯白极客 + 暗色） |
-| [CHANGELOG.md](CHANGELOG.md) | 查历史版本：批次索引（正文仍在手册 7.5） |
-| [TODO.md](TODO.md) | 找下一步做什么：进度快照与等用户表态的事项 |
-
-## 项目现状与迭代方向
-
-**当前完成度**：核心链路（认证 / 助手管理 / 文本对话 / 语音通话 / 知识库 / 记录统计 / AI 工具 / 审计）代码层面均已实现；验证口径需分层理解——REST 与 WS 接口层、归档与外呼等已有本地端到端记录，但**语音通话的 AI 回复主链路（通话记录落库 / `callId` 回传 / 录音上传 / 配额拦截 / 转写落库）截至 v2.25 修复前从未真正跑通，也尚未在真实 RustPBX 网关上做端到端复测**（详见手册 6.6"完成度债"与 7.4 C-15/C-30）；前端已整体重构为纯白极客风格并通过 `npm run build`。P0 工程基建已落地（v2.5）：会话（Session）模型、refresh token + 登出黑名单 + 登录锁定、后端 37 项核心链路单测、前端 ESLint 门禁。P1 产品能力补齐已全部落地（v2.6~v2.9）：助手分页与搜索、Redis 多实例支撑、调试时间线、角色体系与用户管理。P2 规模运营已全部落地（v2.10~v2.14）：长会话消息惰性分页、ICE 可配置化 / 通话录音与回放 / 弱网降级、数据归档与容量治理（v2.13）、多租户与商业化前置（v2.14：组织数据隔离 + 用量配额账单 + 开放 OpenAPI）。v2.15 将开放 OpenAPI 文本对话升级为**多轮会话**；v2.16 开放 **OpenAPI 语音能力**（WebRTC 语音会话端点 `/api/open/ws-voice`）；v2.17 实现 **PSTN 外呼网关（可插拔）+ Webhook 回调**；v2.18 实现 **PSTN 外呼 DIALING 超时自动扫描** 并提供 **TURN（coturn）部署物料**（见 [deploy/turn](deploy/turn/) 与手册 5.9）；v2.19 收尾剩余登记事项（**定时归档跨实例防重**（分布式锁）、**语音配额逐条拦截**、**前端应用管理页** `/apps`）。后端单测 155 个全绿。v2.20~v2.21 完成两轮死代码清理：删除无注入点的 `ASRService`/`TTSService`、前端零引用的三个 composable 与 Pinia store（连同 Pinia 依赖下线）、以及 9 个无消费者的腾讯云 ASR/TTS 凭据配置键。v2.22 完成一致性审计第 1 批修复：`PUT /api/auth/password` 补放行路径令牌自解析（此前必然 500）、语音通话建立时配额不再被吞掉（超限即终止通话）、RAGFlow 数据集列表与删除补对象级归属授权（S-01 收口），后端单测增至 168 个全绿。v2.23 完成一致性审计第 2 批：`WEBHOOK_RETRY_*` 三个环境变量真正可注入、删除 `ModelAdapter.getModelName()` 死接口（连带错位模型键）、组织成员列表批量回填 `username`（不再显示 UUID）、手册目录/测试实况/接口约定章节对齐代码，并把 23 个失效绝对链接改为相对路径，后端单测 169 个全绿。v2.24 完成一致性审计第 3 批（收口）：注册/改密密码规则统一为 ≥6（此前正则放行 5 位、与自身文案和前端均不一致），`/api/auth/refresh` 补 `role` 且回查账号（软删除后不再续期），配置元数据由 12 项补全至 `app.*` 全 38 项，`.env.example` 补入 4 个已文档化却缺失的变量；RustPBX 的 TTS 服务商经论证确定保持网关侧固定（不改码），软删除令牌照常有效与前端未接静默续期两项登记为已知限制，后端单测增至 172 个全绿。v2.25 完成一致性审计第 4 批，修掉两条主链路缺陷并收口五处越权/SSRF：**语音通话的助手 ID 改由握手 URL 路径段解析**（此前只从 `offer` 消息体取值而前端从不发送，导致 AI 每轮回"语音助手未就绪"、通话记录不落库、录音无法回传、通话与消息配额从未拦截——语音侧的"已通过本地验证"此前仅覆盖信令建链与鉴权）；**文本对话成功收尾补发 `query_end`**（携带 `message/costTime/knowledgebase/tokenUsage`，前端气泡流式态与耗时/引用/Token 诊断自此正常）；检索测试接口按可见数据集授权、可指定 path/method 的通用 RAGFlow 转发端点整体删除、对话知识库按可见范围求交、组织 viewer 成员不再可改写共享助手人设、Webhook 出站地址经 `ExternalUrlValidator` 双重校验（禁内网/云元数据，关闭重定向）且 PSTN 回调令牌改常量时间比较。前端本批零源码改动，后端单测增至 **32 类 / 191 例**全绿（语音与 Webhook 的真实网关/外发链路未做在线端到端验证）。v2.26 为**手册↔代码实况对齐批次（纯文档、零行为变更）**：补全 7.1 认证端点清单（`/api/auth/refresh`、`/api/auth/logout` 此前漏列），把滞后的待跟踪项按实况收口（S-16 的唯一索引与逻辑删除其实早已存在，残留仅是软删账号占位导致同名重注册撞 DB 约束；C-23② 所称"归属校验发生在鉴权前"经复核不成立——认证前业务消息一律不响应），并如实登记三处**此前被过度声明的"完成"**：配额管理只有后端 API 而无管理页入口、用量统计实为"近 1/7/30 天个人语音聚合"且不过滤通话状态也不含文本消息、辅助调试能力（人设模板 / 快捷命令 / 消息搜索 / 对话导出）只接在语音工作台。v2.27 为 **AI 工具扩展批次**：助手新增文生图（`generate_image`）、文生视频（`generate_video` 提交 + `query_video` 查询，拆两个工具是因为工具调用在对话流内同步执行、不能在单工具里轮询等出片）、网页正文读取（`fetch_webpage`，免第三方密钥但默认关闭）；架构上收口为"一个工具类即一个能力"——新增类只需暴露 `ToolCallback` Bean 并被自动收集，依赖密钥/开关未配置时用 `@RequiresProperty` 让工具**根本不注册**（此前 `get_weather`/`web_search` 在未配 Key 时仍暴露给模型、只能执行时报错），工具重名由静默覆盖改为启动即失败；前端 `markdown.ts` 补图片渲染，生图结果不再只是裸链接。图像/视频按 OpenAI 兼容契约实现，**尚未持有真实服务商账号做过一次调用**（详见手册 6.6 与 7.4 C-32~C-36）。v2.28 为**能力扩展与按助手裁剪批次**：新增 `deep_research`（把"检索 + 逐篇抓取正文 + 汇总带来源摘要"压缩进**单次工具调用**——每轮工具迭代都要重跑一次完整流式模型调用，语音场景即一轮播报延迟，故不靠模型自己串两次工具；组合既有 `web_search`/`fetch_webpage` 而非复制其网络与安全逻辑，SSRF 校验、关闭重定向、类型与字节上限全部沿用）；工具能力**按助手裁剪**（`assistants.tools` 白名单 + 三条对话链路统一过滤 + `GET /api/tools` 工具字典 + 前端"可用工具"勾选，空配置=全部可用，故既有助手零迁移即行为不变；**工具集在 WS 连接建立时快照，改配置需重进助手或下次通话才生效**）；`@RequiresProperty` 的两套开关表达收敛为内联 `key=value`（判定结果不变）。**已部署库需手工执行一次 `ALTER TABLE assistants ADD COLUMN tools ...`**（手册 5.4 已登记语句与不执行的后果；本批只在本机开发库执行过，其他环境仍需各自执行，服务侧未做接口级端到端验证）。同时手册新增 [6.7 与豆包能力横向对比与差距收口路线](docs/云谕助手项目手册.md#67-与豆包能力横向对比与差距收口路线)：14 行能力矩阵按"持平 / 契约接线 / 架构 / 验证债"四类归因，结论是豆包多数模型能力可采购、本项目的差异化在治理与私有化，**而最贵的差距是"语音主链路从未真机跑通"这条验证债**（豆包侧信息仅来自公开产品页与 App Store 描述，未逐项实操核对）。v2.29 为**上线就绪批次（零产品功能新增）**：把"能不能公网给真实小范围用户用"从隐含假设变成显式清单——① 配额运营闭环（`Admin.vue` 新增「用量配额」Tab + `GET /api/admin/quotas/defaults`，并修掉"给新作用域配单项配额会建出 NULL 维度、下次拦截即 500"；**开工前提"注册即挂默认日配额"经复核不成立，环境变量本就兜底，故按实况改向**）；② 用户输入 2000 字上限（配额按条计量不限长度＝成本可直接打穿，取值刻意落在 Tomcat 默认 8KB 入站帧内以免表现为断连）；③ `OPENAI_API_KEY` 去掉占位默认改为缺失即启动失败、`/actuator/health` 明细默认关闭（`/actuator` 免鉴权）；④ `index.sql` 拆为"新库建表 / `scripts/db-migrate.sh` 幂等增量 / `db/seed-demo.sql` 演示数据"三份（演示账号不再随建库进生产，手工 ALTER 变成有账本的迁移文件）；⑤ `scripts/backup-mysql.sh` + 恢复演练（此前"每日全量 + binlog 增量"里增量部分从未落地）、日志可落文件且修掉 `log-impl=StdOutImpl` 让新加的 SQL 级别开关成为空壳的问题；⑥ 手册新增 **5.10 公网试验部署清单**（安全组端口 / 反代四易漏项 / systemd 启停 / 备份异地 / 关停与数据处置）与 `.env` 真实加载方式的纠正。**验证口径不变**：后端进程在本机从未启动过（沙箱拦截），故配额页与 defaults 端点只有单测与类型层保证；5.10 是"由代码事实反推的操作序列"而非跑通过的记录；语音仍未过真网关。另如实登记一次**开发库被误删事故**（`index.sql` 的 `DROP DATABASE` 在派生脚本时漏网）与当天备份恢复全过程，规则已写入手册 5.2/5.4（详见 7.4 C-44~C-56）。v2.30 为**可验证性收口批次（零产品功能新增，C-57~C-60）**：① 前端静默续期收口（`api/auth.ts` 统一出口 + 单飞续期 + 跨标签页补偿 + WS 每次重连重取令牌，修掉"访问令牌 24h 到期后全站 401 且不跳登录"的死路；新增 `npm run check:auth` 门禁，Node 原生类型擦除直调 `auth.ts` 跑 9 场景，零新依赖）；② `SERVER_ADDRESS` / `MANAGEMENT_SERVER_PORT` / `MANAGEMENT_SERVER_ADDRESS` / `CORS_ALLOWED_ORIGINS` 四项提为环境变量（**CORS 与 WS 握手来源白名单此前硬编码 4 个本地端口，属上线阻断级：公网站点漏配即"能登录、点什么都没反应"且后端无异常栈**；默认值不变＝零行为变更）；③ 过程中自纠一条框架实况——Boot 的独立管理端口**不继承** `server.address`，直觉上的"加固"写法反而更暴露，已按字节码核实后修正并写入手册 6.1；④ `AdminControllerTest` 14 例（锁死 v2.29 的配额拆箱 NPE 回归）+ **`scripts/smoke.sh`** 9 节 61 项接口/WS 冒烟，专管单测覆盖不到的拦截器、序列化、限流与握手。**验证口径**：后端进程在本机仍从未启动过（权限策略拦截），故冒烟脚本只在假 `curl` 桩上自证过自身逻辑（全量参数 61 通过 / 0 失败 / 2 跳过），**尚未对真实后端执行**——它连同 5.10 清单构成"等首次真机运行"的验收资产（手册 7.4 候选 ⑲）。v2.31 为**真实首跑批次（零产品功能新增，C-61~C-62）**：后端进程**第一次在本机真实启动**（`SERVER_ADDRESS=127.0.0.1` + 业务 8091 / 管理 9091，只监听回环），上面"从未启动过"的验证口径自此作废——首跑即抓出两个只有真跑才会暴露的缺陷：**C-61** v2.30 给 `management.server.address` 写的回落默认值让**默认配置在任何机器上都启动失败**（Boot 在管理端口与业务端口相同时，该项非 null 即抛 `IllegalStateException`；结论此前只从字节码读出、未运行过），修法为 yaml 删掉该键 + 新增 `ManagementAddressGuard` 在启动时断言"独立管理端口必须成对设监听地址"；**C-62** 未匹配路径被 `@ExceptionHandler(Exception.class)` 兜底降级成 HTTP 500（浏览器每请求一次 `/favicon.ico` 就计一条服务端错误），已补 `NoResourceFoundException` → 404 处理器。`scripts/smoke.sh` 首次打到真实实例：暴露面 / 端口分离 / 401 与新增的 404 断言通过，写路径因本地 `.env` 的 DB 凭据仍是占位值而未执行（手册 6.6 已登记为批次边界）；后端单测 43 类 / 275 例全绿，前端源码零改动。v2.32 为**深入探查 + 端到端全链路验证批次（零产品功能新增，C-63~C-65）**：对同一台真实实例做 HTTP 链路 / WS 帧级 / 后端回归三层探测，三条缺陷全部由实测产出——**C-63** 所有会话凭据入口只验签名与过期、**不看 `type` claim**，7 天寿命的 refresh 令牌因此可直接冒充 access 使用（泄露 refresh＝泄露整个 API，且前端静默续期会把这种误用洗成一次成功请求），收口为 `JwtUtil.validateAccessToken()` 并切换五个消费点（实测 refresh 打 `/api/assistants` → 401）；**C-64** 客户端把请求发错形状（方法 / Content-Type / 缺 multipart 字段 / 超体积）被全局兜底降级成 **HTTP 500 + 带栈日志**，计入服务端错误率，补 405（含 `Allow`）/415/400/413 四条精确处理器（实测 500→对应 4xx，真实实例日志 0 条兜底 ERROR）；**C-65** 免令牌握手的连接在服务端**永不过期**——Tomcat 10.1.24 不回收服务端会话、`setMaxIdleTimeout()` 在服务端是空操作（实测修前 400 秒仍存活），新增 `UnauthenticatedSocketReaper` 按 `WS_UNAUTHENTICATED_IDLE_MS`（默认 30s）清扫，修后实测 30.6 秒关闭且已认证连接全程不受影响。后端单测升至 **47 类 / 301 例**全绿，`scripts/smoke.sh` 新增 §7.5 请求形状节与 §2 凭据节。同批把**探针自身**也当成验证对象：前两轮曾因 `curl` 无法握手 WS、令牌铸造器漏写文件而产出"看起来通过"的假绿，已改为过期即退出 + 显式关闭码断言。**验证口径的残余不变**：写路径与浏览器级 E2E 仍缺一份可用本地库凭据（`.env` 的 `DB_USER`/`DB_PASSWORD` 为 `[REQUIRED]` 占位）。v2.33 为 **CI 流水线与门禁入库批次（零产品功能新增，C-66~C-67）**：项目此前**没有任何自动门禁**（仓库无 workflow，两个结构门禁脚本躺在 gitignored 的 `.scratch/` 里），本批把 `.scratch/doc_gates.py` / `config_gates.py` 入库为 [scripts/check-docs.py](scripts/check-docs.py) 与 [scripts/check-config.py](scripts/check-config.py)（ROOT 改为按脚本自身位置推导 + **补上原先缺失的非 0 退出码**，否则接进 CI 等于"永远绿"），并新建 [.github/workflows/ci.yml](.github/workflows/ci.yml)：后端 `./mvnw -B test`、前端 `npm ci` → lint / type:check / check:auth / build、门禁与脚本语法三道，**全部零凭据零数据库**（实测：`DB_PORT` 指向无人监听端口 + 三项占位值 + 一次性随机 `JWT_SECRET`，301 例仍全绿）。顺带修掉 **C-66**：`backend/mvnw` 与 `scripts/*.sh` 在 git 索引里是 `100644`，Git Bash 容忍模式位所以本机从没暴露，Linux 服务器上 `./mvnw`、`./scripts/db-migrate.sh`、`./scripts/backup-mysql.sh` 会直接 `Permission denied`（已置 `100755` 并加 `.gitattributes` 换行护栏）。**验证口径**：本批能证明的是"每道检查在本地以与 CI 相同的条件跑绿"；推送后 CI 首跑已实测通过（3 个 job 各步骤全部 success、总用时 63 秒；Actions 日志正文需登录，逐行测试计数留人工确认）；带库的 `scripts/smoke.sh` 全链路、真实模型调用与浏览器级 E2E 刻意不进 PR 关键路径。v2.34 为**凭据收口批次（零产品功能新增，C-68~C-69）**：同日三项上线决策拍板并登记手册 6.7（国内云+ICP 备案 / 注册先邀请码两阶段 / 语音不进 MVP）；`DB_USER`/`DB_PASSWORD`/`OPENAI_API_KEY` 的"未注入 / 空 / 仍是模板占位标记"三态改由 `CredentialPlaceholderGuard` 在启动最早期点名拦截（真实 jar 首跑实测生效），新增 `scripts/gen-dev-env.sh` 一键生成本地 `JWT_SECRET` 并列出剩余人工必填项；后端单测 48 类 / 309 例全绿。v2.35 为**资金防线批次（零产品功能新增，C-70~C-72）**：① 配额消费由"先查余额再扣"（并发下全部基于同一快照放行，超发量＝并发数）收口为**单条带 `used < limit` 条件的原子 UPDATE**——新增判定账本 `quota_daily_usage`（唯一键 `(scope_type, scope_id, usage_date, metric)`，迁移 `0003`），0 行按"行存在即拒 / 行缺失建 used=0 重试一次 / 建行冲突 fail-safe 拒"处理，消息与通话次数两条链路切换；语义变化如实登记：**消费发生在判定时刻、下游失败不退**，展示口径（记录条数）与判定账本允许漂移。② 限流从"只限登录注册"扩为双档位桶——AUTH 5/min（login/register/refresh/password **共用一桶**，换端点不清零撞库预算）+ EXPENSIVE 30/min（OpenAPI 对话/外呼、检索测试、录音上传下载），并顺带修掉内存桶键不含档位导致扩面即互吞的老缺陷。③ `scripts/smoke.sh` 把 429 从 SKIP 升成断言（§8.5 EXPENSIVE 连打、§10 AUTH 连打 + 跨端点共桶复现）。并发回归含一条**确定性反例**（CyclicBarrier 钉死"读后写前"窗口，证明旧写法必超发——反例不超发则测试建模有错）。**验证口径**：后端单测 **50 类 / 326 例**全绿；JVM 内的 CAS fake 只**建模**不证明 MySQL 行锁语义，迁移 0003 与真实库并发复跑、§8.5/§10 冒烟均未经真实实例执行——与写路径同阻塞在 `.env` 的库凭据占位值（手册 6.6 v2.35 边界）。v2.36 为**真机验收 + 冒烟脚本收口批次（零产品行为变更，C-73~C-76）**：拿到本地库凭据后对真实实例（8091/9091，只监听回环）第一次全量执行 `scripts/smoke.sh`，跑出的四个缺陷**全部在脚本侧**——C-73 Windows/Git Bash 下 MSYS 会按 ANSI 码页重编码 `curl.exe` 的命令行参数，中文请求体到服务端已成非法 UTF-8（改 `--data-binary @临时文件`）；C-74 `json()` 把所有值一律当字符串，`tools: ["get_weather"]` 发出去是 `"[]"`，被 Jackson 拒为 `Cannot deserialize ArrayList from String`（数组/对象现在按原样内嵌）；C-75 §7 的 WS 握手四条断言全返回 400，因为 `/ws/smoke` 这样的路径参数被 MSYS 改写成 `C:/Program Files/Git/ws/smoke`（改为传不带斜杠的路径、在解释器内补回，自 v2.30 设立起从未真正成功执行过的"WS 握手 101"宣称就此更正）；C-76 §6 只断言 HTTP 200，于是 `/api/webrtc/config` 在返回 `iceServers: []` 时被判成"语音凭据已配置"（改为按字段断言的 `cfg_probe`，现在如实 SKIP）。最终 **78 项 = 75 通过 / 0 失败 / 3 跳过**，写路径（助手 CRUD、会话分页与中文关键词检索、统计、配额、登出黑名单）首次对真实后端验证通过。**v2.35 欠下的两半验证就此关闭**：真实 InnoDB 并发复跑三轮全过（20 路首发同一 `(scope, date, metric)` 只放行 1 行、其余 1062 冲突；20 路抢 limit=5 累计影响行数恰为 5 且 0 客户端报错；用满后再扣 0 行），服务侧再用真实 WS 走一遍 `daily_msg=2` 证明"判定时刻消费、下游模型失败不退"；§8.5/§10 两桶连打在活实例上验证（EXPENSIVE 放行 29 次后 429、AUTH 桶内 login 打满后从未请求过的 refresh 同样 429＝共桶成立）。唯一残余：本机 `REDIS_ENABLED=false`，所以扩面后实测的是内存桶，`ip|TIER` 键的 Redis 分支仍只有单测保证。冒烟一轮真实实例日志 0 条 ERROR；本批创建的 5 个一次性账号按主键精确删除，`users` 回到 36 行基线（手册 6.6/7.4/7.5 已登记）。v2.37 为**邀请码制注册批次（C-77~C-81）**：`REGISTRATION_MODE`（默认 `invite`，只认显式 `open`）把注册收口为"一个码换一次注册"，领取是单条 `UPDATE ... WHERE used_by IS NULL`（并发下**一个码只能注册进一个人**，真实 InnoDB 20 路并发复跑累计影响 1 行），缺码/重放三类拒绝全在领取之前 ⇒ **失败不烧码**，管理端新增发码与台账接口 + `Admin.vue`「邀请码」Tab，注册页按公开端点 `GET /api/auth/register-config` 决定要不要这一格；真机**双向**验收（邀请码模式 84 项 = 80 通过 / 0 失败 / 4 跳过，改 `open` 重启后 81 项 = 77 / 0 / 4），后端单测 53 类 / 343 例全绿；⚠️ 由此产生的上线口径变更：**第一个管理员有引导死锁**（注册要码、发码要管理员），解法见手册 5.10④。v2.38 为**语音宣称口径收口批次（零产品行为变更，C-82~C-84）**：按代码逐条复核语音侧的三处宣称后**双向改口径**——两处**过报**已撤回（通话录音并非"麦克风 + AI 音轨**合成**"：只是把两条音轨并入同一个 `MediaStream` 交给 `MediaRecorder`，**项目侧未做混音**，且本仓无浏览器级 E2E，回放内容未经验证；TURN 侧也**不存在**"登录态动态下发临时凭据"，`GET /api/webrtc/config` 只把静态 `WEBRTC_ICE_SERVERS` 原样回显给任意已登录用户 ⇒ 手工生成的 REST 凭据放进环境变量后**过期即静默失效**，固定凭据则属可外带的资源），一处**少报**已更正（`daily_call_sec` 曾被写成"只读展示/未生效"，实际 `checkStartCall` 一直在按当日已结算通话求和判定并抛 403，"只读"本意只是"不写扣减账本"），并为其补上时长越界断言（以**变异校验**证明该断言会抓到回归）；后端单测 **53 类 / 344 例**全绿，真实修法（WebAudio 混音、TURN 凭据签发与轮换、通话中时长心跳）三项全部留在语音二期。v2.39 为**吞错显性化批次 · 后端半（C-85~C-86）**：知识库检索**失败**与"知识库确实没有答案"此前**逐字节同形**——`KnowledgeService` 与 `ChatService` 两层 `catch` 都返回空命中且**全仓零日志**，RAGFlow 宕机 / 密钥失效 / 超时 / 畸形响应四类外部故障表现为"回答照常、引用 0 篇、日志干净"，代价不是崩而是**静默降级长期无人发现**；本批给 `KnowledgeHit` 增加 `failed` 分量（保留三参构造器 ⇒ 既有调用点零改动）与 `failure()` 工厂，按上游真实契约展开判据（**RAGFlow 的业务错误走 HTTP 200 + `{"code":401}`，只判状态码在这里无效**；空响应体同样判失败），三类失败各记一条 WARN，并把 `query_end.knowledgebase.failed` 随帧外发；**检索失败仍不阻断对话**是刻意保留的产品语义，收口的是"不阻断但要说出来"。后端单测 **53 类 / 344 例 → 54 类 / 353 例全绿**（新增 `KnowledgeServiceTest` 7 例含三条"正常路径不得误判为失败"的反向锚点），断言有效性由**四组变异校验**证明；真机四例矩阵（本地实例，仅模型与 RAGFlow 打桩）实测 502 与 `code:401` → `failed:true`、`chunks:[]` → `failed:false/docCount:0`、有命中 → `docCount:1/docName:["售后手册.pdf"]`，同轮日志 12 条知识库 WARN、0 条 ERROR，探针写库已按主键清除。**本批只做后端半**：前端把 `failed` 渲染成用户可见提示属下一批（本仓无浏览器级 E2E，改观感的东西无法自证），失败状态落库也尚未做（`records.knowledgebase_info` 全仓无写入点，已登记为手册 7.4 候选 ㉑）——其中"前端渲染"半批已由 v2.40 交付，"落库"半批由 v2.41 交付（见下）。v2.40 为**吞错显性化批次 · 前端半（C-87~C-89）**：主题一句话——**把"只有开发者控制台知道的失败"变成"用户看得见的失败"**。读码实测全仓 53 处 `console.error` 里有 **39 处所在 catch/回调块内没有任何用户可见动作**（`Org` / `Apps` / `CallRecords` / `Admin` / `Billing` 五个视图连通知实现都没有），于是**写操作失败＝用户以为改动生效了**（吊销 Key、改角色、删组织、保存知识库关联），**加载失败＝用户在过期或空的数据上继续操作**（配额、用量、归档概览、邀请码台账）——与 v2.39 的 RAG 吞错同形，只是发生在浏览器侧。39 处全部改为 `console.error` **保留** + 同块内可见提示（两者不是二选一），剩余 7 处（音频电平采样、WS 帧解析、录音后台上传）属高频或纯诊断、告警只会刷屏而无动作可取，逐条写明保留理由。共同成因是**通知实现被复制粘贴**：`ChatRobot` / `SmartRobot` 各一份逐字相同的实现、**两份都漏 `clearTimeout`**（连发时新提示被旧定时器提前关掉），SmartRobot 那份还写在 `v-else` 分支里、骨架屏期间弹不出任何提示——收口为 `composables/useNotification.ts`（模块级单例 + 定时器回收）与 `App.vue` **唯一挂载点**，约 70 个既有调用点零改动。v2.39 欠下的前端半同步交付：`KnowledgebaseInfo` 补 `failed?`，新增**纯函数** `knowledgebaseFlag()` 把帧折成 `failed`/`cited`/`none` 三态（`failed` 优先、**缺省字段判 `none` 而非 `failed`**，否则历史消息会被整批标成失败），角标显示"知识库检索失败 · 本条回复未带参考"；挡住该字段的正是 `SmartRobot.finishStreamMessage` 里与 `types/index.ts` 并行存在的**内联类型副本**。**验证口径**：新增 `scripts/check-notification.mjs`（26 断言）与 `scripts/check-knowledgebase-flag.mjs`（12 断言）两道零依赖 Node 门禁，**RED 先以逐字搬运的现状实现取得**（恰好 5 条红、全在"连发"与 `hide` 两组）再转绿，故门禁被证明能抓住随包发布的那条缺陷；变异校验通知侧 6 组杀 5、知识库侧 4 组全杀，未杀那组是**等价变异**（公共 API 不可观测）故如实登记。`lint` 0 error、`type:check` / `check:auth` / `check:notification` / `check:kb-flag` 全绿、`build` 成功；**后端零改动**（54 类 / 353 例）。两条**门禁自身的发现**：`type:check`（`--noEmit`）与 `build`（`-b`）**查检强度不对称**（模板丢类型窄化时前者全绿、后者报 5 条 TS18048，故 `build` 不可被 `type:check` 替代）；Node 门禁能 import 的前端模块**只能依赖裸包名或 `import type`**。**本批刻意不做**：观感改动**没有一条经过浏览器验证**（候选 ⑧ 不变）、B 类只到"知道失败了"而不做"错误态 + 重试按钮"、失败状态仍未落库（候选 ㉑ 不变）、两道新门禁**未纳入 CI**（纳 CI 属改流水线，本批未动）。v2.41 为**检索状态落库批次（C-90~C-92）**：主题——**当帧看得见，不等于事后查得回**。v2.39 造出"检索失败"这个事实、v2.40 把它搬到用户眼前，但它的两个出口（`query_end` 帧、后端日志）**都是瞬时的**：刷新页面、翻会话历史、事后统计全都还原不出"这条回答当时有没有依据"，而 `records.knowledgebase_info` 列**自建立以来恒为 `NULL`**（两张表都有该列、归档 SQL 照列拷贝、全仓零写入点＝候选 ㉑）。本批把写入收在 `ChatService.saveConversation` **一处**（文本 WS / 语音 WS / OpenAPI SSE 三条链路最终都经 `getNewRecords()` 落库，故一处即覆盖三条），**未挂知识库的会话保持 `NULL`**——NULL 的口径是"本轮未做检索"，绝不写"引用 0 篇"的假状态，两张表的列注释同步写上这一口径；读取侧按 `Assistant.tools` 的既有做法把字符串列折成 **`knowledgebase` 对象**（列访问器 `@JsonIgnore`；**列缺失/空/脏值一律读成 `null`，不臆造 `{docCount:0, failed:false}`**，那会被前端渲染成"知识库确实没答案"），前端把 `ChatRobot.vue` 里**两份逐字相同的内联历史映射**（与 C-89 同形）合成纯函数 `utils/mapHistoryRecord.ts` 并带出该字段 ⇒ **v2.40 的告警角标在刷新与翻页后依然成立**。**C-92 只登记不修**：`records.tool_name/tool_args/tool_result` 三列与 `ROLE_TOOL_CALL/ROLE_TOOL_RESULT` 两个常量同样**全仓零写入点**（工具调用只以 WS 帧存在于实时链路），是 ㉑ 的镜像——列与读取侧都在、消息根本没落库，故前端那两支映射在真实历史里永远走不到；修法的前置是口径决策（工具调用算不算会话内容、语音是否同落、条数口径与 S-12 交织），不随本批顺手做。**验证口径**：后端 **54 类 / 353 例 → 55 类 / 363 例**全绿（`ChatServiceTest` 8→13 例覆盖三种落库形状 + 未挂库保持 NULL + 文档名含引号必须写出合法 JSON；新增 `RecordTest` 5 例锁住对外形状与"脏值不伪造状态"），第四道 Node 门禁 `npm run check:history-record`（**19 断言 / 4 组**，含"必须 import 且两处调用"的静态源码断言）；**9 组变异校验**里后端 4 组中 3 组按预期红（回退落库⇒恰 4 条红且 NULL 锚点仍绿、去守卫⇒恰 1 条红、脏值伪造⇒恰 1 条红），第 4 组"只摘列 getter 的 `@JsonIgnore`"**存活**——Jackson 按逻辑属性合并访问器注解，属**等价变异**，如实登记而不补反射断言；前端 5 组中 3 组首跑即杀，"去掉 `\|\|` 兜底"两组首轮全部存活（门禁输入从未把 `toolArgs`/`toolResult` 留空），据此补两条兜底断言后同变异才被杀（断言 17→19 是否证的产物）。**真机一轮**（本地实例业务 8091 / 管理 9091 只监听回环，仅模型与 RAGFlow 两处打桩，文本 WS 三轮）：库内 `docCount:2` / `docCount:0+failed:false` / `failed:true` 三形状与本批之前的 NULL 行并存（JSON 列会规范化键顺序）、`GET /api/sessions/{id}/messages` 复读为对象且每行不含 `knowledgebaseInfo` 键、把**真实 HTTP 响应行**喂进生产 `mapHistoryRecord()` 与 `knowledgebaseFlag()` 得到 `failed` / `none` / `cited` 三个角标——"落库 → 下发 → 渲染"在同一次运行内闭合；探针写库按主键清除，基线回到 `assistants 18 / users 36 / sessions 7 / records 8`。⚠️ **首轮仍是一次假绿**：探针填的 dataset id 在 `knowledgebases` 表无对应行，被可见性求交清空后检索根本没发起（`failed:false` 是"没查"），**与 v2.39 同一形态、第二批复现**，验收口径就此固化：先看后端有没有"数据集不可见"WARN，再读帧值与列值。**本批刻意不做**：存量记录不回填、语音与 OpenAPI 两条链路属**同码路径推论而非实测**、归档与用量统计口径不变（S-12 自成一批）、C-92 空列、"错误态 + 重试按钮"、v2.40~v2.41 的三道 Node 门禁**仍未纳入 CI**、**观感改动没有一条经过浏览器验证**（候选 ⑧ 不变）。v2.42 收口**会话凭据失效**（C-93~C-95）：此前"改密踢下线"只存在于直觉里——access 默认 24 小时、refresh 7 天，`changePassword` 全程不碰任何令牌，`/api/auth/refresh` 只回查"账号还在不在"而不问"凭据还是不是这一份"，**被盗的 refresh 令牌可以靠轮换无限存活**。现在 `users.token_version` 在签发时钉进 JWT 的 `tv` claim、由 `JwtUtil` 的**两个校验入口**（而非 7 个调用点）查库比对，不符即作废；改密收为**单条 `UPDATE`**（写密码与 `token_version + 1` 不可分，靠 InnoDB 行锁），**不做进程内缓存**（缓存等于把"改密后 N 秒仍可用"写回来），存量无戳令牌按版本 0 放行 ⇒ **升级当场不踢人，一次改密则全设备失效**。access 默认同步收到 **15 分钟**（`JWT_EXPIRATION:900000`，由 v2.30 的 `authFetch` 临期预续期承接），配套关系由**两道都进 CI 的守门**锁住（`JwtLifetimeTest` 与 `check-auth-session.mjs` 第 10 组：读同一个 yaml 默认值造令牌，验"余 61 秒不打续期 / 余 59 秒先换发再发业务"）。**C-95 只登记不修**：黑名单三处写死 7 天 TTL（应按 `exp - now`）与 `ENTRY_TTL_MS`（注释两点不实、其判据又被同一条 `\|\|` 的另一支完全覆盖 ⇒ 对行为零影响），以及**"注销"那一半目前是空集**——全仓没有用户删除或禁用入口，将来封禁应递增版本而非删行。**验证**：后端 **55 类 / 363 例 → 59 类 / 383 例**全绿（版本戳类首轮 6 例 **5 红 1 绿**，唯一绿的是"refresh 不能冒充 access"这条反向锚点）；**8 组变异 6 杀 2 存活**，两条存活都在**注解 SQL 文本**层面（单测吃内存假表、不解析注解），故不补反射断言而改由真实 MySQL **临时表 9 步**补证；⚠️ **过程教训同批两次同形**：**假红即假杀**——变异驱动先后把"编译失败"与 `exit=127`（从仓库根调 `./mvnw`）判成"已杀"，判决条件已收为三条前置。**本批刻意不做**：真实实例上的改密踢线一轮（阻塞在迁移 0005 未获准应用到共享库）、并发改密未经真库验证、无按设备撤销；⚠️ **上线顺序变严**：必须先跑迁移再部署新代码，缺列时校验侧 fail-closed 会让全站 401（手册 5.4 / 6.5）。已知限制（OpenAPI 外呼媒体回流不实现、语音主链路未经真网关端到端验证、**录音的混音与播放侧已有浏览器级取证（v2.87，取证用的是合成双频振荡器音轨），真实通话链路（真网关 + 真 TTS）下的录音内容仍未复测**、**TURN 自 v2.88 起现签临时凭据，但 coturn 是否真的接受该凭据、真实对称 NAT 下的穿透均未取证（签发侧由外部重算反证，验收只在同端点追加与过期时刻两层）**、**"用量"一词仍宽于统计接口**（v2.67 收口四点口径后，文本轮次与工具开销仍不在内，见手册 7.4 S-18）、备份无 PITR、`/actuator` 免鉴权需网络层兜底等）详见手册 [6.6 已知限制与演进方向](docs/云谕助手项目手册.md#66-已知限制与演进方向) 与 [7.4 问题追踪与修复记录](docs/云谕助手项目手册.md#74-问题追踪与修复记录)。
-
-**迭代路线图**（P0~P2 详见手册 6.6；v2.28 起以 6.7 的横向对比为取舍依据）：
-
-- **P0 工程基建与安全加固**：✅ 会话（Session）模型落地 · ✅ refresh token + 登出黑名单 + 登录失败锁定 · ✅ 单测与 ESLint 质量基建
-- **P1 产品能力补齐**：✅ 助手列表分页与搜索 · ✅ Redis 多实例支撑 · ✅ 调试时间线可视化 · ✅ 角色体系与用户管理
-- **P2 规模运营与体验优化**：✅ 长会话消息惰性分页 + 数据归档与容量治理 · ✅ 通话录音与回放 + 弱网降级 + ICE 可配置化（TURN 部署待实施；录音所属的语音 AI 主链路待真网关复测；**v2.38 口径校正**曾把录音撤回为"两条音轨并入一个流而**非混音**、回放内容未经浏览器级验证"，这一条自 **v2.87** 起按原口径补齐（WebAudio 真混音 + 四条回退 + 浏览器级取证 + 播放侧字节相同往返）；"通话中的到点即断墙钟"已于 **v2.86** 收口（`VOICE_MAX_CALL_SEC`）；TURN 侧的凭据签发与轮换已于 **v2.88** 收口（`GET /api/webrtc/config` 按用户现签 `<到期秒>:<userId>` + HMAC-SHA1 临时凭据并追加 udp/tcp 两条候选，前端每次建链重取；半配 fail-closed 只记 WARN 不签发；静态 `WEBRTC_ICE_SERVERS` 回显路径保留但已不是推荐配置）——语音二期就此**只剩 coturn 部署本身**属人工/外部动作，且"coturn 接受该凭据、真实 NAT 穿透成功"仍未取证）；**单日通话时长**这一项则已于 v2.59 收口——语音通话的每个 ASR 回合复核"当日已结算 + 本通已活"秒数、超限即播报并挂断，且不烧通话次数（不产生回合的通话与 PSTN 外呼仍只判发起前，登记为手册候选 ㊻） · ✅ 组织数据隔离 + 用量配额账单 + 开放 OpenAPI（配额**已接通管理页**：v2.29 起 `Admin.vue` 有「用量配额」Tab，此前只有后端 API） · ✅ **注册闸门（v2.37 邀请码制）**：`REGISTRATION_MODE` 一项决定放开与否，管理页新增「邀请码」Tab 发码与查台账；第二阶段的另两个解锁条件（消费熔断告警、新号默认低配额）**仍未做**，见手册 6.7 决策 2 与 6.6
-
-## 健康检查
-
-- `GET /actuator/health`（**v2.29 起默认只回 `{"status":"UP"}`**，db / ping / disk 明细由 `HEALTH_SHOW_DETAILS` 控制；`/actuator` 不在鉴权拦截器覆盖范围内，公网实例须由安全组 / 反向代理封住，见手册 6.1）
-- `GET /actuator/metrics`、`GET /actuator/info`（暴露范围已在 `application.yaml` 显式限定，不含 `env` / `heapdump` 等高敏端点）
-- 后端启动成功本身即是配置完整性的检查：`DB_USER` / `DB_PASSWORD` / `JWT_SECRET` / `OPENAI_API_KEY` 缺任一项即启动失败
-- **接口级冒烟（v2.30 起，v2.31 首次对真实实例执行）**：`scripts/smoke.sh` 对**已运行的实例**打一遍 HTTP 与 WS 链路（10 节：actuator 暴露面与端口分离、未匹配路径返回 404 而非 500、401/403 与伪造令牌、**refresh 令牌不得当会话凭据（v2.32）**、注册（**v2.37 邀请码闸门：缺码 → 带码注册 → 同码重放三步连断**）→me→refresh 轮换、助手/会话 CRUD 写后读、配额结构、邀请码发码与台账鉴权、WS 握手与站点 Origin 白名单、**请求形状错误 405（带 `Allow`）/415/畸形 JSON/缺上传字段（v2.32 新增 §7.5）**、管理端只读、登出后黑名单（**v2.48 起 §2 的 `me` 与 §8 的用户列表两条判据从"值为空"改形为"键不存在"**——脚本里的 `jget` 把 `null` 与"键缺失"压成同一个空串，旧写法在"手写置空"与"实体级抑制"两种机制下都绿，属空洞通过；同时加正向对照"各返回 10 个键、只少 `password`/`tokenVersion`"，故空响应体不能伪绿）、**开放平台鉴权与握手闸门（v2.45 新增 §7.9：无 Key / 错 Key → 401、握手无 Key → 401、连续 15 次握手内必出 429 ⇒ 证明限流排在验 Key 之前；v2.49 起该节另有两条真断言：`Accept` 与端点 `produces` 不符 → 406，不再是被兜底吞成的 500。此前这里是"406 无从断言，先登记"，全仓唯一证明 500 存在的证据就是这句 SKIP 文案本身）**、**能力变更（v2.46 新增 §7.10：缺能力 403 → `PUT scopes` → 同一请求变 400 → 改回又 403，把"下一请求即生效"做成可观测断言；另断言两类拒绝、库内原值不变、非属主不可改、审计含 `from`/`to`；**v2.47 起该节把 v2.46 只能登记为 SKIP 的一条升级为真断言：三次被拒的 `API_APP_SCOPES_UPDATE` 必须 `result=0` 且 `detail` 带拒绝原因，两次成功必须 `result=1`**）**、**拒绝台账与凭据通道（v2.50 新增 §7.11：拿**有效** Key 只写在 URL 查询参数打 REST 仍回 401 ⇒ 把"握手是全仓唯一读 query 的入口"从读码结论升为真机断言；`GET /api/openapi/denials` 另断言窗口回显、非本账号应用的行不外泄、§7.10 造成的 403 按应用入账、无法归属的 `KEY_MISSING`/`KEY_INVALID`/`RATE_LIMITED` 全体可见、吊销应用的行随归属查询一起退出。该节的"握手侧关闸"一条**仍为登记性 SKIP**：§7.9 已耗尽同 IP 的 `OPEN_WS` 桶 ⇒ 真机只能测出 429，而改开关要重启 JVM）**）——单测证明方法行为，这里证明装配、拦截器、序列化与握手。用法 `BASE=... MGMT_BASE=... SMOKE_ORIGIN=... scripts/smoke.sh`（邀请码模式下另需 `SMOKE_INVITE_CODE` 或 `SMOKE_ADMIN_USER`/`SMOKE_ADMIN_PASS`，二者皆无时退出码 2 并打印解法），退出码 0/1/2，边界与不触碰的接口见脚本头部注释。**v2.50 一轮真机 = 125 通过 / 0 失败 / 4 跳过**（**v2.54 起另加 §3.5**：助手成本参数越界的写侧拒绝与反向锚点）；⚠️ 项数随跑法而变：缺 `SMOKE_ADMIN_*` 时第 8 节与 §7.10/§7.11 的跨账号、审计与台账断言会整段转 SKIP，而 §8.5 贵重档那条是**计数相对**断言（§7.11 吃掉一个贵重槽即令其"第 24 次"变"第 23 次"）⇒ 引用冒烟项数必须带跑法口径（手册 4.8 与 7.5 同此）。**v2.69 起另有 §7.2：内部聊天 WS 的帧级失败出口**（14 条帧级 + 2 条握手码，读的是帧序、`data` 下的错误正文与 `readyState` 而**不是关闭码**——除越权 1003 外，失败出口与正常收尾同为 1000；真实回合两条要 `SMOKE_WS_CHAT=1` 显式放行，缺 Node ≥22 的全局 `WebSocket` 时整节具名 SKIP 而非判绿）
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 动跨模块代码前：分层、拦截器链、WS 通道 |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 日常开发：环境、提交前必跑、写迁移的规矩 |
+| [docs/PAGE-STRUCTURE.md](docs/PAGE-STRUCTURE.md) | 改页面时：路由→视图→接口→WS 的对应关系 |
+| [docs/COMPONENT-GUIDELINES.md](docs/COMPONENT-GUIDELINES.md) | 写组件前：命名、错误处理、依赖策略 |
+| [docs/REGISTRY.md](docs/REGISTRY.md) | 加工具/端点/列时：六张登记表 |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 上线相关：拓扑、上线顺序、易漏项 |
+| [DESIGN.md](DESIGN.md) | 改前端样式前：视觉规范 |
+| [CHANGELOG.md](CHANGELOG.md) | 查历史版本（正文在手册 7.5） |
+| [TODO.md](TODO.md) | 找下一步：当前进度与待表态事项 |

@@ -1,26 +1,17 @@
 /**
- * 通话录音上传结果可见性验证（v2.49 · C-109 的门禁侧）。
- *
- * 锁定的事实：后端 `POST /api/call-records/{id}/recording` 有 413 / 401 / 500 等真实拒绝路径，
- * 而 ChatRobot 与 SmartRobot 原先各写一份 `uploadRecording(...).catch(console.error)` ⇒
- * 用户挂断后以为录音已存，进通话记录页才发现没有音频（v2.40 收口了 39 处 HTTP 吞错，
- * 这条"挂断后台上传"是它的镜像漏点：不在任何请求链的 await 路径上，所以从未被 noticing）。
- * 现在两处共用 frontend/src/utils/recordingUpload.ts 的 finishRecordingUpload。
- * 口径与 check-chat-frame.mjs 一致：无测试框架，用 Node 的 TS 类型剥离直接 import 生产模块。
- *
- * 【v2.87 · C-165 追加】第 [5]/[6] 组锁的是**混音分流**：双轨录音此前直接交给 MediaRecorder，
- * 浏览器编进去几条轨不由我们决定（手册 6.6 的 C-82 边界）。现在决策收在
- * frontend/src/utils/recordingMix.ts，本脚本锁住它的每一条回退分支与接线形态；
- * "混出来的文件里两段声音确实都在"由 frontend/e2e/recording-mix.spec.ts 在浏览器级取证（跑法见 DEVELOPMENT §9）。
- * 运行：node scripts/check-recording-upload.mjs
+ * 通话录音上传结果必须用户可见：413/401/500 等拒绝路径不能只 console.error。
+ * 同时锁双轨混音（recordingMix）的每条回退分支与接线形态；
+ * "混出来的文件里两段声音都在"由 e2e/recording-mix.spec.ts 在浏览器级取证。
+ * 口径：无测试框架，Node TS 类型剥离直接 import 生产模块。
+ * 运行：node scripts/frontend/check-recording-upload.mjs
  */
 
-const MOD = new URL('../frontend/src/utils/recordingUpload.ts', import.meta.url).href
-const MIX_MOD = new URL('../frontend/src/utils/recordingMix.ts', import.meta.url).href
-const COMPOSABLE = new URL('../frontend/src/composables/useWebRTC.ts', import.meta.url)
-const VIEW = new URL('../frontend/src/views/SmartRobot.vue', import.meta.url)
-const VIEW2 = new URL('../frontend/src/views/ChatRobot.vue', import.meta.url)
-const API = new URL('../frontend/src/api/callRecord.ts', import.meta.url)
+const MOD = new URL('../../frontend/src/utils/recordingUpload.ts', import.meta.url).href
+const MIX_MOD = new URL('../../frontend/src/utils/recordingMix.ts', import.meta.url).href
+const COMPOSABLE = new URL('../../frontend/src/composables/useWebRTC.ts', import.meta.url)
+const VIEW = new URL('../../frontend/src/views/SmartRobot.vue', import.meta.url)
+const VIEW2 = new URL('../../frontend/src/views/ChatRobot.vue', import.meta.url)
+const API = new URL('../../frontend/src/api/callRecord.ts', import.meta.url)
 
 let failures = 0
 function check(name, cond, detail = '') {

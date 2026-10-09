@@ -118,7 +118,7 @@ aspect/  task/  tool/ ─┘                           （切面 / 定时回收 
 新增判据时应沿用这条：**放在能一次覆盖所有调用链的位置，而不是逐处补。**
 
 **③ 迁移是账本不是脚本。** 建库脚本只用于全新环境（且含 `DROP DATABASE`，禁止整份灌已有库）；
-已部署库的列变更一律走 `db/migrations/` + `scripts/db-migrate.sh`，由 `schema_migrations` 记账。
+已部署库的列变更一律走 `db/migrations/` + `scripts/db/db-migrate.sh`，由 `schema_migrations` 记账。
 逐条迁移的内容与可回退性见 [REGISTRY.md](REGISTRY.md#4-数据库迁移账本)。
 
 ## 7. 扩展点

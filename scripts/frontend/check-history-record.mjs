@@ -1,22 +1,17 @@
 /**
- * 会话历史回看是否把"知识库检索状态"一路带到角标（v2.41 · C-91 的前端侧）。
- *
- * 后端 v2.41 起把 {docCount, docName[], failed} 写进 records.knowledgebase_info，
- * 并把该列以对象形式暴露在 GET /api/sessions/{id}/messages 上。此脚本锁定两件事：
- *  1) 历史记录 → 展示消息的映射不丢这个字段（丢了角标只能活到刷新页面为止）；
- *  2) ChatRobot.vue 确实走这份映射，而不是又内联一份（内联正是上一版丢字段的原因）。
- * 口径与 check-auth-session.mjs / check-knowledgebase-flag.mjs 一致：无测试框架，
- * 用 Node 的 TS 类型剥离直接 import 生产模块（import type 会被剥离）。
- * 运行：node scripts/check-history-record.mjs
+ * 会话历史回看必须把"知识库检索状态"一路带到角标：
+ * 历史记录→展示消息的映射不丢这个字段；视图走纯函数而不是内联副本。
+ * 口径：无测试框架，Node TS 类型剥离直接 import 生产模块。
+ * 运行：node scripts/frontend/check-history-record.mjs
  */
 
 import { readFileSync } from 'node:fs'
 
-const MAP_MOD = new URL('../frontend/src/utils/mapHistoryRecord.ts', import.meta.url).href
-const FLAG_MOD = new URL('../frontend/src/utils/knowledgebaseFlag.ts', import.meta.url).href
-const CHAT_ROBOT = new URL('../frontend/src/views/ChatRobot.vue', import.meta.url)
-const SESSION_API = new URL('../frontend/src/api/session.ts', import.meta.url)
-const ADMIN_VIEW = new URL('../frontend/src/views/Admin.vue', import.meta.url)
+const MAP_MOD = new URL('../../frontend/src/utils/mapHistoryRecord.ts', import.meta.url).href
+const FLAG_MOD = new URL('../../frontend/src/utils/knowledgebaseFlag.ts', import.meta.url).href
+const CHAT_ROBOT = new URL('../../frontend/src/views/ChatRobot.vue', import.meta.url)
+const SESSION_API = new URL('../../frontend/src/api/session.ts', import.meta.url)
+const ADMIN_VIEW = new URL('../../frontend/src/views/Admin.vue', import.meta.url)
 
 let failures = 0
 function check(name, cond, detail = '') {

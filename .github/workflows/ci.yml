@@ -1,12 +1,7 @@
 name: CI
 
-# PR 关键路径只放无凭据、无外部依赖的检查：后端单测（已验证不需要可达的 MySQL）、
-# 前端 lint/type-check/构建、文档与配置门禁、冒烟脚本语法检查。
-# 需要真实 key 或数据库的验证（scripts/smoke.sh 全链路）刻意不放在这里，见手册 4.8。
-# v2.43 起四道 Node 桩测（check:notification / kb-flag / history-record / chat-frame）纳入 frontend
-# job，v2.49 起 check:recording-upload、v2.50 起 check:denial-ledger、v2.52 起 check:registries、
-# v2.63 起 check:page-layout ⇒ 共八道。
-# 它们是纯 Node + 类型擦除 import，无外部依赖。
+# PR 关键路径只跑零凭据、零外部依赖的检查：后端单测（mapper 已打桩，不连真实 MySQL）、前端 lint/类型/构建与共8道桩测、文档与配置门禁。
+# 需要真实 Key 或数据库的验证（scripts/smoke.sh 全链路、Playwright E2E）刻意不进此流水线，否则外部服务一抖 CI 就随机红，团队会开始忽略红叉。
 
 on:
   push:
@@ -15,9 +10,11 @@ on:
   workflow_dispatch:
 
 permissions:
+  # 最小权限：不给 GITHUB_TOKEN 写仓库的能力，防 PR 投毒 CI 脚本后越权。
   contents: read
 
 concurrency:
+  # 同一 ref 推新提交就取消旧的在跑任务：旧结果会被新的取代，留着只是浪费分钟。
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -29,8 +26,7 @@ jobs:
       run:
         working-directory: backend
     env:
-      # 这四项在 application.yaml 里没有默认值，缺任一项 Spring 上下文就起不来；
-      # 但单测不连库、不发真实请求，所以 CI 自备占位值，不配仓库 Secrets 也能跑通。
+      # 这四项在 application.yaml 无默认值，缺了 Spring 上下文直接起不来；单测已打桩不真连库、不真调模型，给占位值过启动守卫即可。
       DB_USER: ci
       DB_PASSWORD: ci-placeholder-unused
       OPENAI_API_KEY: ci-dummy-key-not-used
@@ -42,11 +38,13 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: 生成一次性 JWT 密钥（仅本次运行有效，不落库不外发）
+      - name: 生成一次性 JWT 密钥
+        # 不写死在 yml：写死就泄漏进 git 历史。每次运行现场随机，只活在本次环境。
         run: printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> "$GITHUB_ENV"
       - name: 运行测试
         run: ./mvnw -B test
-      - name: 失败时保留 surefire 报告
+      - name: 失败时归档 surefire 报告
+        # 平时不占存储，挂了才留 7 天方便回溯失败用例。
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -76,7 +74,8 @@ jobs:
         run: npm run type:check
       - name: 路由鉴权覆盖检查
         run: npm run check:auth
-      - name: 前端桩测（通知 / 检索角标 / 历史还原 / WS 回合收口 / 录音上传可见 / 拒绝台账分格 / 页面布局壳 / 登记表一致性）
+      # 纯 Node 桩测：直接 import 前端源码模块跑断言，锁那些"容易随包一起改坏、单测又覆盖不到"的行为（通知清定时器、WS 失败帧解冻输入框、历史映射带角标等）。
+      - name: 前端回归桩测
         run: |
           npm run check:notification
           npm run check:kb-flag
@@ -90,7 +89,7 @@ jobs:
         run: npm run build
 
   gates:
-    name: 门禁（文档 / 配置 / 脚本）
+    name: 文档 / 配置 / 脚本门禁
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -99,8 +98,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: 文档结构门禁
-        run: python scripts/check-docs.py
+        run: python scripts/gates/check-docs.py
       - name: 配置项登记门禁
-        run: python scripts/check-config.py
+        run: python scripts/gates/check-config.py
       - name: 冒烟脚本语法检查
-        run: bash -n scripts/smoke.sh
+        run: bash -n scripts/smoke/smoke.sh

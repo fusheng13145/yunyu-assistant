@@ -24,7 +24,7 @@
   cd ../frontend && npm run lint && npm run type:check && npm run build
   for c in auth notification kb-flag history-record chat-frame recording-upload denial-ledger page-layout registries; do npm run check:$c; done
   # 门禁（在仓根）
-  cd .. && python scripts/check-docs.py && python scripts/check-config.py && bash -n scripts/smoke.sh
+  cd .. && python scripts/gates/check-docs.py && python scripts/gates/check-config.py && bash -n scripts/smoke/smoke.sh
   ```
 
 - **每批收口并本地提交后直接推送**（用户 2026-09-29 起长期授权："以后每一轮完毕都要推送"，不必逐批再问），走 SSH origin（HTTPS 在本机 DNS 失败；本机代理没开时用 `GIT_SSH_COMMAND='ssh -o ProxyCommand=none'` 直连）。汇报仍必须区分"已提交"与"已推送"。

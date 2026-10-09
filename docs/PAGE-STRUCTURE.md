@@ -33,7 +33,7 @@
 `PageShell.vue:2` 声明整屏根（`h-screen … overflow-hidden`），`:4-33` 是左栏 `w-72`（品牌 + `<NavList />` + 本页自己的列表槽 `<slot name="list" />` + 用户区），
 `:36-38` 是右栏 `<main class="main-panel flex-1 min-w-0">` 承载默认槽；登出只在 `PageShell.vue:58-65` 实现一次。
 六个受控视图（`SmartRobot` / `CallRecords` / `Org` / `Apps` / `Admin` / `Billing`）都包在 `<PageShell>` 里，
-**不再自声明整屏根、不内联导航按钮、不各写一份 `handleLogout`**——这条形状由 `scripts/check-page-layout.mjs` 逐页判定。
+**不再自声明整屏根、不内联导航按钮、不各写一份 `handleLogout`**——这条形状由 `scripts/frontend/check-page-layout.mjs` 逐页判定。
 `ChatRobot.vue`（`/chatrobot`）是唯一未走壳的已登录页：它没有站内入口、必须带 `?assistantId=`，本轮刻意不动（边界见手册 6.6）。
 `App.vue` 只挂全局通知与 `<RouterView :key="route.path">`（**换路由即整页重挂**，
 所以每个视图的 `onMounted` 一定会重跑；副作用是**通话中点导航会中断通话**，同一条边界）。

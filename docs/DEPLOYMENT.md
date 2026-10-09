@@ -54,11 +54,11 @@
 
 ```
 1. 备份：scripts/backup-mysql.sh（改动前必做，含 0006 前的整表备份）
-2. 迁移：scripts/db-migrate.sh --check   → 看清待应用项 → scripts/db-migrate.sh
+2. 迁移：scripts/db/db-migrate.sh --check   → 看清待应用项 → scripts/db/db-migrate.sh
 3. 停服：systemctl stop yunyu
 4. 替换：jar（+ dist，若有前端改动）
 5. 起服：systemctl start yunyu && journalctl -u yunyu -n 50
-6. 验收：手册 5.8 清单 + scripts/smoke.sh 真机一轮
+6. 验收：手册 5.8 清单 + scripts/smoke/smoke.sh 真机一轮
 ```
 
 **为什么"先迁移、再上新代码"**：实体已含新列而库没有 ⇒ 相关查询整体报 `Unknown column`。
@@ -122,11 +122,11 @@
 
 ## 9. 上线前验收（最小集）
 
-- [ ] `scripts/db-migrate.sh --check` 无待应用项
+- [ ] `scripts/db/db-migrate.sh --check` 无待应用项
 - [ ] 实例只监听回环（`ss -lntp` 核对 8080/9080/3306/6379）
 - [ ] 从公网侧执行手册 5.8 的端口探测清单：业务端口、管理端口、数据库全部不可达
 - [ ] `GET /api/auth/register-config` 与预期的注册准入一致
-- [ ] 真机 `scripts/smoke.sh` 一轮按期望跑绿（含 §1 暴露面节），并按跑法口径记录项数
+- [ ] 真机 `scripts/smoke/smoke.sh` 一轮按期望跑绿（含 §1 暴露面节），并按跑法口径记录项数
 - [ ] 审计日志里能看到不同来源的 `ip`（证明 `TRUST_PROXY` 生效）
 - [ ] 备份文件已生成**且完成一次恢复演练**
 - [ ] 冒烟产生的一次性账号已按精确主键清理

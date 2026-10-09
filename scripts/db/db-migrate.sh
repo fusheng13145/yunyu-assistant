@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
 # ============================================================
-# 云谕助手 —— 数据库增量迁移（v2.29）
-#
-# 用途：把"已部署的库"演进到当前代码要求的 schema，替代此前"手工执行 ALTER"的做法。
-#       新环境不需要本脚本建表（用 index.sql），但仍建议跑一次以登记迁移版本。
+# 数据库增量迁移：把已部署的库演进到当前代码要求的 schema。
+# 新环境建表用 index.sql；本脚本只负责给已部署库打增量补丁。
 #
 # 环境变量（与后端一致）：DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD
-#   密码经 MYSQL_PWD 传给客户端，不出现在进程列表里。
+#   密码经 MYSQL_PWD 传给客户端，不出现在进程列表。
 #
 # 用法：
-#   scripts/db-migrate.sh --check    # 只列出待应用迁移，不改库
-#   scripts/db-migrate.sh            # 应用全部待应用迁移
+#   scripts/db/db-migrate.sh --check    # 只列出待应用迁移，不改库
+#   scripts/db/db-migrate.sh            # 应用全部待应用迁移
 #
-# 迁移文件：backend/src/main/resources/db/migrations/NNNN_简述.sql，按文件名顺序应用；
-#           已应用版本记录在 schema_migrations 表；每条迁移自带存在性守卫，重复执行为 no-op。
+# 迁移文件在 backend/src/main/resources/db/migrations/，按文件名顺序应用；
+# 已应用版本记录在 schema_migrations 表；每条迁移自带存在性守卫，重复执行为 no-op。
 # 新增 schema 变更 = 新增一个迁移文件，不要改 index.sql 里已发布过的部分。
 # ============================================================
 set -euo pipefail
@@ -25,7 +23,7 @@ DB_NAME="${DB_NAME:-yunyu_assistant}"
 : "${DB_PASSWORD:?DB_PASSWORD 未设置}"
 export MYSQL_PWD="$DB_PASSWORD"
 
-MIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../backend/src/main/resources/db/migrations" && pwd)"
+MIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../backend/src/main/resources/db/migrations" && pwd)"
 HELPERS="$(dirname "$MIG_DIR")/migrate-helpers.sql"
 
 run_sql() {

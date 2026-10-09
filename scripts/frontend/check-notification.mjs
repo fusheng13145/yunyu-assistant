@@ -1,13 +1,11 @@
 /**
- * 前端全局通知（useNotification）的可执行验证。
- *
- * 与 check-auth-session.mjs 同一口径：前端没有测试框架（见手册 4.8），此脚本用 Node
- * 自带的 TS 类型剥离直接 import frontend/src/composables/useNotification.ts，
- * 以桩替 setTimeout / clearTimeout 锁住定时器与状态机行为。
- * 运行：node scripts/check-notification.mjs
+ * 前端全局通知（useNotification）的可执行验证：
+ * 锁定时器行为——连发通知不会被旧定时器提前关掉。
+ * 口径：无测试框架，Node TS 类型剥离直接 import 生产模块。
+ * 运行：node scripts/frontend/check-notification.mjs
  */
 
-const MOD = new URL('../frontend/src/composables/useNotification.ts', import.meta.url).href
+const MOD = new URL('../../frontend/src/composables/useNotification.ts', import.meta.url).href
 
 let failures = 0
 function check(name, cond, detail = '') {

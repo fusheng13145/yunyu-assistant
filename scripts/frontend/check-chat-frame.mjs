@@ -1,18 +1,13 @@
 /**
- * 聊天 WS 帧收口验证（v2.43 C-96 的门禁侧）。
- *
- * 锁定的事实：后端 ChatWebSocketHandler 的拒绝类回执走 {type:'error', data:'文案'} 帧
- * 且不断链（配额耗尽 / 消息过长两条路径），前端必须在同一帧里完成"提示 + 解冻"，
- * 否则用户只能刷新页面。此前 SmartRobot/ChatRobot 各有一份内联分派且都缺 error 分支
- * （v2.40 收口了 HTTP 侧 39 处吞错，WS 帧这条路是镜像漏点）。
- * 口径与 check-auth-session.mjs / check-knowledgebase-flag.mjs 一致：
- * 无测试框架，用 Node 的 TS 类型剥离直接 import 生产模块。
- * 运行：node scripts/check-chat-frame.mjs
+ * 聊天 WS 帧收口验证：后端拒绝类回执走 {type:'error'} 帧且不断链，
+ * 前端必须在同一帧里完成"提示 + 解冻输入框"，否则用户只能刷新页面。
+ * 口径：无测试框架，Node TS 类型剥离直接 import 生产模块。
+ * 运行：node scripts/frontend/check-chat-frame.mjs
  */
 
-const MOD = new URL('../frontend/src/utils/chatFrame.ts', import.meta.url).href
-const VIEW = new URL('../frontend/src/views/SmartRobot.vue', import.meta.url)
-const VIEW2 = new URL('../frontend/src/views/ChatRobot.vue', import.meta.url)
+const MOD = new URL('../../frontend/src/utils/chatFrame.ts', import.meta.url).href
+const VIEW = new URL('../../frontend/src/views/SmartRobot.vue', import.meta.url)
+const VIEW2 = new URL('../../frontend/src/views/ChatRobot.vue', import.meta.url)
 
 let failures = 0
 function check(name, cond, detail = '') {
@@ -139,7 +134,7 @@ console.log('\n[5] 视图接入收口（防第三次复制粘贴，C-89/C-91 同
 
 console.log('\n[6] WS 未就绪的发送必须排队而不是丢（v2.75 · C-144，E2E 守卫首跑抓到）')
 {
-  const WS_MOD = new URL('../frontend/src/utils/websocket.ts', import.meta.url).href
+  const WS_MOD = new URL('../../frontend/src/utils/websocket.ts', import.meta.url).href
   const wsSrc = readFileSync(new URL(WS_MOD), 'utf8').replace(/\r/g, '')
   // 负向判据只扫 send 函数体：flushPendingSends 里同形的守卫 return 是合法 no-op，不该被咬
   const sendFn = wsSrc.slice(wsSrc.indexOf('const send ='), wsSrc.indexOf('const close ='))

@@ -24,7 +24,7 @@ set -a && . ./.env && set +a                 # .env 不会被自动读取，必�
 
 # 2) 数据库：全新环境建表；已部署库只跑增量
 mysql -h"$DB_HOST" -P"$DB_PORT" -u root -p < backend/src/main/resources/index.sql   # ⚠️ 含 DROP DATABASE
-scripts/db-migrate.sh --check && scripts/db-migrate.sh
+scripts/db/db-migrate.sh --check && scripts/db/db-migrate.sh
 
 # 3) 后端 / 前端
 cd backend && ./mvnw -DskipTests spring-boot:run
@@ -52,7 +52,7 @@ npm run lint && npm run type:check \
   && npm run build
 
 # 门禁（仓库根目录）
-python scripts/check-docs.py && python scripts/check-config.py && bash -n scripts/smoke.sh
+python scripts/gates/check-docs.py && python scripts/gates/check-config.py && bash -n scripts/smoke/smoke.sh
 ```
 
 ### 3.1 为什么这几个环境变量必须给
@@ -74,9 +74,9 @@ python scripts/check-docs.py && python scripts/check-config.py && bash -n script
 |---|---|---|
 | `backend` | JDK 21 + `./mvnw -B test`，失败上传 surefire 报告 | 无库、无仓库 Secrets（自备占位值） |
 | `frontend` | `npm ci` → lint → type:check → 九道 Node 检查（`check:auth` + 八道桩测与一致性检查）→ 生产构建 | 无 |
-| `gates` | 文档门禁 + 配置门禁 + `bash -n scripts/smoke.sh` | 无 |
+| `gates` | 文档门禁 + 配置门禁 + `bash -n scripts/smoke/smoke.sh` | 无 |
 
-**刻意不进 CI**：`scripts/smoke.sh` 全链路（要实例、要库）、真实模型调用、语音网关、浏览器级 E2E。
+**刻意不进 CI**：`scripts/smoke/smoke.sh` 全链路（要实例、要库）、真实模型调用、语音网关、浏览器级 E2E。
 
 ## 4. 一个批次的完整流程
 
@@ -124,7 +124,7 @@ python scripts/check-docs.py && python scripts/check-config.py && bash -n script
 ```bash
 # 起实例（本机固定回环 + 8091/9091），再打冒烟
 BASE=http://127.0.0.1:8091 MGMT_BASE=http://127.0.0.1:9091 \
-  scripts/smoke.sh            # 分节冒烟；登录失败即 exit 2
+  scripts/smoke/smoke.sh            # 分节冒烟；登录失败即 exit 2
 ```
 
 - **`BASE` / `MGMT_BASE` 必须显式给**（v2.89 又踩了一次）：脚本默认打 `http://127.0.0.1:8080`，本机 8080 是他人项目——传错的那一轮在 §1 就打出一行"服务不可达"后 `exit 2`，**没有任何 FAIL 行**，只看"有没有红"会把它当成"跑了但没跑好"。变量名也不是 `TARGET`/`MGMT`，写错等于没写（`exit 2` 同时是"登录失败"的出口码，所以别用退出码区分这两种情况，读第一行目标地址）。
@@ -162,10 +162,10 @@ E2E_USER="$SMOKE_ADMIN_USER" E2E_PASS="$SMOKE_ADMIN_PASS"   E2E_LIVE=1 npx playw
 
 ## 8. 文档维护
 
-`scripts/check-docs.py` 当前检查五类：目录↔标题、表格竖线数、相对链接与跨文件锚点、遗留标记、手册变更记录连续性。
+`scripts/gates/check-docs.py` 当前检查五类：目录↔标题、表格竖线数、相对链接与跨文件锚点、遗留标记、手册变更记录连续性。
 新增文档时**要把文件加进它的 `FILES`**，否则新文档不受任何门禁保护。
 
-`scripts/check-registries.mjs`（v2.52）查的是**登记表 ↔ 代码**：[docs/REGISTRY.md](REGISTRY.md) 的四张可机判表（迁移账本 /
+`scripts/frontend/check-registries.mjs`（v2.52）查的是**登记表 ↔ 代码**：[docs/REGISTRY.md](REGISTRY.md) 的四张可机判表（迁移账本 /
 开放端点→能力 / 拒绝 Kind / AI 工具）与"门禁脚本台账 ↔ `package.json` ↔ `ci.yml` ↔ `AGENTS.md` 命令块"必须逐条对上，
 文档里写死的计数（"七个枚举值""共八道桩测"）必须等于真实条数。**改了这些面而不同步登记表就会红。**
 自 v2.53 起它还锁一条**不由登记表承载**的口径（第 6 组）：`knowledgebases` 是全仓唯一的知识库归属依据，

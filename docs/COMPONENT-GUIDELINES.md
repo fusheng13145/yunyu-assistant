@@ -10,7 +10,7 @@
 | 后端 | Spring Boot 3.5 / Java 21、MyBatis-Plus、Spring AI 1.0、JJWT、OkHttp、Actuator | 认证用自研 `HandlerInterceptor`，**不引入 Spring Security**；不引入 DTO 映射层 |
 | 前端 | `vue` `vue-router` `lucide-vue-next`（三个） | 不引入状态库、不引入 axios、不引入测试框架；新增依赖需用户批准（属扩面而非收口） |
 
-Node 门禁脚本（`scripts/check-*.mjs` / `check-*.py`）**零新增依赖**是硬约束：它们靠 Node 原生 TS 类型擦除
+Node 门禁脚本（`scripts/frontend/check-*.mjs` / `check-*.py`）**零新增依赖**是硬约束：它们靠 Node 原生 TS 类型擦除
 直接 import 生产模块，而不是搭测试运行器。
 
 ## 2. 后端组件
@@ -146,12 +146,12 @@ Node 门禁脚本（`scripts/check-*.mjs` / `check-*.py`）**零新增依赖**�
 | 改动 | 必须同时 |
 |---|---|
 | 后端判据/接线 | 单测 + 手册登记；新增拒绝语义要写反向锚点（"放行不记账""内部错误不入开放台账"这类） |
-| 前端纯逻辑 | 一道 Node 桩测（`scripts/check-*.mjs`）+ `package.json` 的 `check:*` 脚本 + **纳入 `ci.yml` 的 frontend job** |
+| 前端纯逻辑 | 一道 Node 桩测（`scripts/frontend/check-*.mjs`）+ `package.json` 的 `check:*` 脚本 + **纳入 `ci.yml` 的 frontend job** |
 | 防复制粘贴 | 桩测里加**静态源码断言**（读视图原文，要求经统一入口、不得残留旧形状） |
-| 页面形状（壳 / 导航 / 左列表 / 登出 / 弹层遮罩与居中） | `scripts/check-page-layout.mjs`（静态读六视图 + 两个新组件 + `style.css`）；新增或改名视图时要同步它的 `VIEWS` 清单与锚点，否则第 5 组反向锚点红 |
-| 部署面/接口契约 | 跑一次真机 `scripts/smoke.sh`，并按"跑法口径"记项数（环境变量差异会改变项数，见 AGENTS.md） |
+| 页面形状（壳 / 导航 / 左列表 / 登出 / 弹层遮罩与居中） | `scripts/frontend/check-page-layout.mjs`（静态读六视图 + 两个新组件 + `style.css`）；新增或改名视图时要同步它的 `VIEWS` 清单与锚点，否则第 5 组反向锚点红 |
+| 部署面/接口契约 | 跑一次真机 `scripts/smoke/smoke.sh`，并按"跑法口径"记项数（环境变量差异会改变项数，见 AGENTS.md） |
 | 环境变量 | 同步 `application.yaml` 默认值 + `additional-spring-configuration-metadata.json` + `.env.example` + 手册 5.3 + README 表，否则 `check-config.py` 红 |
-| 文档 | `python scripts/check-docs.py`（目录/表格/链接/遗留标记/变更记录连续性） |
+| 文档 | `python scripts/gates/check-docs.py`（目录/表格/链接/遗留标记/变更记录连续性） |
 
 ## 6. 相关文档
 

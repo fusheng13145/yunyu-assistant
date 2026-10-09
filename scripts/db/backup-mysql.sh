@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
 # ============================================================
-# 云谕助手 —— MySQL 备份（v2.29 公网部署前置）
+# MySQL 备份：mysqldump + gzip，按保留天数清理旧备份。
 #
 # 环境变量：DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD / BACKUP_DIR / BACKUP_KEEP_DAYS
-# 密码经 MYSQL_PWD 传入，不出现在进程列表；备份文件名含时间戳，gzip 压缩。
+# 密码经 MYSQL_PWD 传入，不出现在进程列表；备份文件名含时间戳。
 #
 # 用法：
-#   scripts/backup-mysql.sh
-# 定时（cron，每天 03:30；注意与归档任务 03:00 错开）：
-#   30 3 * * * BACKUP_DIR=/var/backups/yunyu DB_USER=... DB_PASSWORD=... /opt/yunyu/scripts/backup-mysql.sh >> /var/log/yunyu-backup.log 2>&1
+#   scripts/db/backup-mysql.sh
+# 定时（cron，每天 03:30；与归档任务 03:00 错开，避免备份撞上批量搬数据）：
+#   30 3 * * * BACKUP_DIR=/var/backups/yunyu DB_USER=... DB_PASSWORD=... /opt/yunyu/scripts/db/backup-mysql.sh >> /var/log/yunyu-backup.log 2>&1
 #
 # 恢复：
-#   gunzip < /var/backups/yunyu/yunyu_assistant-20260923-033000.sql.gz | \
-#     mysql --default-character-set=utf8mb4 -u root -p
-#   （mysqldump 输出含 CREATE DATABASE / DROP TABLE，直接灌进实例即可，无需先建库）
+#   gunzip < yunyu_assistant-YYYYMMDD-HHMMSS.sql.gz | mysql --default-character-set=utf8mb4 -u root -p
 #
-# ⚠️ 备份必须离开本机才算数：把 BACKUP_DIR 指向挂载的异地盘/对象存储，
-#    或用 rclone 同步（示例见手册 5.10）。单盘快照在磁盘故障时与库一起丢失。
+# 备份必须离开本机才算数：BACKUP_DIR 指向异地盘/对象存储，或用 rclone 同步。
 # ============================================================
 set -euo pipefail
 

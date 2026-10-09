@@ -1,23 +1,15 @@
 /**
- * 页面布局收口验证（v2.63 · C-130 的门禁侧，v2.65 · C-132 增第 6 组弹层）。
- *
- * 锁定的事实：用户提出的口径是"已实现页面要和对话框一样——左小半是列表、右大半是内容"，
- * 而 v2.62 之前五个管理页各自是 `min-h-screen flex flex-col` 的整屏根（品牌、导航、用户区
- * 只在 SmartRobot 里写了一份）。第 6 组锁的是同一族的第二件事：弹层在内容高于视口时
- * 把主按钮顶出屏幕且滚不出来（候选 ㊾）。这类形状回归是**静默的**：改回整屏或改回
- * `items-center` 不会让任何请求失败、不会有任何单测变红，只会在下一次有人顺手复制
- * 遮罩时再扩散一份。
- * 所以这里全部是静态源码判据（与 check-chat-frame / check-notification 同一族）：
- * 单点存在、旧形状消失、各页的列表与内容归属明确。
- *
- * 运行：node scripts/check-page-layout.mjs
+ * 页面布局收口验证：左列表右内容归属明确、整屏根/导航/登出各只一处、
+ * 弹层遮罩自己就是滚动容器。这类形状回归是静默的——不会有单测变红，
+ * 只会在下次有人复制遮罩时再扩散一份，所以用静态源码判据锁死。
+ * 运行：node scripts/frontend/check-page-layout.mjs
  */
 
 import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 
 let failures = 0
 function check(name, cond, detail = '') {
